@@ -4,10 +4,12 @@
 //! `/run/synthpanel/core.sock`, authenticate with the shared token from
 //! `/etc/synthpanel/ipc-token`, and issue typed JSON requests.
 
+use crate::apply::ApplyPipeline;
 use crate::audit;
 use crate::config::Paths;
 use crate::metrics::{self, Snapshot};
 use crate::settings::Settings;
+use crate::sites::{self, CreateSite, SitePatch};
 use crate::users::{self, CreateUser, UserPatch};
 use serde_json::{Value, json};
 use std::time::Instant;
@@ -21,6 +23,8 @@ pub struct IpcServer {
     paths: Paths,
     settings: Settings,
     users: users::Users,
+    sites: sites::Sites,
+    apply: ApplyPipeline,
     pool: sqlx::SqlitePool,
     host: String,
     started_at: Instant,
@@ -32,6 +36,8 @@ impl Clone for IpcServer {
             paths: self.paths.clone(),
             settings: self.settings.clone(),
             users: self.users.clone(),
+            sites: self.sites.clone(),
+            apply: ApplyPipeline::new(),
             pool: self.pool.clone(),
             host: self.host.clone(),
             started_at: self.started_at,
@@ -45,12 +51,16 @@ impl IpcServer {
         pool: sqlx::SqlitePool,
         settings: Settings,
         users: users::Users,
+        sites: sites::Sites,
+        apply: ApplyPipeline,
         host: String,
     ) -> Self {
         Self {
             paths,
             settings,
             users,
+            sites,
+            apply,
             pool,
             host,
             started_at: Instant::now(),
@@ -183,7 +193,16 @@ impl IpcServer {
             methods::USERS_CREATE => {
                 let email = param_str(params, "email")?.to_string();
                 let name = param_str(params, "name")?.to_string();
-                let password_hash = param_str(params, "password_hash")?.to_string();
+                // Either a pre-computed hash or a plaintext password that the
+                // core hashes itself. The core is the single authority for the
+                // hashing parameters.
+                let password_hash = match params.get("password_hash").and_then(Value::as_str) {
+                    Some(hash) => hash.to_string(),
+                    None => {
+                        let password = param_str(params, "password")?;
+                        crate::auth::hash_password(password).map_err(internal)?
+                    }
+                };
                 let role = params
                     .get("role")
                     .and_then(Value::as_str)
@@ -208,7 +227,11 @@ impl IpcServer {
             methods::USERS_UPDATE => {
                 let id = param_str(params, "id")?.to_string();
                 let patch = parse_user_patch(params)?;
-                let user = self.users.update(&id, patch).await.map_err(internal)?;
+                let user = self
+                    .users
+                    .update(id.as_str(), patch)
+                    .await
+                    .map_err(internal)?;
                 Ok(serialize_opt(user)?)
             }
             methods::USERS_LIST => {
@@ -262,6 +285,208 @@ impl IpcServer {
                 let action = param_str(params, "action")?;
                 self.services_control(unit, action).await?;
                 Ok(json!({ "unit": unit, "action": action, "status": "ok" }))
+            }
+
+            methods::SITES_LIST => {
+                let list = self.sites.list().await.map_err(internal)?;
+                Ok(serde_json::to_value(list).map_err(internal)?)
+            }
+            methods::SITES_GET => {
+                let id = param_str(params, "id")?;
+                let extras = self.sites.get_with_extras(id).await.map_err(internal)?;
+                Ok(serde_json::to_value(extras).map_err(internal)?)
+            }
+            methods::SITES_CREATE => {
+                let domain = param_str(params, "domain")?.to_string();
+                let aliases = params
+                    .get("aliases")
+                    .and_then(|v| {
+                        v.as_array().map(|arr| {
+                            arr.iter()
+                                .filter_map(|item| item.as_str().map(String::from))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .unwrap_or_default();
+                let document_root = params
+                    .get("document_root")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| format!("/var/www/sp_{domain}"));
+                let template = params
+                    .get("template")
+                    .and_then(Value::as_str)
+                    .unwrap_or("php")
+                    .to_string();
+                let php_version = params
+                    .get("php_version")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let ssl_mode = params
+                    .get("ssl_mode")
+                    .and_then(Value::as_str)
+                    .unwrap_or("none")
+                    .to_string();
+                let owner_id = params
+                    .get("owner_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let directives = params
+                    .get("directives")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_default();
+                let input = CreateSite {
+                    domain: domain.clone(),
+                    aliases: aliases.clone(),
+                    document_root,
+                    template,
+                    php_version,
+                    ssl_mode,
+                    owner_id,
+                    directives,
+                };
+                let site = self.sites.create(input).await.map_err(internal)?;
+                let extras = self
+                    .sites
+                    .get_with_extras(&site.id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::INTERNAL, "site vanished after insert"))?;
+                let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                let pool = crate::php::render_pool(&extras);
+                let result = self
+                    .apply
+                    .apply_site(&extras, &vhost, &pool)
+                    .await
+                    .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "sites.create",
+                    Some(site.domain.as_str()),
+                    &json!({ "id": site.id, "aliases": aliases }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "site": site, "applied": result }))
+            }
+            methods::SITES_UPDATE => {
+                let id = param_str(params, "id")?.to_string();
+                let mut patch = SitePatch::default();
+                if let Some(value) = params.get("domain") {
+                    patch.domain = Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                        Error::new(codes::BAD_REQUEST, "domain must be a string")
+                    })?);
+                }
+                if let Some(value) = params.get("aliases") {
+                    patch.aliases = Some(
+                        value
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|i| i.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .ok_or_else(|| {
+                                Error::new(codes::BAD_REQUEST, "aliases must be an array")
+                            })?,
+                    );
+                }
+                if let Some(value) = params.get("document_root") {
+                    patch.document_root =
+                        Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                            Error::new(codes::BAD_REQUEST, "document_root must be a string")
+                        })?);
+                }
+                if let Some(value) = params.get("template") {
+                    patch.template = Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                        Error::new(codes::BAD_REQUEST, "template must be a string")
+                    })?);
+                }
+                if let Some(value) = params.get("ssl_mode") {
+                    patch.ssl_mode = Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                        Error::new(codes::BAD_REQUEST, "ssl_mode must be a string")
+                    })?);
+                }
+                if let Some(value) = params.get("status") {
+                    patch.status = Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                        Error::new(codes::BAD_REQUEST, "status must be a string")
+                    })?);
+                }
+                if let Some(value) = params.get("php_version") {
+                    if value.is_null() {
+                        patch.php_version = Some(None);
+                    } else {
+                        patch.php_version =
+                            Some(Some(value.as_str().map(str::to_string).ok_or_else(
+                                || Error::new(codes::BAD_REQUEST, "php_version must be a string"),
+                            )?));
+                    }
+                }
+                if let Some(value) = params.get("directives") {
+                    patch.directives =
+                        Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                            Error::new(codes::BAD_REQUEST, "directives must be a string")
+                        })?);
+                }
+                if let Some(value) = params.get("overrides_json") {
+                    patch.overrides_json =
+                        Some(value.as_str().map(str::to_string).ok_or_else(|| {
+                            Error::new(codes::BAD_REQUEST, "overrides_json must be a string")
+                        })?);
+                }
+                let updated = self
+                    .sites
+                    .update(id.as_str(), patch)
+                    .await
+                    .map_err(internal)?;
+                match updated {
+                    Some(site) => {
+                        let extras = self
+                            .sites
+                            .get_with_extras(&site.id)
+                            .await
+                            .map_err(internal)?
+                            .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                        let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                        let pool = crate::php::render_pool(&extras);
+                        let result = self
+                            .apply
+                            .apply_site(&extras, &vhost, &pool)
+                            .await
+                            .map_err(internal)?;
+                        let _ = audit::record(
+                            &self.pool,
+                            None,
+                            None,
+                            "sites.update",
+                            Some(site.domain.as_str()),
+                            &json!({ "id": site.id }),
+                            None,
+                        )
+                        .await;
+                        Ok(json!({ "site": site, "applied": result }))
+                    }
+                    None => Err(Error::new(codes::NOT_FOUND, "site not found")),
+                }
+            }
+            methods::SITES_DELETE => {
+                let id = param_str(params, "id")?.to_string();
+                let removed = self.sites.delete(&id).await.map_err(internal)?;
+                let fs = self.apply.remove_site(&id).await.map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "sites.delete",
+                    Some(id.as_str()),
+                    &json!({ "removed": removed }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "removed": removed, "fs": fs }))
             }
 
             other => Err(Error::new(
@@ -537,7 +762,17 @@ mod tests {
         db::migrate(&pool).await.unwrap();
         let settings = Settings::new(pool.clone());
         let users = users::Users::new(pool.clone());
-        let server = IpcServer::new(paths.clone(), pool, settings, users, "testhost".into());
+        let sites = sites::Sites::new(pool.clone());
+        let apply = crate::apply::ApplyPipeline::new();
+        let server = IpcServer::new(
+            paths.clone(),
+            pool,
+            settings,
+            users,
+            sites,
+            apply,
+            "testhost".into(),
+        );
         (server, paths)
     }
 

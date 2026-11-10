@@ -38,7 +38,17 @@ async fn main() -> Result<()> {
     info!(socket = %paths.socket_path.display(), "ipc socket listening");
 
     let host = sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string());
-    let server = IpcServer::new(paths.clone(), pool.clone(), settings, users, host.clone());
+    let sites = synthpanel_core::sites::Sites::new(pool.clone());
+    let apply = synthpanel_core::apply::ApplyPipeline::new();
+    let server = IpcServer::new(
+        paths.clone(),
+        pool.clone(),
+        settings,
+        users,
+        sites,
+        apply,
+        host.clone(),
+    );
 
     // Metrics collector: samples every 10s, prunes raw data hourly.
     let collector = Collector::new(pool.clone());

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { KeyRound, Save, ShieldCheck } from '@lucide/svelte';
   import { api, ApiError } from '../lib/api';
-  import { session } from '../lib/stores';
+  import { session, type SessionState } from '../lib/stores';
   import Card from '../lib/components/Card.svelte';
 
   type Settings = Record<string, unknown>;
@@ -77,7 +77,7 @@
       twoFactorSecret = '';
       twoFactorCode = '';
       twoFactorMessage = 'Two-factor authentication is now enabled.';
-      const me = await api<{ user: typeof $session.user }>('/api/v1/auth/me');
+      const me = await api<SessionState>('/api/v1/auth/me');
       session.set(me);
     } catch (err) {
       twoFactorError = err instanceof ApiError ? err.message : 'Unable to enable 2FA';
@@ -95,7 +95,7 @@
         body: JSON.stringify({ password }),
       });
       twoFactorMessage = 'Two-factor authentication disabled.';
-      const me = await api<{ user: typeof $session.user }>('/api/v1/auth/me');
+      const me = await api<SessionState>('/api/v1/auth/me');
       session.set(me);
     } catch (err) {
       twoFactorError = err instanceof ApiError ? err.message : 'Unable to disable 2FA';

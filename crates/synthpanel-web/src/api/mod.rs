@@ -3,6 +3,7 @@
 pub mod admin;
 pub mod auth;
 pub mod dashboard;
+pub mod sites;
 
 use crate::state::AppState;
 use axum::Router;
@@ -31,5 +32,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(admin::users_list).post(admin::users_create),
         )
         .route("/api/v1/users/{id}", patch(admin::users_update))
+        .route("/api/v1/sites", get(sites::list).post(sites::create))
+        .route(
+            "/api/v1/sites/{id}",
+            get(sites::get).patch(sites::update).delete(sites::delete),
+        )
         .with_state(state)
 }

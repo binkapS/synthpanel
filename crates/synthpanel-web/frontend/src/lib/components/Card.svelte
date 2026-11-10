@@ -6,17 +6,19 @@
     subtitle = '',
     actions,
     padded = true,
+    class: className = '',
     children,
   }: {
     title?: string;
     subtitle?: string;
     actions?: Snippet;
     padded?: boolean;
+    class?: string;
     children: Snippet;
   } = $props();
 </script>
 
-<section class="card overflow-hidden">
+<section class="card overflow-hidden {className}">
   {#if title || actions}
     <header
       class="flex items-center justify-between gap-4 border-b border-slate-200 px-4 py-3 dark:border-slate-800"

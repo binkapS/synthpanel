@@ -46,21 +46,80 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Show panel health, version and a metrics snapshot.
+    #[command(name = "status")]
     Status,
     /// Print a raw metrics snapshot as JSON (no table formatting).
+    #[command(name = "metrics")]
     Metrics,
     /// Tail a metrics range for quick inspection.
+    #[command(name = "metrics:range")]
     MetricsRange {
         #[arg(long, default_value = "24h")]
         range: String,
     },
     /// List audit log entries.
+    #[command(name = "audit")]
     Audit {
         #[arg(long, default_value_t = 25)]
         limit: i64,
     },
     /// Show current panel settings.
+    #[command(name = "settings")]
     Settings,
+    /// List sites.
+    #[command(name = "sites:list")]
+    SitesList,
+    /// Create a site.
+    #[command(name = "sites:add")]
+    SitesAdd {
+        /// Domain name.
+        domain: String,
+        /// Comma separated aliases.
+        #[arg(long)]
+        aliases: Option<String>,
+        /// Template: static, php, laravel, symfony, wordpress or node.
+        #[arg(long, default_value = "php")]
+        template: String,
+        /// PHP version for the site's pool.
+        #[arg(long, default_value = "8.3")]
+        php: String,
+        /// SSL mode: none, le or custom.
+        #[arg(long, default_value = "none")]
+        ssl: String,
+        /// Document root (defaults to /var/www/sp_<id>).
+        #[arg(long)]
+        root: Option<String>,
+    },
+    /// Delete a site by id.
+    #[command(name = "sites:delete")]
+    SitesDelete {
+        /// Site id.
+        id: String,
+    },
+    /// Show a site's configuration.
+    #[command(name = "sites:show")]
+    SitesShow {
+        /// Site id.
+        id: String,
+    },
+    /// List panel users.
+    #[command(name = "users:list")]
+    UsersList,
+    /// Create a panel user.
+    #[command(name = "users:create")]
+    UsersCreate {
+        /// Email address.
+        email: String,
+        /// Display name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Password (prompted when omitted).
+        #[arg(long)]
+        password: Option<String>,
+        /// Role: admin, operator or user.
+        #[arg(long, default_value = "operator")]
+        role: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -115,6 +174,16 @@ impl Global {
     }
 }
 
+/// Read a password from the terminal without echoing it.
+fn prompt_password(label: &str) -> Result<String> {
+    use std::io::Write;
+    print!("{label}: ");
+    std::io::stdout().flush()?;
+    let mut password = String::new();
+    std::io::stdin().read_line(&mut password)?;
+    Ok(password.trim().to_string())
+}
+
 fn print_table(title: &str, rows: &[(&str, &str)]) {
     println!("{title}");
     for (key, value) in rows {
@@ -164,6 +233,107 @@ async fn main() -> Result<()> {
             if entries.is_empty() {
                 eprintln!("no audit entries yet");
             }
+            Ok(())
+        }
+        Command::SitesList => {
+            let sites: Vec<Value> = global
+                .call(synthpanel_ipc::methods::SITES_LIST, json!({}))
+                .await?;
+            if sites.is_empty() {
+                eprintln!("no sites yet");
+                return Ok(());
+            }
+            for site in &sites {
+                println!("{}", global.as_json(site));
+            }
+            Ok(())
+        }
+        Command::SitesAdd {
+            domain,
+            aliases,
+            template,
+            php,
+            ssl,
+            root,
+        } => {
+            let alias_list: Vec<String> = aliases
+                .as_deref()
+                .unwrap_or("")
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(String::from)
+                .collect();
+            let mut params = json!({
+                "domain": domain,
+                "aliases": alias_list,
+                "template": template,
+                "ssl_mode": ssl,
+            });
+            if template != "static" && template != "node" {
+                params["php_version"] = json!(php);
+            }
+            if let Some(root) = root {
+                params["document_root"] = json!(root);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITES_CREATE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesDelete { id } => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITES_DELETE, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesShow { id } => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITES_GET, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::UsersList => {
+            let users: Vec<Value> = global
+                .call(synthpanel_ipc::methods::USERS_LIST, json!({}))
+                .await?;
+            for user in &users {
+                println!("{}", global.as_json(user));
+            }
+            if users.is_empty() {
+                eprintln!("no users yet");
+            }
+            Ok(())
+        }
+        Command::UsersCreate {
+            email,
+            name,
+            password,
+            role,
+        } => {
+            let password = match password {
+                Some(value) => value.clone(),
+                None => prompt_password("password")?,
+            };
+            if password.len() < 12 {
+                bail!("the password must be at least 12 characters long");
+            }
+            let display_name = name.clone().unwrap_or_else(|| email.clone());
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::USERS_CREATE,
+                    json!({
+                        "email": email,
+                        "name": display_name,
+                        "password": password,
+                        "role": role,
+                    }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
             Ok(())
         }
         Command::Settings => {
@@ -260,8 +430,18 @@ mod tests {
 
     #[test]
     fn cli_parses_metrics_range() {
-        let cli = Cli::try_parse_from(["synthpanel", "metrics-range", "--range", "7d"]).unwrap();
+        let cli = Cli::try_parse_from(["synthpanel", "metrics:range", "--range", "7d"]).unwrap();
         assert!(matches!(cli.command, Command::MetricsRange { .. }));
+    }
+
+    #[test]
+    fn cli_uses_plan_command_names() {
+        let cli = Cli::try_parse_from(["synthpanel", "sites:list"]).unwrap();
+        assert!(matches!(cli.command, Command::SitesList));
+        let cli = Cli::try_parse_from(["synthpanel", "sites:add", "example.com"]).unwrap();
+        assert!(matches!(cli.command, Command::SitesAdd { .. }));
+        let cli = Cli::try_parse_from(["synthpanel", "users:create", "a@example.com"]).unwrap();
+        assert!(matches!(cli.command, Command::UsersCreate { .. }));
     }
 
     #[test]

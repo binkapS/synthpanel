@@ -118,6 +118,11 @@ pub mod methods {
     pub const METRICS_RANGE: &str = "metrics.range";
     pub const SERVICES_LIST: &str = "services.list";
     pub const SERVICES_CONTROL: &str = "services.control";
+    pub const SITES_LIST: &str = "sites.list";
+    pub const SITES_GET: &str = "sites.get";
+    pub const SITES_CREATE: &str = "sites.create";
+    pub const SITES_UPDATE: &str = "sites.update";
+    pub const SITES_DELETE: &str = "sites.delete";
 }
 
 /// Well-known error codes.

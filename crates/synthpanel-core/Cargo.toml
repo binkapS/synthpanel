@@ -29,3 +29,4 @@ subtle = { workspace = true }
 rand = { workspace = true }
 hex = { workspace = true }
 libc = { workspace = true }
+regex = { workspace = true }

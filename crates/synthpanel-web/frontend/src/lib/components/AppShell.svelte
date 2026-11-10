@@ -36,7 +36,6 @@
     { href: '/settings', label: 'Settings', icon: Settings },
   ];
 
-  const active = $derived(currentPath);
 </script>
 
 <div class="flex min-h-full">
@@ -53,8 +52,8 @@
       {#each links as link (link.href)}
         <a
           href={link.href}
-          class="nav-link {active === link.href ? 'nav-link-active' : ''}"
-          aria-current={active === link.href ? 'page' : undefined}
+          class="nav-link {$currentPath === link.href ? 'nav-link-active' : ''}"
+          aria-current={$currentPath === link.href ? 'page' : undefined}
           onclick={(event) => {
             event.preventDefault();
             navigate(link.href);
