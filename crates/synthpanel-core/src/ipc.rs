@@ -472,6 +472,85 @@ impl IpcServer {
                     None => Err(Error::new(codes::NOT_FOUND, "site not found")),
                 }
             }
+            methods::SITES_SSL_ISSUE => {
+                let id = param_str(params, "id")?.to_string();
+                let site = self.sites.get(&id).await.map_err(internal)?;
+                let Some(site) = site else {
+                    return Err(Error::new(codes::NOT_FOUND, "site not found"));
+                };
+                let domain = site.domain.clone();
+                let email = opt_str(params, "email").map(str::to_string);
+                let acme = crate::ssl::AcmePaths::from_env();
+                let webroot = self.paths.www_dir.join(&id);
+                let result = crate::ssl::issue_http01(&acme, &domain, &webroot, email.as_deref())
+                    .await
+                    .map_err(internal)?;
+                if result.issued {
+                    // Switch the site to Let's Encrypt and re-apply the vhost.
+                    let _ = self
+                        .sites
+                        .update(
+                            &id,
+                            SitePatch {
+                                ssl_mode: Some("le".into()),
+                                ..Default::default()
+                            },
+                        )
+                        .await;
+                    if let Some(extras) = self.sites.get_with_extras(&id).await.map_err(internal)? {
+                        let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                        let pool = crate::php::render_pool(&extras);
+                        let applied = self
+                            .apply
+                            .apply_site(&extras, &vhost, &pool)
+                            .await
+                            .map_err(internal)?;
+                        let _ = audit::record(
+                            &self.pool,
+                            None,
+                            None,
+                            "sites.ssl.issue",
+                            Some(domain.as_str()),
+                            &json!({ "id": id, "expires_at": result.expires_at }),
+                            None,
+                        )
+                        .await;
+                        return Ok(json!({ "result": result, "applied": applied }));
+                    }
+                }
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "sites.ssl.issue",
+                    Some(domain.as_str()),
+                    &json!({ "id": id, "issued": false }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "result": result }))
+            }
+            methods::SITES_SSL_STATUS => {
+                let id = param_str(params, "id")?.to_string();
+                let acme = crate::ssl::AcmePaths::from_env();
+                let site = self.sites.get(&id).await.map_err(internal)?;
+                let Some(site) = site else {
+                    return Err(Error::new(codes::NOT_FOUND, "site not found"));
+                };
+                let domain_paths = acme.domain_paths(&site.domain);
+                let (live_fullchain, _) = domain_paths.live_paths();
+                let expires_at = crate::ssl::read_expiry(&live_fullchain);
+                Ok(json!({
+                    "domain": site.domain,
+                    "ssl_mode": site.ssl_mode,
+                    "expires_at": expires_at,
+                    "expiring_soon": crate::ssl::expires_within(&live_fullchain, 30),
+                }))
+            }
+            methods::PHP_VERSIONS => {
+                let versions: Vec<&str> = crate::php::PHP_VERSIONS.to_vec();
+                Ok(serde_json::to_value(versions).map_err(internal)?)
+            }
             methods::SITES_DELETE => {
                 let id = param_str(params, "id")?.to_string();
                 let removed = self.sites.delete(&id).await.map_err(internal)?;

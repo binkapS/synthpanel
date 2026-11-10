@@ -33,6 +33,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/users/{id}", patch(admin::users_update))
         .route("/api/v1/sites", get(sites::list).post(sites::create))
+        .route("/ws/dashboard", get(crate::ws::dashboard_ws))
+        .route("/ws/logs", get(crate::ws::logs_ws))
+        .route("/api/v1/sites/{id}/ssl/issue", post(sites::issue_ssl))
+        .route("/api/v1/sites/{id}/ssl/status", get(sites::ssl_status))
+        .route("/api/v1/sites/{id}/suspend", post(sites::suspend))
+        .route("/api/v1/sites/{id}/unsuspend", post(sites::unsuspend))
+        .route("/api/v1/php/versions", get(sites::php_versions))
         .route(
             "/api/v1/sites/{id}",
             get(sites::get).patch(sites::update).delete(sites::delete),

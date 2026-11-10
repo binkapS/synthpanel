@@ -10,6 +10,7 @@
     RefreshCw,
   } from '@lucide/svelte';
   import { api, ApiError } from '../lib/api';
+  import { connectSocket } from '../lib/socket';
   import { formatBytes, formatPercent, relativeTime } from '../lib/format';
   import AuditFeed from '../lib/components/AuditFeed.svelte';
   import Card from '../lib/components/Card.svelte';
@@ -55,6 +56,7 @@
   let error = $state('');
   let updatedAt = $state<Date | null>(null);
   let loading = $state(true);
+  let live = $state(false);
 
   const cpuSeries = $derived(points.map((point) => point.cpu));
   const memorySeries = $derived(
@@ -95,8 +97,35 @@
 
   onMount(() => {
     refresh();
-    const timer = setInterval(refresh, 5000);
-    return () => clearInterval(timer);
+
+    // Prefer the WebSocket channel; fall back to polling when it is closed.
+    const disconnect = connectSocket('/ws/dashboard', {
+      onMessage: (payload) => {
+        const message = payload as {
+          type?: string;
+          metrics?: Snapshot | null;
+          services?: Service[];
+        };
+        if (message.type === 'snapshot') {
+          if (message.metrics) snapshot = message.metrics;
+          if (message.services) services = message.services;
+          updatedAt = new Date();
+          live = true;
+        }
+      },
+      onClose: () => {
+        live = false;
+      },
+    });
+
+    const timer = setInterval(() => {
+      if (!live) refresh();
+    }, 5000);
+
+    return () => {
+      disconnect();
+      clearInterval(timer);
+    };
   });
 </script>
 
@@ -107,6 +136,7 @@
       <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
         {snapshot?.host ? `Host ${snapshot.host}` : 'System overview'} · updated
         {updatedAt ? relativeTime(updatedAt.toISOString()) : 'never'}
+        {live ? ' · live' : ''}
       </p>
     </div>
     <button class="btn-secondary" onclick={refresh} disabled={loading}>

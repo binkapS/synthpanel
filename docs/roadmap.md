@@ -44,8 +44,16 @@ Implemented:
   vhost on disk, rejects an invalid domain, deletes the site and checks the
   audit log.
 
-Still to come in Phase 1: Let's Encrypt issuance and renewal, per-site PHP
-extensions, suspend/unsuspend, and the WebSocket live-metrics channel.
+- SSL: Let's Encrypt issuance over HTTP-01 (driving acme.sh), certificate
+  publishing into the stable `/etc/letsencrypt/live` layout, expiry parsing
+  straight from the DER `notAfter` field, and an expiry status endpoint.
+- Suspend / unsuspend a site, and the PHP version catalogue.
+- WebSocket channels: `/ws/dashboard` pushes a metrics + services snapshot
+  every 3 seconds, `/ws/logs` tails the panel log.
+
+Still to come in Phase 1: per-site PHP extension management, the automatic
+renewal scheduler, and the nginx snippet generation for the distribution's
+own `nginx.conf`.
 
 ## What is still to come
 

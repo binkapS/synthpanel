@@ -15,6 +15,7 @@ pub mod nginx;
 pub mod php;
 pub mod settings;
 pub mod sites;
+pub mod ssl;
 pub mod users;
 
 pub use config::Paths;

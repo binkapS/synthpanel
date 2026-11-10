@@ -142,6 +142,72 @@ pub async fn update(
     Ok(Json(result))
 }
 
+/// List the PHP versions the panel manages.
+pub async fn php_versions(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+) -> Result<Json<Value>, ApiError> {
+    let versions: Vec<String> = state.core_call(methods::PHP_VERSIONS, json!({})).await?;
+    Ok(Json(json!({ "versions": versions })))
+}
+
+/// Issue a Let's Encrypt certificate for a site over HTTP-01.
+pub async fn issue_ssl(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result: Value = state
+        .core_call(methods::SITES_SSL_ISSUE, json!({ "id": id }))
+        .await?;
+    audit(&state, &user.user_id, "", "sites.ssl.issue", &id, &user.ip).await;
+    Ok(Json(result))
+}
+
+/// Report the certificate status of a site.
+pub async fn ssl_status(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let status: Value = state
+        .core_call(methods::SITES_SSL_STATUS, json!({ "id": id }))
+        .await?;
+    Ok(Json(status))
+}
+
+/// Suspend a site: it keeps serving a 503 page.
+pub async fn suspend(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result: Value = state
+        .core_call(
+            methods::SITES_UPDATE,
+            json!({ "id": id, "status": "suspended" }),
+        )
+        .await?;
+    audit(&state, &user.user_id, "", "sites.suspend", &id, &user.ip).await;
+    Ok(Json(result))
+}
+
+/// Bring a suspended site back online.
+pub async fn unsuspend(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let result: Value = state
+        .core_call(
+            methods::SITES_UPDATE,
+            json!({ "id": id, "status": "active" }),
+        )
+        .await?;
+    audit(&state, &user.user_id, "", "sites.unsuspend", &id, &user.ip).await;
+    Ok(Json(result))
+}
+
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     user: AuthUser,

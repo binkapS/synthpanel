@@ -10,6 +10,7 @@ pub struct WebConfig {
     pub core_socket: PathBuf,
     pub ipc_token_path: PathBuf,
     pub tls_dir: PathBuf,
+    pub log_dir: PathBuf,
     pub static_dir: PathBuf,
     pub session_ttl_secs: u64,
     pub secure_cookies: bool,
@@ -36,6 +37,7 @@ impl WebConfig {
         let core_socket = env_path("SYNTHPANEL_CORE_SOCKET", "/run/synthpanel/core.sock");
         let ipc_token_path = env_path("SYNTHPANEL_IPC_TOKEN_FILE", "/etc/synthpanel/ipc-token");
         let tls_dir = env_path("SYNTHPANEL_TLS_DIR", "/etc/synthpanel/tls");
+        let log_dir = env_path("SYNTHPANEL_LOG_DIR", "/var/log/synthpanel");
         let static_dir = env_path("SYNTHPANEL_STATIC_DIR", "frontend/dist");
         let session_ttl_secs = env_str("SYNTHPANEL_SESSION_TTL", "86400")
             .parse()
@@ -49,6 +51,7 @@ impl WebConfig {
             core_socket,
             ipc_token_path,
             tls_dir,
+            log_dir,
             static_dir,
             session_ttl_secs,
             secure_cookies,

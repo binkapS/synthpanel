@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { Globe, Plus, Trash2 } from '@lucide/svelte';
   import { api, ApiError } from '../lib/api';
+  import { navigate } from '../lib/router';
   import Card from '../lib/components/Card.svelte';
   import EmptyState from '../lib/components/EmptyState.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
@@ -233,7 +234,12 @@
             {#each sites as site (site.id)}
               <tr>
                 <td class="py-2 pr-4">
-                  <div class="font-medium">{site.domain}</div>
+                  <button
+                    class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+                    onclick={() => navigate(`/sites/${site.id}`)}
+                  >
+                    {site.domain}
+                  </button>
                   <div class="font-mono text-xs text-slate-500 dark:text-slate-400">
                     {site.document_root}
                   </div>

@@ -123,6 +123,9 @@ pub mod methods {
     pub const SITES_CREATE: &str = "sites.create";
     pub const SITES_UPDATE: &str = "sites.update";
     pub const SITES_DELETE: &str = "sites.delete";
+    pub const SITES_SSL_ISSUE: &str = "sites.ssl.issue";
+    pub const SITES_SSL_STATUS: &str = "sites.ssl.status";
+    pub const PHP_VERSIONS: &str = "php.versions";
 }
 
 /// Well-known error codes.

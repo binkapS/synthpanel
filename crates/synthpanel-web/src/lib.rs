@@ -13,6 +13,7 @@ pub mod state;
 pub mod static_files;
 pub mod tls;
 pub mod totp;
+pub mod ws;
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;

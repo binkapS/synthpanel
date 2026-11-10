@@ -7,11 +7,16 @@
   import Login from './routes/Login.svelte';
   import Placeholder from './routes/Placeholder.svelte';
   import Settings from './routes/Settings.svelte';
+  import SiteDetailRoute from './routes/SiteDetailRoute.svelte';
   import Sites from './routes/Sites.svelte';
   import Users from './routes/Users.svelte';
 
   const route = $derived.by(() => {
-    switch ($currentPath) {
+    const path = $currentPath;
+    if (path.startsWith('/sites/')) {
+      return SiteDetailRoute;
+    }
+    switch (path) {
       case '/':
         return Dashboard;
       case '/sites':
@@ -21,17 +26,11 @@
       case '/users':
         return Users;
       case '/databases':
-        return Placeholder;
       case '/php':
-        return Placeholder;
       case '/security':
-        return Placeholder;
       case '/backups':
-        return Placeholder;
       case '/cron':
-        return Placeholder;
       case '/logs':
-        return Placeholder;
       case '/files':
         return Placeholder;
       default:
@@ -48,9 +47,7 @@
 {#if $loading}
   <div class="grid h-full place-items-center bg-slate-50 dark:bg-slate-950">
     <div class="flex items-center gap-3 text-sm text-slate-500 dark:text-slate-400">
-      <span
-        class="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600"
-      ></span>
+      <span class="size-4 animate-spin rounded-full border-2 border-slate-300 border-t-blue-600"></span>
       Loading SynthPanel…
     </div>
   </div>

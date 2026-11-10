@@ -228,5 +228,45 @@ assert_contains "$AUDIT" "sites.create"
 assert_contains "$AUDIT" "sites.delete"
 log "audit log recorded the operations"
 
+# ---------------------------------------------------------------------------
+# PHP versions, SSL status and the WebSocket channel
+# ---------------------------------------------------------------------------
+
+PHP="$(auth_get $BASE/api/v1/php/versions)"
+assert_contains "$PHP" '"8.3"'
+log "php versions listed"
+
+SSL="$(auth_get "$BASE/api/v1/sites/$SITE_ID/ssl/status" 2>/dev/null || true)"
+# The site was deleted, so the status endpoint must answer 404.
+SSL_CODE="$(code -b "$COOKIES" "$BASE/api/v1/sites/$SITE_ID/ssl/status")"
+assert_eq "$SSL_CODE" "404"
+log "ssl status for a missing site -> 404"
+
+# The WebSocket requires an authenticated session; an anonymous upgrade must
+# be rejected.
+# The websocket keeps the connection open, so the request is aborted after a
+# moment; curl still reports the handshake status.
+ws_code() {
+  curl -sSk --http1.1 --max-time 5 -o /dev/null -w '%{http_code}' "$@" 2>/dev/null || true
+}
+
+WS_CODE="$(ws_code -b "$COOKIES" -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  "$BASE/ws/dashboard")"
+if [ "$WS_CODE" = "101" ] || [ "$WS_CODE" = "400" ]; then
+  log "websocket upgrade answered $WS_CODE"
+else
+  fail "unexpected websocket status $WS_CODE"
+fi
+
+# An unauthenticated websocket upgrade must not succeed.
+WS_ANON="$(ws_code -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Version: 13" -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
+  "$BASE/ws/dashboard")"
+if [ "$WS_ANON" = "101" ]; then
+  fail "the websocket accepted an unauthenticated client"
+fi
+log "unauthenticated websocket rejected"
+
 log "smoke test passed"
 exit 0
