@@ -3,6 +3,8 @@
 pub mod admin;
 pub mod auth;
 pub mod dashboard;
+pub mod databases;
+pub mod security;
 pub mod sites;
 
 use crate::state::AppState;
@@ -33,6 +35,40 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/users/{id}", patch(admin::users_update))
         .route("/api/v1/sites", get(sites::list).post(sites::create))
+        .route(
+            "/api/v1/databases",
+            get(databases::list).post(databases::create),
+        )
+        .route(
+            "/api/v1/databases/{id}",
+            get(databases::get).delete(databases::delete),
+        )
+        .route(
+            "/api/v1/databases/{id}/users",
+            get(databases::users).post(databases::add_user),
+        )
+        .route(
+            "/api/v1/databases/users/{id}",
+            axum::routing::delete(databases::delete_user),
+        )
+        .route("/api/v1/security/firewall", get(security::firewall))
+        .route(
+            "/api/v1/security/firewall/rules",
+            post(security::firewall_apply),
+        )
+        .route("/api/v1/security/fail2ban", get(security::fail2ban))
+        .route(
+            "/api/v1/security/fail2ban/unban",
+            post(security::fail2ban_unban),
+        )
+        .route(
+            "/api/v1/security/ssh-keys",
+            get(security::ssh_keys).post(security::ssh_key_add),
+        )
+        .route(
+            "/api/v1/security/ssh-keys/{id}",
+            axum::routing::delete(security::ssh_key_remove),
+        )
         .route("/ws/dashboard", get(crate::ws::dashboard_ws))
         .route("/ws/logs", get(crate::ws::logs_ws))
         .route("/api/v1/sites/{id}/ssl/issue", post(sites::issue_ssl))

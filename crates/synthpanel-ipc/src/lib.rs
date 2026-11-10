@@ -126,6 +126,21 @@ pub mod methods {
     pub const SITES_SSL_ISSUE: &str = "sites.ssl.issue";
     pub const SITES_SSL_STATUS: &str = "sites.ssl.status";
     pub const PHP_VERSIONS: &str = "php.versions";
+    pub const DATABASES_LIST: &str = "databases.list";
+    pub const DATABASES_GET: &str = "databases.get";
+    pub const DATABASES_CREATE: &str = "databases.create";
+    pub const DATABASES_DELETE: &str = "databases.delete";
+    pub const DATABASES_ADD_USER: &str = "databases.add_user";
+    pub const DATABASES_USERS: &str = "databases.users";
+    pub const DATABASES_DELETE_USER: &str = "databases.delete_user";
+    pub const DATABASES_ENGINES: &str = "databases.engines";
+    pub const SECURITY_FIREWALL: &str = "security.firewall";
+    pub const SECURITY_FIREWALL_APPLY: &str = "security.firewall.apply";
+    pub const SECURITY_FAIL2BAN: &str = "security.fail2ban.jails";
+    pub const SECURITY_FAIL2BAN_UNBAN: &str = "security.fail2ban.unban";
+    pub const SECURITY_SSH_KEYS: &str = "security.ssh_keys";
+    pub const SECURITY_SSH_KEY_ADD: &str = "security.ssh_key.add";
+    pub const SECURITY_SSH_KEY_REMOVE: &str = "security.ssh_key.remove";
 }
 
 /// Well-known error codes.

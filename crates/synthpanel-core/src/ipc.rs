@@ -8,6 +8,7 @@ use crate::apply::ApplyPipeline;
 use crate::audit;
 use crate::config::Paths;
 use crate::metrics::{self, Snapshot};
+use crate::security::FirewallRule;
 use crate::settings::Settings;
 use crate::sites::{self, CreateSite, SitePatch};
 use crate::users::{self, CreateUser, UserPatch};
@@ -19,11 +20,17 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufStream};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{debug, warn};
 
+/// The repositories the IPC server works with.
+pub struct Stores {
+    pub settings: Settings,
+    pub users: users::Users,
+    pub sites: sites::Sites,
+    pub databases: crate::databases::Databases,
+}
+
 pub struct IpcServer {
     paths: Paths,
-    settings: Settings,
-    users: users::Users,
-    sites: sites::Sites,
+    stores: Stores,
     apply: ApplyPipeline,
     pool: sqlx::SqlitePool,
     host: String,
@@ -34,9 +41,12 @@ impl Clone for IpcServer {
     fn clone(&self) -> Self {
         Self {
             paths: self.paths.clone(),
-            settings: self.settings.clone(),
-            users: self.users.clone(),
-            sites: self.sites.clone(),
+            stores: Stores {
+                settings: self.stores.settings.clone(),
+                users: self.stores.users.clone(),
+                sites: self.stores.sites.clone(),
+                databases: self.stores.databases.clone(),
+            },
             apply: ApplyPipeline::new(),
             pool: self.pool.clone(),
             host: self.host.clone(),
@@ -49,17 +59,13 @@ impl IpcServer {
     pub fn new(
         paths: Paths,
         pool: sqlx::SqlitePool,
-        settings: Settings,
-        users: users::Users,
-        sites: sites::Sites,
+        stores: Stores,
         apply: ApplyPipeline,
         host: String,
     ) -> Self {
         Self {
             paths,
-            settings,
-            users,
-            sites,
+            stores,
             apply,
             pool,
             host,
@@ -163,6 +169,7 @@ impl IpcServer {
             methods::SETTINGS_GET => {
                 let key = param_str(params, "key")?;
                 Ok(self
+                    .stores
                     .settings
                     .get(key)
                     .await
@@ -172,22 +179,31 @@ impl IpcServer {
             methods::SETTINGS_SET => {
                 let key = param_str(params, "key")?;
                 let value = params.get("value").cloned().unwrap_or(Value::Null);
-                self.settings.set(key, &value).await.map_err(internal)?;
+                self.stores
+                    .settings
+                    .set(key, &value)
+                    .await
+                    .map_err(internal)?;
                 Ok(Value::Null)
             }
             methods::SETTINGS_LIST => {
-                let map = self.settings.map().await.map_err(internal)?;
+                let map = self.stores.settings.map().await.map_err(internal)?;
                 Ok(serde_json::to_value(map).map_err(internal)?)
             }
 
             methods::USERS_GET => {
                 let id = param_str(params, "id")?;
-                let user = self.users.get(id).await.map_err(internal)?;
+                let user = self.stores.users.get(id).await.map_err(internal)?;
                 Ok(serialize_opt(user)?)
             }
             methods::USERS_GET_BY_EMAIL => {
                 let email = param_str(params, "email")?;
-                let user = self.users.get_by_email(email).await.map_err(internal)?;
+                let user = self
+                    .stores
+                    .users
+                    .get_by_email(email)
+                    .await
+                    .map_err(internal)?;
                 Ok(serialize_opt(user)?)
             }
             methods::USERS_CREATE => {
@@ -211,6 +227,7 @@ impl IpcServer {
                 let quota_sites = param_i64(params, "quota_sites", 10)?;
                 let quota_dbs = param_i64(params, "quota_dbs", 10)?;
                 let user = self
+                    .stores
                     .users
                     .create(CreateUser {
                         email,
@@ -228,6 +245,7 @@ impl IpcServer {
                 let id = param_str(params, "id")?.to_string();
                 let patch = parse_user_patch(params)?;
                 let user = self
+                    .stores
                     .users
                     .update(id.as_str(), patch)
                     .await
@@ -235,7 +253,7 @@ impl IpcServer {
                 Ok(serialize_opt(user)?)
             }
             methods::USERS_LIST => {
-                let users = self.users.list().await.map_err(internal)?;
+                let users = self.stores.users.list().await.map_err(internal)?;
                 Ok(serde_json::to_value(users).map_err(internal)?)
             }
 
@@ -288,12 +306,17 @@ impl IpcServer {
             }
 
             methods::SITES_LIST => {
-                let list = self.sites.list().await.map_err(internal)?;
+                let list = self.stores.sites.list().await.map_err(internal)?;
                 Ok(serde_json::to_value(list).map_err(internal)?)
             }
             methods::SITES_GET => {
                 let id = param_str(params, "id")?;
-                let extras = self.sites.get_with_extras(id).await.map_err(internal)?;
+                let extras = self
+                    .stores
+                    .sites
+                    .get_with_extras(id)
+                    .await
+                    .map_err(internal)?;
                 Ok(serde_json::to_value(extras).map_err(internal)?)
             }
             methods::SITES_CREATE => {
@@ -346,8 +369,9 @@ impl IpcServer {
                     owner_id,
                     directives,
                 };
-                let site = self.sites.create(input).await.map_err(internal)?;
+                let site = self.stores.sites.create(input).await.map_err(internal)?;
                 let extras = self
+                    .stores
                     .sites
                     .get_with_extras(&site.id)
                     .await
@@ -438,6 +462,7 @@ impl IpcServer {
                         })?);
                 }
                 let updated = self
+                    .stores
                     .sites
                     .update(id.as_str(), patch)
                     .await
@@ -445,6 +470,7 @@ impl IpcServer {
                 match updated {
                     Some(site) => {
                         let extras = self
+                            .stores
                             .sites
                             .get_with_extras(&site.id)
                             .await
@@ -474,7 +500,7 @@ impl IpcServer {
             }
             methods::SITES_SSL_ISSUE => {
                 let id = param_str(params, "id")?.to_string();
-                let site = self.sites.get(&id).await.map_err(internal)?;
+                let site = self.stores.sites.get(&id).await.map_err(internal)?;
                 let Some(site) = site else {
                     return Err(Error::new(codes::NOT_FOUND, "site not found"));
                 };
@@ -488,6 +514,7 @@ impl IpcServer {
                 if result.issued {
                     // Switch the site to Let's Encrypt and re-apply the vhost.
                     let _ = self
+                        .stores
                         .sites
                         .update(
                             &id,
@@ -497,7 +524,13 @@ impl IpcServer {
                             },
                         )
                         .await;
-                    if let Some(extras) = self.sites.get_with_extras(&id).await.map_err(internal)? {
+                    if let Some(extras) = self
+                        .stores
+                        .sites
+                        .get_with_extras(&id)
+                        .await
+                        .map_err(internal)?
+                    {
                         let vhost = crate::nginx::render_vhost(&extras, &self.host);
                         let pool = crate::php::render_pool(&extras);
                         let applied = self
@@ -533,7 +566,7 @@ impl IpcServer {
             methods::SITES_SSL_STATUS => {
                 let id = param_str(params, "id")?.to_string();
                 let acme = crate::ssl::AcmePaths::from_env();
-                let site = self.sites.get(&id).await.map_err(internal)?;
+                let site = self.stores.sites.get(&id).await.map_err(internal)?;
                 let Some(site) = site else {
                     return Err(Error::new(codes::NOT_FOUND, "site not found"));
                 };
@@ -553,7 +586,7 @@ impl IpcServer {
             }
             methods::SITES_DELETE => {
                 let id = param_str(params, "id")?.to_string();
-                let removed = self.sites.delete(&id).await.map_err(internal)?;
+                let removed = self.stores.sites.delete(&id).await.map_err(internal)?;
                 let fs = self.apply.remove_site(&id).await.map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
@@ -566,6 +599,433 @@ impl IpcServer {
                 )
                 .await;
                 Ok(json!({ "removed": removed, "fs": fs }))
+            }
+
+            methods::DATABASES_LIST => {
+                let list = self.stores.databases.list().await.map_err(internal)?;
+                Ok(serde_json::to_value(list).map_err(internal)?)
+            }
+            methods::DATABASES_GET => {
+                let id = param_str(params, "id")?;
+                let record = self.stores.databases.get(id).await.map_err(internal)?;
+                match record {
+                    Some(record) => {
+                        let users = self
+                            .stores
+                            .databases
+                            .list_users(&record.id)
+                            .await
+                            .map_err(internal)?;
+                        let sanitized: Vec<Value> = users
+                            .into_iter()
+                            .map(|user| {
+                                json!({
+                                    "id": user.id,
+                                    "database_id": user.database_id,
+                                    "username": user.username,
+                                    "privileges": user.privileges,
+                                    "created_at": user.created_at,
+                                })
+                            })
+                            .collect();
+                        Ok(json!({ "database": record, "users": sanitized }))
+                    }
+                    None => Ok(Value::Null),
+                }
+            }
+            methods::DATABASES_CREATE => {
+                let engine_name = param_str(params, "engine")?;
+                let engine = crate::database::require_engine(engine_name).map_err(internal)?;
+                let name = param_str(params, "name")?;
+                let name = crate::database::validate_name(name).map_err(internal)?;
+                let owner_id = params
+                    .get("owner_id")
+                    .and_then(Value::as_str)
+                    .map(str::to_string);
+                let username = params
+                    .get("username")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| name.clone());
+                let username = crate::database::validate_username(&username).map_err(internal)?;
+                let password = params
+                    .get("password")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| crate::database::generate_password(24));
+                let privileges = params
+                    .get("privileges")
+                    .and_then(Value::as_str)
+                    .and_then(crate::databases::Privilege::parse)
+                    .unwrap_or(crate::databases::Privilege::All);
+
+                // Provision the database on the server first: if that fails
+                // nothing is recorded in the panel state.
+                let credentials = self.database_credentials();
+                let mut provisioned = false;
+                let mut provisioning_error = None;
+                match engine {
+                    crate::database::Engine::Mysql => {
+                        match crate::database::mysql_create(
+                            &name,
+                            &username,
+                            &password,
+                            &credentials,
+                        ) {
+                            Ok(()) => provisioned = true,
+                            Err(error) => provisioning_error = Some(error.to_string()),
+                        }
+                    }
+                    crate::database::Engine::Postgres => {
+                        match crate::database::postgres_create(
+                            &name,
+                            &username,
+                            &password,
+                            &credentials,
+                        ) {
+                            Ok(()) => provisioned = true,
+                            Err(error) => provisioning_error = Some(error.to_string()),
+                        }
+                    }
+                    crate::database::Engine::Redis => {
+                        match crate::database::redis_set_password(&password) {
+                            Ok(()) => provisioned = true,
+                            Err(error) => provisioning_error = Some(error.to_string()),
+                        }
+                    }
+                }
+
+                if !provisioned {
+                    let message = provisioning_error.unwrap_or_else(|| "unknown error".into());
+                    let _ = audit::record(
+                        &self.pool,
+                        None,
+                        None,
+                        "databases.create",
+                        Some(name.as_str()),
+                        &json!({ "engine": engine.as_str(), "error": message }),
+                        None,
+                    )
+                    .await;
+                    return Err(Error::new(
+                        codes::INTERNAL,
+                        format!("cannot provision the database: {message}"),
+                    ));
+                }
+
+                let record = self
+                    .stores
+                    .databases
+                    .create(engine.as_str(), &name, owner_id)
+                    .await
+                    .map_err(internal)?;
+                let user = self
+                    .stores
+                    .databases
+                    .add_user(&record.id, &username, &password, privileges)
+                    .await
+                    .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "databases.create",
+                    Some(name.as_str()),
+                    &json!({ "engine": engine.as_str(), "username": username }),
+                    None,
+                )
+                .await;
+
+                let connection = crate::database::ConnectionInfo {
+                    engine: engine.as_str().to_string(),
+                    host: "127.0.0.1".into(),
+                    port: match engine {
+                        crate::database::Engine::Mysql => 3306,
+                        crate::database::Engine::Postgres => 5432,
+                        crate::database::Engine::Redis => 6379,
+                    },
+                    database: name.clone(),
+                    username: username.clone(),
+                    password: password.clone(),
+                };
+
+                Ok(json!({
+                    "database": record,
+                    "user": {
+                        "id": user.id,
+                        "username": username,
+                        "privileges": user.privileges,
+                    },
+                    "password": password,
+                    "connection_string": connection.connection_string(),
+                    "env": connection.env_snippet(),
+                }))
+            }
+            methods::DATABASES_DELETE => {
+                let id = param_str(params, "id")?;
+                let record = self.stores.databases.get(id).await.map_err(internal)?;
+                let Some(record) = record else {
+                    return Err(Error::new(codes::NOT_FOUND, "database not found"));
+                };
+                let users = self
+                    .stores
+                    .databases
+                    .list_users(&record.id)
+                    .await
+                    .map_err(internal)?;
+                let username = users.first().map(|user| user.username.clone());
+                let engine = crate::database::require_engine(&record.engine).map_err(internal)?;
+                let credentials = self.database_credentials();
+                let dropped = match engine {
+                    crate::database::Engine::Mysql => {
+                        crate::database::mysql_drop(&record.name, username.as_deref(), &credentials)
+                    }
+                    crate::database::Engine::Postgres => crate::database::postgres_drop(
+                        &record.name,
+                        username.as_deref(),
+                        &credentials,
+                    ),
+                    crate::database::Engine::Redis => Ok(()),
+                };
+                if let Err(error) = dropped {
+                    let _ = audit::record(
+                        &self.pool,
+                        None,
+                        None,
+                        "databases.delete",
+                        Some(record.name.as_str()),
+                        &json!({ "error": error.to_string() }),
+                        None,
+                    )
+                    .await;
+                    return Err(Error::new(
+                        codes::INTERNAL,
+                        format!("cannot drop the database: {error}"),
+                    ));
+                }
+                let removed = self.stores.databases.delete(id).await.map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "databases.delete",
+                    Some(record.name.as_str()),
+                    &json!({ "engine": record.engine }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "removed": removed }))
+            }
+            methods::DATABASES_ADD_USER => {
+                let database_id = param_str(params, "database_id")?;
+                let record = self
+                    .stores
+                    .databases
+                    .get(database_id)
+                    .await
+                    .map_err(internal)?;
+                if record.is_none() {
+                    return Err(Error::new(codes::NOT_FOUND, "database not found"));
+                }
+                let username = param_str(params, "username")?;
+                let username = crate::database::validate_username(username).map_err(internal)?;
+                let password = params
+                    .get("password")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .unwrap_or_else(|| crate::database::generate_password(24));
+                let privileges = params
+                    .get("privileges")
+                    .and_then(Value::as_str)
+                    .and_then(crate::databases::Privilege::parse)
+                    .unwrap_or(crate::databases::Privilege::All);
+                let user = self
+                    .stores
+                    .databases
+                    .add_user(database_id, &username, &password, privileges)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({
+                    "id": user.id,
+                    "username": user.username,
+                    "privileges": user.privileges,
+                    "password": password,
+                }))
+            }
+            methods::DATABASES_USERS => {
+                let database_id = param_str(params, "database_id")?;
+                let users = self
+                    .stores
+                    .databases
+                    .list_users(database_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(users).map_err(internal)?)
+            }
+            methods::DATABASES_DELETE_USER => {
+                let id = param_str(params, "id")?;
+                let removed = self
+                    .stores
+                    .databases
+                    .delete_user(id)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "removed": removed }))
+            }
+            methods::DATABASES_ENGINES => {
+                let credentials = self.database_credentials();
+                let engines: Vec<crate::database::EngineStatus> = [
+                    crate::database::Engine::Mysql,
+                    crate::database::Engine::Postgres,
+                    crate::database::Engine::Redis,
+                ]
+                .into_iter()
+                .map(|engine| crate::database::engine_status(engine, &credentials))
+                .collect();
+                Ok(serde_json::to_value(engines).map_err(internal)?)
+            }
+
+            methods::SECURITY_FIREWALL => {
+                let available = crate::security::ufw_available();
+                let status = if available {
+                    crate::security::ufw_status().unwrap_or_default()
+                } else {
+                    String::new()
+                };
+                Ok(json!({ "available": available, "status": status }))
+            }
+            methods::SECURITY_FIREWALL_APPLY => {
+                let rule = FirewallRule {
+                    port: param_str(params, "port")?.to_string(),
+                    proto: param_str(params, "proto")?.to_string(),
+                    source: param_str(params, "source")?.to_string(),
+                    action: param_str(params, "action")?.to_string(),
+                    comment: params
+                        .get("comment")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_string(),
+                    enabled: params
+                        .get("enabled")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(true),
+                };
+                let rule = FirewallRule {
+                    port: crate::security::validate_port(&rule.port).map_err(internal)?,
+                    source: crate::security::validate_source(&rule.source).map_err(internal)?,
+                    ..rule
+                };
+                let output = crate::security::ufw_apply(&rule).map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "security.firewall.apply",
+                    Some(rule.port.as_str()),
+                    &json!({ "rule": rule }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "output": output }))
+            }
+            methods::SECURITY_FAIL2BAN => {
+                let available = crate::security::fail2ban_available();
+                let jails = if available {
+                    crate::security::fail2ban_jails().unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                Ok(json!({ "available": available, "jails": jails }))
+            }
+            methods::SECURITY_FAIL2BAN_UNBAN => {
+                let jail = param_str(params, "jail")?;
+                let ip = param_str(params, "ip")?;
+                let output = crate::security::fail2ban_unban(jail, ip).map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "security.fail2ban.unban",
+                    Some(ip),
+                    &json!({ "jail": jail }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "output": output }))
+            }
+            methods::SECURITY_SSH_KEYS => {
+                let rows = sqlx::query_as::<_, SshKeyRow>(
+                    "SELECT id, label, public_key, fingerprint, created_at
+                     FROM ssh_keys ORDER BY created_at",
+                )
+                .fetch_all(&self.pool)
+                .await
+                .map_err(internal)?;
+                Ok(serde_json::to_value(rows).map_err(internal)?)
+            }
+            methods::SECURITY_SSH_KEY_ADD => {
+                let label = param_str(params, "label")?;
+                let public_key = param_str(params, "public_key")?;
+                let user = params.get("user").and_then(Value::as_str).unwrap_or("root");
+                let (key_type, fingerprint) =
+                    crate::security::validate_ssh_key(public_key).map_err(internal)?;
+                crate::security::install_ssh_key(user, public_key).map_err(internal)?;
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO ssh_keys (id, user_id, label, public_key, fingerprint, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&id)
+                .bind(user)
+                .bind(label)
+                .bind(public_key)
+                .bind(&fingerprint)
+                .bind(&now)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "security.ssh_key.add",
+                    Some(label),
+                    &json!({ "user": user, "type": key_type }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "id": id, "label": label, "fingerprint": fingerprint }))
+            }
+            methods::SECURITY_SSH_KEY_REMOVE => {
+                let id = param_str(params, "id")?;
+                let row = sqlx::query_as::<_, SshKeyRow>(
+                    "SELECT id, label, public_key, fingerprint, created_at
+                     FROM ssh_keys WHERE id = ?",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(internal)?;
+                let Some(row) = row else {
+                    return Err(Error::new(codes::NOT_FOUND, "ssh key not found"));
+                };
+                let _ = sqlx::query("DELETE FROM ssh_keys WHERE id = ?")
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "security.ssh_key.remove",
+                    Some(row.label.as_str()),
+                    &json!({}),
+                    None,
+                )
+                .await;
+                Ok(json!({ "removed": true }))
             }
 
             other => Err(Error::new(
@@ -668,6 +1128,30 @@ async fn write_response(
     stream.write_all(&bytes).await?;
     stream.flush().await?;
     Ok(())
+}
+
+/// A row of the `ssh_keys` table.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, sqlx::FromRow)]
+pub struct SshKeyRow {
+    pub id: String,
+    pub label: String,
+    pub public_key: String,
+    pub fingerprint: String,
+    pub created_at: String,
+}
+
+impl IpcServer {
+    /// Read the admin credentials for the local database servers from the
+    /// environment. They are optional: without them the panel relies on
+    /// socket/peer authentication, which is the default on Ubuntu.
+    fn database_credentials(&self) -> crate::database::AdminCredentials {
+        crate::database::AdminCredentials {
+            mysql_root_password: std::env::var("SYNTHPANEL_MYSQL_ROOT_PASSWORD").ok(),
+            postgres_user: std::env::var("SYNTHPANEL_POSTGRES_USER")
+                .unwrap_or_else(|_| "postgres".to_string()),
+            postgres_password: std::env::var("SYNTHPANEL_POSTGRES_PASSWORD").ok(),
+        }
+    }
 }
 
 fn internal(error: impl std::fmt::Display) -> Error {
@@ -842,13 +1326,17 @@ mod tests {
         let settings = Settings::new(pool.clone());
         let users = users::Users::new(pool.clone());
         let sites = sites::Sites::new(pool.clone());
+        let databases = crate::databases::Databases::new(pool.clone());
         let apply = crate::apply::ApplyPipeline::new();
         let server = IpcServer::new(
             paths.clone(),
             pool,
-            settings,
-            users,
-            sites,
+            Stores {
+                settings,
+                users,
+                sites,
+                databases,
+            },
             apply,
             "testhost".into(),
         );

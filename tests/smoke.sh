@@ -236,6 +236,35 @@ PHP="$(auth_get $BASE/api/v1/php/versions)"
 assert_contains "$PHP" '"8.3"'
 log "php versions listed"
 
+# ---------------------------------------------------------------------------
+# Databases and security
+# ---------------------------------------------------------------------------
+
+DBS="$(auth_get $BASE/api/v1/databases)"
+assert_contains "$DBS" '"databases"'
+assert_contains "$DBS" '"engines"'
+log "databases listed"
+
+# A database with an invalid name must be rejected before anything is
+# provisioned on the server.
+BAD_DB="$(curl -sSk -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"engine":"mysql","name":"bad name; DROP DATABASE"}' \
+  $BASE/api/v1/databases)"
+assert_eq "$BAD_DB" "400"
+log "invalid database name -> 400"
+
+FIREWALL="$(auth_get $BASE/api/v1/security/firewall)"
+assert_contains "$FIREWALL" '"available"'
+
+FAIL2BAN="$(auth_get $BASE/api/v1/security/fail2ban)"
+assert_contains "$FAIL2BAN" '"jails"'
+
+SSH_KEYS="$(auth_get $BASE/api/v1/security/ssh-keys)"
+assert_contains "$SSH_KEYS" '"keys"'
+log "security endpoints answered"
+
 SSL="$(auth_get "$BASE/api/v1/sites/$SITE_ID/ssl/status" 2>/dev/null || true)"
 # The site was deleted, so the status endpoint must answer 404.
 SSL_CODE="$(code -b "$COOKIES" "$BASE/api/v1/sites/$SITE_ID/ssl/status")"

@@ -105,6 +105,39 @@ pub enum Command {
     /// List panel users.
     #[command(name = "users:list")]
     UsersList,
+    /// List the managed databases.
+    #[command(name = "db:list")]
+    DbList,
+    /// Create a database.
+    #[command(name = "db:create")]
+    DbCreate {
+        /// Database name.
+        name: String,
+        /// Engine: mysql, postgres or redis.
+        #[arg(long, default_value = "mysql")]
+        engine: String,
+        /// Username (defaults to the database name).
+        #[arg(long)]
+        username: Option<String>,
+        /// Password (generated when omitted).
+        #[arg(long)]
+        password: Option<String>,
+    },
+    /// Drop a database by id.
+    #[command(name = "db:delete")]
+    DbDelete {
+        /// Database id.
+        id: String,
+    },
+    /// Show the firewall status.
+    #[command(name = "security:firewall")]
+    SecurityFirewall,
+    /// Show the fail2ban jails.
+    #[command(name = "security:fail2ban")]
+    SecurityFail2ban,
+    /// List the SSH keys the panel manages.
+    #[command(name = "security:ssh-keys")]
+    SecuritySshKeys,
     /// Create a panel user.
     #[command(name = "users:create")]
     UsersCreate {
@@ -296,6 +329,68 @@ async fn main() -> Result<()> {
             println!("{}", global.as_json(&result));
             Ok(())
         }
+        Command::DbList => {
+            let databases: Vec<Value> = global
+                .call(synthpanel_ipc::methods::DATABASES_LIST, json!({}))
+                .await?;
+            for database in &databases {
+                println!("{}", global.as_json(database));
+            }
+            if databases.is_empty() {
+                eprintln!("no databases yet");
+            }
+            Ok(())
+        }
+        Command::DbCreate {
+            name,
+            engine,
+            username,
+            password,
+        } => {
+            let mut params = json!({ "name": name, "engine": engine });
+            if let Some(username) = username {
+                params["username"] = json!(username);
+            }
+            if let Some(password) = password {
+                params["password"] = json!(password);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::DATABASES_CREATE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DbDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::DATABASES_DELETE,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SecurityFirewall => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SECURITY_FIREWALL, json!({}))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SecurityFail2ban => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SECURITY_FAIL2BAN, json!({}))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SecuritySshKeys => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SECURITY_SSH_KEYS, json!({}))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
         Command::UsersList => {
             let users: Vec<Value> = global
                 .call(synthpanel_ipc::methods::USERS_LIST, json!({}))
@@ -442,6 +537,15 @@ mod tests {
         assert!(matches!(cli.command, Command::SitesAdd { .. }));
         let cli = Cli::try_parse_from(["synthpanel", "users:create", "a@example.com"]).unwrap();
         assert!(matches!(cli.command, Command::UsersCreate { .. }));
+    }
+
+    #[test]
+    fn cli_parses_database_commands() {
+        let cli = Cli::try_parse_from(["synthpanel", "db:list"]).unwrap();
+        assert!(matches!(cli.command, Command::DbList));
+        let cli =
+            Cli::try_parse_from(["synthpanel", "db:create", "shop", "--engine", "mysql"]).unwrap();
+        assert!(matches!(cli.command, Command::DbCreate { .. }));
     }
 
     #[test]
