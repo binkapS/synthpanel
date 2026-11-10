@@ -1,0 +1,30 @@
+[package]
+name = "synthpanel-installer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SynthPanel one-command installer"
+repository.workspace = true
+
+[[bin]]
+name = "synthpanel-installer"
+path = "src/main.rs"
+
+[dependencies]
+synthpanel-ipc = { workspace = true }
+synthpanel-core = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true }
+argon2 = { workspace = true }
+dialoguer = { workspace = true }
+rand = { workspace = true }
+hex = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }

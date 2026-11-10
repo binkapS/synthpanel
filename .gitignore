@@ -1,1 +1,6 @@
 /target
+crates/synthpanel-web/frontend/node_modules/
+crates/synthpanel-web/frontend/dist/
+*.log
+.DS_Store
+cargo-deny

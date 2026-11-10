@@ -1,0 +1,17 @@
+[Unit]
+Description=SynthPanel web UI and REST API
+Wants=synthpanel-core.service
+After=network-online.target synthpanel-core.service
+
+[Service]
+User=synthpanel
+Group=synthpanel
+Type=simple
+EnvironmentFile=/etc/synthpanel/daemon.env
+ExecStart=/usr/local/bin/synthpanel-web
+Restart=on-failure
+RestartSec=2
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

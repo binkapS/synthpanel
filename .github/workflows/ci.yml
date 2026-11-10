@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable
+          rustup default stable
+          rustup component add clippy rustfmt
+
+      - name: Install audit & deny
+        run: |
+          cargo install -q cargo-audit
+          cargo install -q cargo-deny
+
+      - name: Format check
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: cargo-audit
+        run: cargo audit
+
+      - name: cargo-deny
+        run: cargo deny check
+
+      - name: Build release
+        run: cargo build --release --workspace
+
+  frontend:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: crates/synthpanel-web/frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: crates/synthpanel-web/frontend
+        run: npm ci
+
+      - name: Type-check & build
+        working-directory: crates/synthpanel-web/frontend
+        run: |
+          npx svelte-check --tsconfig ./tsconfig.json --fail-on-warn
+          npm run build

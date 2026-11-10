@@ -1,0 +1,10 @@
+Package: synthpanel
+Version: 0.1.0
+Section: admin
+Priority: optional
+Maintainer: SynthPanel contributors <maintainers@synthpanel.io>
+Architecture: amd64
+Description: free, open-source LEMP control panel
+ SynthPanel is a lightweight server control panel written in Rust. It
+ installs and manages Nginx, multi-version PHP-FPM, MariaDB/PostgreSQL
+ and Redis, and exposes a clean web UI, a REST API and a CLI.

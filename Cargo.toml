@@ -1,6 +1,112 @@
-[package]
-name = "synthpanel"
+[workspace]
+resolver = "2"
+members = [
+    "crates/synthpanel-ipc",
+    "crates/synthpanel-core",
+    "crates/synthpanel-web",
+    "crates/synthpanel-cli",
+    "crates/synthpanel-installer",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+license = "AGPL-3.0-only"
+repository = "https://github.com/binkapS/synthpanel"
+authors = ["Binkap S"]
+homepage = "https://synthpanel.io"
 
-[dependencies]
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Errors
+anyhow = "1"
+thiserror = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+time = "0.3"
+
+# IDs
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Database
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "chrono",
+    "uuid",
+    "macros",
+    "migrate",
+] }
+
+# HTTP
+axum = { version = "0.8", features = ["ws", "macros"] }
+axum-server = { version = "0.9", features = ["tls-rustls"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace", "cors", "compression-gzip", "set-header", "request-id"] }
+http = "1"
+http-body-util = "0.1"
+
+# TLS
+rustls = "0.23"
+rustls-pemfile = "2"
+rcgen = "0.14"
+
+# Crypto
+argon2 = "0.5"
+totp-rs = { version = "5", features = ["otpauth"] }
+rand = "0.8"
+sha2 = "0.10"
+hmac = "0.12"
+subtle = "2"
+base32 = "0.5"
+base64 = "0.22"
+hex = "0.4"
+zeroize = { version = "1", features = ["derive"] }
+
+# System metrics
+sysinfo = "0.32"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+indicatif = "0.17"
+dialoguer = "0.11"
+
+# Misc
+libc = "0.2"
+directories = "6"
+include_dir = "0.7"
+mime_guess = "2"
+percent-encoding = "2"
+regex = "1"
+once_cell = "1"
+futures-util = "0.3"
+bytes = "1"
+
+# Internal
+synthpanel-ipc = { path = "crates/synthpanel-ipc", version = "0.1.0" }
+synthpanel-core = { path = "crates/synthpanel-core", version = "0.1.0" }
+
+[profile.release]
+opt-level = 2
+lto = "thin"
+codegen-units = 16
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true

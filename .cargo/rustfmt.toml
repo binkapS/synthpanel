@@ -1,0 +1,1 @@
+exclude = ["/frontend/dist/", "/node_modules/"]
