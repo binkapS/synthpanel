@@ -1,9 +1,14 @@
 //! REST API v1.
 
 pub mod admin;
+pub mod apikeys;
 pub mod auth;
+pub mod backups;
+pub mod cron;
 pub mod dashboard;
 pub mod databases;
+pub mod files;
+pub mod logs;
 pub mod security;
 pub mod sites;
 
@@ -79,6 +84,42 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/api/v1/sites/{id}",
             get(sites::get).patch(sites::update).delete(sites::delete),
+        )
+        .route("/api/v1/backups", get(backups::list))
+        .route("/api/v1/backups/run", post(backups::run))
+        .route("/api/v1/backups/schedules", post(backups::schedule_create))
+        .route(
+            "/api/v1/backups/schedules/{id}",
+            axum::routing::delete(backups::schedule_delete),
+        )
+        .route(
+            "/api/v1/backups/{id}",
+            axum::routing::delete(backups::delete),
+        )
+        .route("/api/v1/backups/{id}/verify", post(backups::verify))
+        .route("/api/v1/backups/{id}/restore", post(backups::restore))
+        .route("/api/v1/backups/{id}/download", get(backups::download))
+        .route("/api/v1/cron", get(cron::list).post(cron::create))
+        .route("/api/v1/cron/describe", get(cron::describe))
+        .route(
+            "/api/v1/cron/{id}",
+            patch(cron::update).delete(cron::delete),
+        )
+        .route("/api/v1/cron/{id}/run", post(cron::run))
+        .route("/api/v1/cron/{id}/runs", get(cron::runs))
+        .route("/api/v1/logs", get(logs::read))
+        .route("/api/v1/logs/sources", get(logs::sources))
+        .route("/api/v1/files", get(files::list).delete(files::delete))
+        .route("/api/v1/files/content", get(files::read).put(files::write))
+        .route("/api/v1/files/dir", post(files::mkdir))
+        .route("/api/v1/files/rename", post(files::rename))
+        .route("/api/v1/files/permissions", patch(files::chmod))
+        .route("/api/v1/files/archive", post(files::archive))
+        .route("/api/v1/files/extract", post(files::extract))
+        .route("/api/v1/api-keys", get(apikeys::list).post(apikeys::create))
+        .route(
+            "/api/v1/api-keys/{id}",
+            axum::routing::delete(apikeys::delete),
         )
         .with_state(state)
 }

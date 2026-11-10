@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { KeyRound, Save, ShieldCheck } from '@lucide/svelte';
+  import { KeyRound, Plus, Save, ShieldCheck, Trash2 } from '@lucide/svelte';
   import { api, ApiError } from '../lib/api';
   import { session, type SessionState } from '../lib/stores';
   import Card from '../lib/components/Card.svelte';
@@ -23,12 +23,67 @@
 
   const totpEnabled = $derived($session?.user.totp_enabled ?? false);
 
+  interface ApiKeyRow {
+    id: string;
+    name: string;
+    prefix: string;
+    scopes: string[];
+    last_used_at: string | null;
+    created_at: string;
+  }
+
+  let apiKeys = $state<ApiKeyRow[]>([]);
+  let keyName = $state('');
+  let keyScopes = $state('read');
+  let createdToken = $state('');
+  let keyError = $state('');
+
+  async function loadApiKeys() {
+    try {
+      const result = await api<{ keys: ApiKeyRow[] }>('/api/v1/api-keys');
+      apiKeys = result.keys ?? [];
+    } catch {
+      apiKeys = [];
+    }
+  }
+
+  async function createApiKey() {
+    keyError = '';
+    createdToken = '';
+    try {
+      const scopes = keyScopes
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const result = await api<{ token: string }>('/api/v1/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ name: keyName, scopes }),
+      });
+      createdToken = result.token;
+      keyName = '';
+      await loadApiKeys();
+    } catch (err) {
+      keyError = err instanceof ApiError ? err.message : 'Unable to create the API key';
+    }
+  }
+
+  async function deleteApiKey(key: ApiKeyRow) {
+    if (!confirm(`Revoke API key ${key.name}?`)) return;
+    try {
+      await api(`/api/v1/api-keys/${key.id}`, { method: 'DELETE' });
+      await loadApiKeys();
+    } catch (err) {
+      keyError = err instanceof ApiError ? err.message : 'Unable to revoke the API key';
+    }
+  }
+
   onMount(async () => {
     try {
       settings = await api<Settings>('/api/v1/settings');
       hostname = String(settings.hostname ?? '');
       timezone = String(settings.timezone ?? 'UTC');
       locale = String(settings.locale ?? 'en');
+      await loadApiKeys();
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'Unable to load settings';
     }
@@ -193,6 +248,63 @@
       {/if}
       {#if twoFactorError}
         <p class="text-sm text-rose-600 dark:text-rose-400">{twoFactorError}</p>
+      {/if}
+    </div>
+  </Card>
+
+  <Card title="API keys" subtitle="scoped bearer tokens for the REST API">
+    <div class="space-y-4">
+      <form
+        class="grid gap-3 sm:grid-cols-3"
+        onsubmit={(event) => {
+          event.preventDefault();
+          createApiKey();
+        }}
+      >
+        <div>
+          <label class="label" for="key-name">Name</label>
+          <input id="key-name" class="input" bind:value={keyName} placeholder="CI deploy" required />
+        </div>
+        <div>
+          <label class="label" for="key-scopes">Scopes</label>
+          <input id="key-scopes" class="input" bind:value={keyScopes} placeholder="read,write" />
+        </div>
+        <div class="flex items-end">
+          <button class="btn-primary" type="submit" disabled={!keyName.trim()}>
+            <Plus size={15} />
+            Create key
+          </button>
+        </div>
+      </form>
+
+      {#if createdToken}
+        <div class="rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300">
+          <p class="font-medium">Copy this token now — it is shown once.</p>
+          <pre class="mt-1 overflow-x-auto font-mono text-xs">{createdToken}</pre>
+        </div>
+      {/if}
+      {#if keyError}
+        <p class="text-sm text-rose-600 dark:text-rose-400">{keyError}</p>
+      {/if}
+
+      {#if apiKeys.length === 0}
+        <p class="text-sm text-slate-500 dark:text-slate-400">No API keys yet.</p>
+      {:else}
+        <ul class="divide-y divide-slate-100 dark:divide-slate-800">
+          {#each apiKeys as key (key.id)}
+            <li class="flex items-center justify-between gap-3 py-2 text-sm">
+              <div>
+                <p class="font-medium">{key.name}</p>
+                <p class="font-mono text-xs text-slate-500 dark:text-slate-400">
+                  {key.prefix}… · {(key.scopes ?? []).join(', ') || 'read'}
+                </p>
+              </div>
+              <button class="btn-secondary px-2.5 text-rose-600 dark:text-rose-400" aria-label="Revoke {key.name}" onclick={() => deleteApiKey(key)}>
+                <Trash2 size={15} />
+              </button>
+            </li>
+          {/each}
+        </ul>
       {/if}
     </div>
   </Card>

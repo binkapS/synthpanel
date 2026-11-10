@@ -141,6 +141,43 @@ pub mod methods {
     pub const SECURITY_SSH_KEYS: &str = "security.ssh_keys";
     pub const SECURITY_SSH_KEY_ADD: &str = "security.ssh_key.add";
     pub const SECURITY_SSH_KEY_REMOVE: &str = "security.ssh_key.remove";
+
+    pub const BACKUPS_LIST: &str = "backups.list";
+    pub const BACKUPS_CREATE: &str = "backups.create";
+    pub const BACKUPS_DELETE: &str = "backups.delete";
+    pub const BACKUPS_VERIFY: &str = "backups.verify";
+    pub const BACKUPS_RESTORE: &str = "backups.restore";
+    pub const BACKUPS_DOWNLOAD: &str = "backups.download";
+    pub const BACKUPS_SCHEDULES: &str = "backups.schedules";
+    pub const BACKUPS_SCHEDULE_CREATE: &str = "backups.schedule.create";
+    pub const BACKUPS_SCHEDULE_DELETE: &str = "backups.schedule.delete";
+
+    pub const CRON_LIST: &str = "cron.list";
+    pub const CRON_CREATE: &str = "cron.create";
+    pub const CRON_UPDATE: &str = "cron.update";
+    pub const CRON_DELETE: &str = "cron.delete";
+    pub const CRON_RUN: &str = "cron.run";
+    pub const CRON_RUNS: &str = "cron.runs";
+    pub const CRON_DESCRIBE: &str = "cron.describe";
+
+    pub const LOGS_SOURCES: &str = "logs.sources";
+    pub const LOGS_READ: &str = "logs.read";
+    pub const LOGS_TAIL: &str = "logs.tail";
+
+    pub const FILES_LIST: &str = "files.list";
+    pub const FILES_READ: &str = "files.read";
+    pub const FILES_WRITE: &str = "files.write";
+    pub const FILES_MKDIR: &str = "files.mkdir";
+    pub const FILES_RENAME: &str = "files.rename";
+    pub const FILES_DELETE: &str = "files.delete";
+    pub const FILES_CHMOD: &str = "files.chmod";
+    pub const FILES_ARCHIVE: &str = "files.archive";
+    pub const FILES_EXTRACT: &str = "files.extract";
+
+    pub const API_KEYS_LIST: &str = "api_keys.list";
+    pub const API_KEYS_CREATE: &str = "api_keys.create";
+    pub const API_KEYS_DELETE: &str = "api_keys.delete";
+    pub const API_KEYS_VERIFY: &str = "api_keys.verify";
 }
 
 /// Well-known error codes.

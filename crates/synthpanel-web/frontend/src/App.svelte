@@ -3,9 +3,13 @@
   import { currentPath } from './lib/router';
   import { loadSession, loading, session } from './lib/stores';
   import AppShell from './lib/components/AppShell.svelte';
+  import Backups from './routes/Backups.svelte';
+  import Cron from './routes/Cron.svelte';
   import Dashboard from './routes/Dashboard.svelte';
   import Databases from './routes/Databases.svelte';
+  import Files from './routes/Files.svelte';
   import Login from './routes/Login.svelte';
+  import Logs from './routes/Logs.svelte';
   import Placeholder from './routes/Placeholder.svelte';
   import Security from './routes/Security.svelte';
   import Settings from './routes/Settings.svelte';
@@ -31,11 +35,15 @@
         return Databases;
       case '/security':
         return Security;
-      case '/php':
       case '/backups':
+        return Backups;
       case '/cron':
+        return Cron;
       case '/logs':
+        return Logs;
       case '/files':
+        return Files;
+      case '/php':
         return Placeholder;
       default:
         return Placeholder;

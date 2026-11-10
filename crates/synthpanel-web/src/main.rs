@@ -11,6 +11,10 @@ use tracing::info;
 async fn main() -> Result<()> {
     init_tracing();
 
+    // reqwest and axum-server can pull in both rustls providers; choose one
+    // explicitly so the process-level default is deterministic.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let config = WebConfig::from_env();
     std::fs::create_dir_all(&config.tls_dir).context("failed to create the TLS directory")?;
 

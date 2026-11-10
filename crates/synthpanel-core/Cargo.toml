@@ -32,3 +32,9 @@ libc = { workspace = true }
 regex = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
+tar = { workspace = true }
+flate2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+reqwest = { workspace = true }
+rustls = { workspace = true }
+hmac = { workspace = true }

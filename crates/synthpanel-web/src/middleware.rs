@@ -76,6 +76,18 @@ pub async fn csrf_guard(
         return next.run(request).await;
     }
 
+    // Bearer-token API clients are not vulnerable to CSRF: the token is never
+    // attached automatically by a browser.
+    if request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.starts_with("Bearer "))
+        .unwrap_or(false)
+    {
+        return next.run(request).await;
+    }
+
     let session_token = request
         .headers()
         .get(header::COOKIE)

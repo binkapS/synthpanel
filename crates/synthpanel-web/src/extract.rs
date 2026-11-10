@@ -48,6 +48,42 @@ impl FromRequestParts<std::sync::Arc<AppState>> for AuthUser {
         parts: &mut Parts,
         state: &std::sync::Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
+        let ip = parts
+            .headers
+            .get("x-forwarded-for")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(',').next())
+            .map(|value| value.trim().to_string())
+            .unwrap_or_default();
+
+        // API keys take precedence: a bearer token is explicit and is never
+        // sent automatically by a browser, so CSRF does not apply.
+        if let Some(authorization) = parts
+            .headers
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+        {
+            if let Some(token) = authorization.strip_prefix("Bearer ") {
+                let record: serde_json::Value = state
+                    .core_call(
+                        synthpanel_ipc::methods::API_KEYS_VERIFY,
+                        serde_json::json!({ "token": token.trim() }),
+                    )
+                    .await
+                    .map_err(|_| ApiError::unauthorized("invalid API key"))?;
+                let user_id = record
+                    .get("user_id")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| ApiError::unauthorized("invalid API key"))?;
+                return Ok(AuthUser {
+                    user_id: user_id.to_string(),
+                    token: token.trim().to_string(),
+                    csrf: String::new(),
+                    ip,
+                });
+            }
+        }
+
         let token = parts
             .headers
             .get(axum::http::header::COOKIE)

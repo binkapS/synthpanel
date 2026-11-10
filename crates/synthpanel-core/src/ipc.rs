@@ -13,6 +13,7 @@ use crate::settings::Settings;
 use crate::sites::{self, CreateSite, SitePatch};
 use crate::users::{self, CreateUser, UserPatch};
 use serde_json::{Value, json};
+use std::path::PathBuf;
 use std::time::Instant;
 use subtle::ConstantTimeEq;
 use synthpanel_ipc::{Envelope, Error, MAX_LINE, Response, codes, methods};
@@ -335,7 +336,13 @@ impl IpcServer {
                     .get("document_root")
                     .and_then(Value::as_str)
                     .map(str::to_string)
-                    .unwrap_or_else(|| format!("/var/www/sp_{domain}"));
+                    .unwrap_or_else(|| {
+                        self.paths
+                            .www_dir
+                            .join(format!("sp_{domain}"))
+                            .to_string_lossy()
+                            .to_string()
+                    });
                 let template = params
                     .get("template")
                     .and_then(Value::as_str)
@@ -370,6 +377,12 @@ impl IpcServer {
                     directives,
                 };
                 let site = self.stores.sites.create(input).await.map_err(internal)?;
+                // Provision the document root so the site can serve files
+                // immediately. Best-effort: a permission problem must not
+                // leave the record half-created.
+                if let Err(error) = std::fs::create_dir_all(&site.document_root) {
+                    warn!(root = %site.document_root, %error, "cannot create the document root");
+                }
                 let extras = self
                     .stores
                     .sites
@@ -1028,6 +1041,592 @@ impl IpcServer {
                 Ok(json!({ "removed": true }))
             }
 
+            methods::BACKUPS_LIST => {
+                let limit = param_i64(params, "limit", 100)?.clamp(1, 500);
+                let rows = self.backup_rows(limit).await?;
+                Ok(Value::Array(rows.iter().map(backup_value).collect()))
+            }
+            methods::BACKUPS_CREATE => {
+                let plan = self.backup_plan(params).await?;
+                let result = crate::backup::create_backup(&plan)
+                    .await
+                    .map_err(internal)?;
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO backups
+                     (id, kind, status, size, location, schedule_id, error, created_at,
+                      name, site_id, checksum, encrypted, entries_json, duration_ms)
+                     VALUES (?, ?, 'ok', ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)",
+                )
+                .bind(&result.id)
+                .bind(match plan.kind {
+                    crate::backup::Kind::Full => "full",
+                    crate::backup::Kind::Site => "site",
+                })
+                .bind(result.size as i64)
+                .bind(&result.location)
+                .bind(opt_str(params, "schedule_id"))
+                .bind(&now)
+                .bind(&result.name)
+                .bind(plan.site_id.as_deref())
+                .bind(&result.checksum)
+                .bind(if result.encrypted { 1i64 } else { 0i64 })
+                .bind(serde_json::to_string(&result.entries).map_err(internal)?)
+                .bind(result.duration_ms as i64)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "backups.create",
+                    plan.site_domain.as_deref(),
+                    &json!({ "id": result.id, "size": result.size }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(result).map_err(internal)?)
+            }
+            methods::BACKUPS_DELETE => {
+                let id = param_str(params, "id")?;
+                let row = self.backup_row(id).await?;
+                let Some(row) = row else {
+                    return Err(Error::new(codes::NOT_FOUND, "backup not found"));
+                };
+                sqlx::query("DELETE FROM backups WHERE id = ?")
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                // Remove the local archive when it lives under the backup
+                // directory; never touch arbitrary paths.
+                if let Ok(path) = std::fs::canonicalize(&row.location) {
+                    if let Ok(root) = std::fs::canonicalize(&self.paths.backup_dir) {
+                        if path.starts_with(&root) {
+                            let _ = std::fs::remove_file(&path);
+                        }
+                    }
+                }
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "backups.delete",
+                    Some(row.name.as_str()),
+                    &json!({ "id": id }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "removed": true }))
+            }
+            methods::BACKUPS_VERIFY => {
+                let id = param_str(params, "id")?;
+                let row = self
+                    .backup_row(id)
+                    .await?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "backup not found"))?;
+                let archive = self.fetch_archive(&row, params).await?;
+                let manifest = crate::backup::verify_archive(&archive).map_err(internal)?;
+                if let Some(parent) = archive.parent() {
+                    if parent.starts_with(&self.paths.backup_dir) {
+                        let _ = std::fs::remove_dir_all(
+                            parent
+                                .join(format!("restore-{}", manifest.created_at.replace(':', "-"))),
+                        );
+                    }
+                }
+                Ok(json!({ "verified": true, "manifest": manifest }))
+            }
+            methods::BACKUPS_RESTORE => {
+                let id = param_str(params, "id")?;
+                let row = self
+                    .backup_row(id)
+                    .await?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "backup not found"))?;
+                let archive = self.fetch_archive(&row, params).await?;
+                let apply = crate::apply::Paths::from_env();
+                let pool_dir = apply
+                    .php_pools
+                    .first()
+                    .and_then(|path| path.parent().map(|p| p.to_path_buf()))
+                    .unwrap_or_else(|| self.paths.etc_dir.join("php"));
+                let result = crate::backup::restore_archive(
+                    &archive,
+                    &apply.nginx_vhosts,
+                    &pool_dir,
+                    &self.paths.www_dir,
+                )
+                .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "backups.restore",
+                    Some(row.name.as_str()),
+                    &json!({ "id": id, "entries": result.restored.len() }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(result).map_err(internal)?)
+            }
+            methods::BACKUPS_DOWNLOAD => {
+                let id = param_str(params, "id")?;
+                let row = self
+                    .backup_row(id)
+                    .await?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "backup not found"))?;
+                let archive = self.fetch_archive(&row, params).await?;
+                let downloads = self.paths.lib_dir.join("downloads");
+                std::fs::create_dir_all(&downloads).map_err(internal)?;
+                let name = if row.name.is_empty() {
+                    archive
+                        .file_name()
+                        .map(|value| value.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "backup.tar.gz".into())
+                } else {
+                    row.name.clone()
+                };
+                let target = downloads.join(format!("{id}-{name}"));
+                std::fs::copy(&archive, &target).map_err(internal)?;
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644));
+                Ok(json!({
+                    "path": target.to_string_lossy(),
+                    "name": name,
+                }))
+            }
+            methods::BACKUPS_SCHEDULES => {
+                let rows = sqlx::query_as::<_, BackupScheduleRow>(
+                    "SELECT id, name, cron, destination_json, retention_json, enabled, created_at
+                     FROM backup_sched ORDER BY created_at",
+                )
+                .fetch_all(&self.pool)
+                .await
+                .map_err(internal)?;
+                Ok(Value::Array(
+                    rows.iter().map(backup_schedule_value).collect(),
+                ))
+            }
+            methods::BACKUPS_SCHEDULE_CREATE => {
+                let name = param_str(params, "name")?;
+                let cron = param_str(params, "cron")?;
+                crate::cron::Schedule::parse(cron).map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid schedule: {error}"))
+                })?;
+                let destination = params.get("destination").cloned().unwrap_or_else(
+                    || json!({ "type": "local", "path": self.paths.backup_dir.join("archives") }),
+                );
+                let destination: crate::backup::Destination = serde_json::from_value(destination)
+                    .map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid destination: {error}"))
+                })?;
+                destination.validate().map_err(internal)?;
+                let retention = params.get("retention").cloned().unwrap_or(json!({
+                    "daily": 7,
+                    "weekly": 4,
+                    "monthly": 6,
+                }));
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO backup_sched
+                     (id, name, cron, destination_json, retention_json, enabled, created_at)
+                     VALUES (?, ?, ?, ?, ?, 1, ?)",
+                )
+                .bind(&id)
+                .bind(name)
+                .bind(cron)
+                .bind(serde_json::to_string(&destination).map_err(internal)?)
+                .bind(serde_json::to_string(&retention).map_err(internal)?)
+                .bind(&now)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                Ok(json!({ "id": id, "name": name, "cron": cron }))
+            }
+            methods::BACKUPS_SCHEDULE_DELETE => {
+                let id = param_str(params, "id")?;
+                let result = sqlx::query("DELETE FROM backup_sched WHERE id = ?")
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                if result.rows_affected() == 0 {
+                    return Err(Error::new(codes::NOT_FOUND, "schedule not found"));
+                }
+                Ok(json!({ "removed": true }))
+            }
+
+            methods::CRON_LIST => {
+                let jobs = crate::cron::list_jobs(&self.pool).await.map_err(internal)?;
+                let out: Vec<Value> = jobs
+                    .iter()
+                    .map(|job| {
+                        let next_run = crate::cron::Schedule::parse(&job.expression)
+                            .ok()
+                            .and_then(|schedule| schedule.next_run(chrono::Utc::now()))
+                            .map(|value| value.to_rfc3339());
+                        json!({
+                            "id": job.id,
+                            "site_id": job.site_id,
+                            "user": job.user,
+                            "expression": job.expression,
+                            "command": job.command,
+                            "last_run_at": job.last_run_at,
+                            "last_status": job.last_status,
+                            "created_at": job.created_at,
+                            "next_run": next_run,
+                        })
+                    })
+                    .collect();
+                Ok(Value::Array(out))
+            }
+            methods::CRON_CREATE => {
+                let expression = param_str(params, "expression")?;
+                crate::cron::Schedule::parse(expression).map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid expression: {error}"))
+                })?;
+                let command = param_str(params, "command")?;
+                if command.trim().is_empty() {
+                    return Err(Error::new(codes::BAD_REQUEST, "the command is empty"));
+                }
+                let user = opt_str(params, "user").unwrap_or("www-data");
+                let site_id = opt_str(params, "site_id");
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO cron_jobs
+                     (id, site_id, user, expression, command, last_run_at, last_status, created_at)
+                     VALUES (?, ?, ?, ?, ?, NULL, NULL, ?)",
+                )
+                .bind(&id)
+                .bind(site_id)
+                .bind(user)
+                .bind(expression)
+                .bind(command)
+                .bind(&now)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                self.sync_crontab().await?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "cron.create",
+                    Some(command),
+                    &json!({ "id": id, "expression": expression }),
+                    None,
+                )
+                .await;
+                Ok(json!({ "id": id }))
+            }
+            methods::CRON_UPDATE => {
+                let id = param_str(params, "id")?;
+                let existing = sqlx::query_as::<_, crate::cron::CronJob>(
+                    "SELECT id, site_id, user, expression, command, last_run_at, last_status, created_at
+                     FROM cron_jobs WHERE id = ?",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(internal)?
+                .ok_or_else(|| Error::new(codes::NOT_FOUND, "cron job not found"))?;
+                let expression = opt_str(params, "expression").unwrap_or(&existing.expression);
+                crate::cron::Schedule::parse(expression).map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid expression: {error}"))
+                })?;
+                let command = opt_str(params, "command").unwrap_or(&existing.command);
+                let user = opt_str(params, "user").unwrap_or(&existing.user);
+                let site_id = match params.get("site_id") {
+                    Some(Value::Null) => None,
+                    Some(value) => value.as_str().map(str::to_string),
+                    None => existing.site_id.clone(),
+                };
+                sqlx::query(
+                    "UPDATE cron_jobs SET site_id = ?, user = ?, expression = ?, command = ?
+                     WHERE id = ?",
+                )
+                .bind(site_id)
+                .bind(user)
+                .bind(expression)
+                .bind(command)
+                .bind(id)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                self.sync_crontab().await?;
+                Ok(json!({ "updated": true }))
+            }
+            methods::CRON_DELETE => {
+                let id = param_str(params, "id")?;
+                let result = sqlx::query("DELETE FROM cron_jobs WHERE id = ?")
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                if result.rows_affected() == 0 {
+                    return Err(Error::new(codes::NOT_FOUND, "cron job not found"));
+                }
+                self.sync_crontab().await?;
+                Ok(json!({ "removed": true }))
+            }
+            methods::CRON_RUN => {
+                let id = param_str(params, "id")?;
+                let job = sqlx::query_as::<_, crate::cron::CronJob>(
+                    "SELECT id, site_id, user, expression, command, last_run_at, last_status, created_at
+                     FROM cron_jobs WHERE id = ?",
+                )
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(internal)?
+                .ok_or_else(|| Error::new(codes::NOT_FOUND, "cron job not found"))?;
+                let record = crate::cron::run_job(&self.pool, &job)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(record).map_err(internal)?)
+            }
+            methods::CRON_RUNS => {
+                let job_id = param_str(params, "job_id")?;
+                let limit = param_i64(params, "limit", 20)?;
+                let runs = crate::cron::list_runs(&self.pool, job_id, limit)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(runs).map_err(internal)?)
+            }
+            methods::CRON_DESCRIBE => {
+                let expression = param_str(params, "expression")?;
+                let description = crate::cron::describe(expression).map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid expression: {error}"))
+                })?;
+                Ok(serde_json::to_value(description).map_err(internal)?)
+            }
+
+            methods::LOGS_SOURCES => Ok(self.log_sources()),
+            methods::LOGS_READ => {
+                let source = param_str(params, "source")?;
+                let source = crate::logs::LogSource::parse(source)
+                    .ok_or_else(|| Error::new(codes::BAD_REQUEST, "unknown log source"))?;
+                let paths = crate::logs::LogPaths::from_env();
+                let path = paths
+                    .resolve(source, opt_str(params, "site_id"))
+                    .map_err(internal)?;
+                let filters = crate::logs::Filters {
+                    search: opt_str(params, "search").map(str::to_string),
+                    status: params
+                        .get("status")
+                        .and_then(Value::as_u64)
+                        .map(|value| value as u16),
+                    level: opt_str(params, "level").map(str::to_string),
+                    since_minutes: params.get("since_minutes").and_then(Value::as_i64),
+                    limit: param_i64(params, "limit", 500)?.clamp(1, 5000) as usize,
+                };
+                let lines = crate::logs::read_log(&path, &filters).map_err(internal)?;
+                Ok(json!({
+                    "path": path.to_string_lossy(),
+                    "lines": lines,
+                }))
+            }
+            methods::LOGS_TAIL => {
+                let source = param_str(params, "source")?;
+                let source = crate::logs::LogSource::parse(source)
+                    .ok_or_else(|| Error::new(codes::BAD_REQUEST, "unknown log source"))?;
+                let paths = crate::logs::LogPaths::from_env();
+                let path = paths
+                    .resolve(source, opt_str(params, "site_id"))
+                    .map_err(internal)?;
+                let offset = params.get("offset").and_then(Value::as_u64).unwrap_or(0);
+                let lines = param_i64(params, "lines", 200)?.clamp(1, 2000) as usize;
+                Ok(self.tail_file(&path, offset, lines))
+            }
+
+            methods::FILES_LIST => {
+                let sandbox = self.file_sandbox(params)?;
+                let listing = sandbox
+                    .list(opt_str(params, "path").unwrap_or(""))
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(listing).map_err(internal)?)
+            }
+            methods::FILES_READ => {
+                let sandbox = self.file_sandbox(params)?;
+                let path = param_str(params, "path")?;
+                let bytes = sandbox.read_file(path).map_err(internal)?;
+                if bytes.len() > 8 * 1024 * 1024 {
+                    return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
+                }
+                let (content, encoding) = match String::from_utf8(bytes.clone()) {
+                    Ok(text) => (text, "utf-8"),
+                    Err(_) => (
+                        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &bytes),
+                        "base64",
+                    ),
+                };
+                Ok(json!({
+                    "path": path,
+                    "content": content,
+                    "encoding": encoding,
+                    "size": bytes.len(),
+                }))
+            }
+            methods::FILES_WRITE => {
+                let sandbox = self.file_sandbox(params)?;
+                let path = param_str(params, "path")?;
+                let bytes = if let Some(encoded) = opt_str(params, "content_base64") {
+                    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+                        .map_err(|_| Error::new(codes::BAD_REQUEST, "invalid base64 content"))?
+                } else {
+                    param_str(params, "content")?.as_bytes().to_vec()
+                };
+                if bytes.len() > 16 * 1024 * 1024 {
+                    return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
+                }
+                sandbox.write_file(path, &bytes).map_err(internal)?;
+                Ok(json!({ "written": bytes.len() }))
+            }
+            methods::FILES_MKDIR => {
+                let sandbox = self.file_sandbox(params)?;
+                sandbox
+                    .create_dir(param_str(params, "path")?)
+                    .map_err(internal)?;
+                Ok(json!({ "created": true }))
+            }
+            methods::FILES_RENAME => {
+                let sandbox = self.file_sandbox(params)?;
+                sandbox
+                    .rename(param_str(params, "from")?, param_str(params, "to")?)
+                    .map_err(internal)?;
+                Ok(json!({ "renamed": true }))
+            }
+            methods::FILES_DELETE => {
+                let sandbox = self.file_sandbox(params)?;
+                let removed = sandbox
+                    .delete(param_str(params, "path")?)
+                    .map_err(internal)?;
+                Ok(json!({ "removed": removed }))
+            }
+            methods::FILES_CHMOD => {
+                let sandbox = self.file_sandbox(params)?;
+                let path = param_str(params, "path")?;
+                if let Some(mode) = opt_str(params, "mode") {
+                    let mode = u32::from_str_radix(mode.trim_start_matches('0'), 8)
+                        .map_err(|_| Error::new(codes::BAD_REQUEST, "invalid octal mode"))?;
+                    sandbox.chmod(path, mode).map_err(internal)?;
+                }
+                sandbox
+                    .chown(path, opt_str(params, "owner"), opt_str(params, "group"))
+                    .map_err(internal)?;
+                Ok(json!({ "updated": true }))
+            }
+            methods::FILES_ARCHIVE => {
+                let sandbox = self.file_sandbox(params)?;
+                let format = match opt_str(params, "format").unwrap_or("tar.gz") {
+                    "zip" => crate::files::ArchiveFormat::Zip,
+                    "tar.gz" | "tgz" => crate::files::ArchiveFormat::TarGz,
+                    other => {
+                        return Err(Error::new(
+                            codes::BAD_REQUEST,
+                            format!("unsupported archive format `{other}`"),
+                        ));
+                    }
+                };
+                let (name, size) = sandbox
+                    .archive(param_str(params, "path")?, format)
+                    .map_err(internal)?;
+                Ok(json!({ "path": name, "size": size }))
+            }
+            methods::FILES_EXTRACT => {
+                let sandbox = self.file_sandbox(params)?;
+                let entries = sandbox
+                    .extract(
+                        param_str(params, "path")?,
+                        opt_str(params, "into").unwrap_or(""),
+                    )
+                    .map_err(internal)?;
+                Ok(json!({ "entries": entries }))
+            }
+
+            methods::API_KEYS_LIST => {
+                let user_id = opt_str(params, "user_id");
+                let rows = sqlx::query_as::<_, ApiKeyRow>(
+                    "SELECT id, user_id, name, prefix, hash, scopes_json, last_used_at, created_at
+                     FROM api_keys
+                     WHERE (? IS NULL OR user_id = ?)
+                     ORDER BY created_at DESC",
+                )
+                .bind(user_id)
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(internal)?;
+                Ok(Value::Array(rows.iter().map(api_key_value).collect()))
+            }
+            methods::API_KEYS_CREATE => {
+                let user_id = param_str(params, "user_id")?;
+                let name = param_str(params, "name")?;
+                let scopes = params
+                    .get("scopes")
+                    .cloned()
+                    .unwrap_or_else(|| json!(["read"]));
+                let (token, prefix, hash) = generate_api_key();
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = chrono::Utc::now().to_rfc3339();
+                sqlx::query(
+                    "INSERT INTO api_keys
+                     (id, user_id, name, prefix, hash, scopes_json, last_used_at, created_at)
+                     VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+                )
+                .bind(&id)
+                .bind(user_id)
+                .bind(name)
+                .bind(&prefix)
+                .bind(&hash)
+                .bind(serde_json::to_string(&scopes).map_err(internal)?)
+                .bind(&now)
+                .execute(&self.pool)
+                .await
+                .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    Some(user_id),
+                    None,
+                    "api_keys.create",
+                    Some(name),
+                    &json!({ "id": id, "prefix": prefix }),
+                    None,
+                )
+                .await;
+                // The plaintext token is returned exactly once.
+                Ok(json!({
+                    "id": id,
+                    "name": name,
+                    "prefix": prefix,
+                    "token": token,
+                    "scopes": scopes,
+                }))
+            }
+            methods::API_KEYS_DELETE => {
+                let id = param_str(params, "id")?;
+                let result = sqlx::query("DELETE FROM api_keys WHERE id = ?")
+                    .bind(id)
+                    .execute(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                if result.rows_affected() == 0 {
+                    return Err(Error::new(codes::NOT_FOUND, "API key not found"));
+                }
+                Ok(json!({ "removed": true }))
+            }
+            methods::API_KEYS_VERIFY => {
+                let token = param_str(params, "token")?;
+                let record = self.verify_api_key(token).await?;
+                match record {
+                    Some(row) => Ok(api_key_value(&row)),
+                    None => Err(Error::new(codes::UNAUTHORIZED, "invalid API key")),
+                }
+            }
+
             other => Err(Error::new(
                 codes::UNSUPPORTED,
                 format!("unknown method `{other}`"),
@@ -1081,6 +1680,386 @@ impl IpcServer {
         }
         Ok(())
     }
+}
+
+impl IpcServer {
+    async fn backup_rows(&self, limit: i64) -> Result<Vec<BackupRow>, Error> {
+        sqlx::query_as::<_, BackupRow>(
+            "SELECT id, kind, status, size, location, schedule_id, error, created_at,
+                    name, site_id, checksum, encrypted, entries_json, duration_ms
+             FROM backups ORDER BY created_at DESC LIMIT ?",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(internal)
+    }
+
+    async fn backup_row(&self, id: &str) -> Result<Option<BackupRow>, Error> {
+        sqlx::query_as::<_, BackupRow>(
+            "SELECT id, kind, status, size, location, schedule_id, error, created_at,
+                    name, site_id, checksum, encrypted, entries_json, duration_ms
+             FROM backups WHERE id = ?",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal)
+    }
+
+    async fn backup_plan(&self, params: &Value) -> Result<crate::backup::BackupPlan, Error> {
+        let kind = match opt_str(params, "kind").unwrap_or("full") {
+            "site" => crate::backup::Kind::Site,
+            "full" => crate::backup::Kind::Full,
+            other => {
+                return Err(Error::new(
+                    codes::BAD_REQUEST,
+                    format!("unknown backup kind `{other}`"),
+                ));
+            }
+        };
+        let site_id = opt_str(params, "site_id").map(str::to_string);
+        if kind == crate::backup::Kind::Site && site_id.is_none() {
+            return Err(Error::new(
+                codes::BAD_REQUEST,
+                "a site backup needs a site_id",
+            ));
+        }
+        let site = match &site_id {
+            Some(id) => self.stores.sites.get(id).await.map_err(internal)?,
+            None => None,
+        };
+        if kind == crate::backup::Kind::Site && site.is_none() {
+            return Err(Error::new(codes::NOT_FOUND, "site not found"));
+        }
+        let contents = match params.get("contents") {
+            Some(value) => serde_json::from_value::<crate::backup::Contents>(value.clone())
+                .map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid contents: {error}"))
+                })?,
+            None => crate::backup::Contents::default(),
+        };
+        let destination = match params.get("destination") {
+            Some(value) => serde_json::from_value::<crate::backup::Destination>(value.clone())
+                .map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid destination: {error}"))
+                })?,
+            None => crate::backup::Destination::Local {
+                path: self.paths.backup_dir.join("archives"),
+            },
+        };
+        destination.validate().map_err(internal)?;
+        let apply = crate::apply::Paths::from_env();
+        let pool_dir = apply
+            .php_pools
+            .first()
+            .and_then(|path| path.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_else(|| self.paths.etc_dir.join("php"));
+        Ok(crate::backup::BackupPlan {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind,
+            site_id,
+            site_domain: site.as_ref().map(|site| site.domain.clone()),
+            site_root: site
+                .as_ref()
+                .map(|site| std::path::PathBuf::from(&site.document_root)),
+            contents,
+            destination,
+            passphrase: opt_str(params, "passphrase")
+                .filter(|value| !value.is_empty())
+                .map(str::to_string),
+            staging_dir: self.paths.backup_dir.join("staging"),
+            vhost_dir: apply.nginx_vhosts,
+            pool_dir,
+            www_dir: self.paths.www_dir.clone(),
+        })
+    }
+
+    /// Return a local path to the archive, downloading and decrypting it when
+    /// necessary.
+    async fn fetch_archive(&self, row: &BackupRow, params: &Value) -> Result<PathBuf, Error> {
+        let candidate = PathBuf::from(&row.location);
+        let archive = if candidate.is_file() {
+            candidate
+        } else {
+            let destination = params.get("destination").cloned().ok_or_else(|| {
+                Error::new(
+                    codes::BAD_REQUEST,
+                    "the archive is remote; a destination is required",
+                )
+            })?;
+            let destination: crate::backup::Destination = serde_json::from_value(destination)
+                .map_err(|error| {
+                    Error::new(codes::BAD_REQUEST, format!("invalid destination: {error}"))
+                })?;
+            let staging = self.paths.backup_dir.join("staging");
+            std::fs::create_dir_all(&staging).map_err(internal)?;
+            let name = row
+                .name
+                .rsplit('/')
+                .next()
+                .filter(|name| !name.is_empty())
+                .unwrap_or(&row.name);
+            let target = staging.join(name);
+            crate::backup::download(&destination, &row.location, &target)
+                .await
+                .map_err(internal)?;
+            target
+        };
+
+        if row.encrypted != 0 {
+            let passphrase = opt_str(params, "passphrase").ok_or_else(|| {
+                Error::new(
+                    codes::BAD_REQUEST,
+                    "the backup is encrypted; a passphrase is required",
+                )
+            })?;
+            let decrypted = archive.with_extension("decrypted.tar.gz");
+            crate::backup::decrypt_file(&archive, &decrypted, passphrase).map_err(internal)?;
+            Ok(decrypted)
+        } else {
+            Ok(archive)
+        }
+    }
+
+    async fn sync_crontab(&self) -> Result<(), Error> {
+        crate::cron::sync_crontab(&self.pool, &crate::cron::crontab_dir())
+            .await
+            .map_err(internal)?;
+        Ok(())
+    }
+
+    fn file_sandbox(&self, params: &Value) -> Result<crate::files::Sandbox, Error> {
+        let scope = opt_str(params, "scope").unwrap_or("www");
+        let root = match scope {
+            "www" | "" => self.paths.www_dir.clone(),
+            "etc" => self.paths.etc_dir.clone(),
+            "backups" => self.paths.backup_dir.clone(),
+            "logs" => self.paths.log_dir.clone(),
+            other => {
+                return Err(Error::new(
+                    codes::BAD_REQUEST,
+                    format!("unknown file scope `{other}`"),
+                ));
+            }
+        };
+        Ok(crate::files::Sandbox::new(root))
+    }
+
+    fn log_sources(&self) -> Value {
+        let paths = crate::logs::LogPaths::from_env();
+        let sources = [
+            ("panel", "Panel", false, paths.panel_log.exists()),
+            (
+                "nginx-access",
+                "Nginx access",
+                true,
+                paths.nginx_logs.exists(),
+            ),
+            (
+                "nginx-error",
+                "Nginx error",
+                true,
+                paths.nginx_logs.exists(),
+            ),
+            ("php-fpm", "PHP-FPM", true, paths.php_logs.exists()),
+            ("auth", "System auth", false, paths.auth_log.exists()),
+        ];
+        Value::Array(
+            sources
+                .iter()
+                .map(|(id, label, site, available)| {
+                    json!({
+                        "id": id,
+                        "label": label,
+                        "requires_site": site,
+                        "available": available,
+                    })
+                })
+                .collect(),
+        )
+    }
+
+    fn tail_file(&self, path: &std::path::Path, offset: u64, lines: usize) -> Value {
+        use std::io::{Read, Seek, SeekFrom};
+
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                return json!({ "offset": 0, "lines": [], "reset": false, "missing": true });
+            }
+        };
+        let len = metadata.len();
+        let reset = len < offset;
+        let start = if offset == 0 || reset {
+            len.saturating_sub(64 * 1024)
+        } else {
+            offset
+        };
+        let mut file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(_) => {
+                return json!({ "offset": len, "lines": [], "reset": reset, "missing": true });
+            }
+        };
+        if file.seek(SeekFrom::Start(start)).is_err() {
+            return json!({ "offset": len, "lines": [], "reset": reset });
+        }
+        let mut buffer = String::new();
+        if file.read_to_string(&mut buffer).is_err() {
+            buffer.clear();
+        }
+        // When we start in the middle of the file the first line is partial.
+        let mut collected: Vec<String> = buffer.lines().map(str::to_string).collect();
+        if start > 0 && offset != 0 && !reset && !collected.is_empty() {
+            collected.remove(0);
+        }
+        let tail = if collected.len() > lines {
+            collected.split_off(collected.len() - lines)
+        } else {
+            collected
+        };
+        json!({ "offset": len, "lines": tail, "reset": reset })
+    }
+
+    async fn verify_api_key(&self, token: &str) -> Result<Option<ApiKeyRow>, Error> {
+        let mut parts = token.splitn(3, '_');
+        if parts.next() != Some("sp") {
+            return Ok(None);
+        }
+        let Some(prefix) = parts.next() else {
+            return Ok(None);
+        };
+        if parts.next().is_none() {
+            return Ok(None);
+        }
+        let row = sqlx::query_as::<_, ApiKeyRow>(
+            "SELECT id, user_id, name, prefix, hash, scopes_json, last_used_at, created_at
+             FROM api_keys WHERE prefix = ?",
+        )
+        .bind(prefix)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(internal)?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        use sha2::{Digest, Sha256};
+        let digest = hex::encode(Sha256::digest(token.as_bytes()));
+        if digest.as_bytes().ct_eq(row.hash.as_bytes()).unwrap_u8() != 1 {
+            return Ok(None);
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        let _ = sqlx::query("UPDATE api_keys SET last_used_at = ? WHERE id = ?")
+            .bind(&now)
+            .bind(&row.id)
+            .execute(&self.pool)
+            .await;
+        Ok(Some(row))
+    }
+}
+
+/// A row of the `backups` table.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BackupRow {
+    pub id: String,
+    pub kind: String,
+    pub status: String,
+    pub size: i64,
+    pub location: String,
+    pub schedule_id: Option<String>,
+    pub error: Option<String>,
+    pub created_at: String,
+    pub name: String,
+    pub site_id: Option<String>,
+    pub checksum: String,
+    pub encrypted: i64,
+    pub entries_json: String,
+    pub duration_ms: i64,
+}
+
+fn backup_value(row: &BackupRow) -> Value {
+    json!({
+        "id": row.id,
+        "kind": row.kind,
+        "status": row.status,
+        "size": row.size,
+        "location": row.location,
+        "schedule_id": row.schedule_id,
+        "error": row.error,
+        "created_at": row.created_at,
+        "name": row.name,
+        "site_id": row.site_id,
+        "checksum": row.checksum,
+        "encrypted": row.encrypted != 0,
+        "entries": serde_json::from_str::<Vec<String>>(&row.entries_json).unwrap_or_default(),
+        "duration_ms": row.duration_ms,
+    })
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct BackupScheduleRow {
+    pub id: String,
+    pub name: String,
+    pub cron: String,
+    pub destination_json: String,
+    pub retention_json: String,
+    pub enabled: i64,
+    pub created_at: String,
+}
+
+fn backup_schedule_value(row: &BackupScheduleRow) -> Value {
+    json!({
+        "id": row.id,
+        "name": row.name,
+        "cron": row.cron,
+        "destination": serde_json::from_str::<Value>(&row.destination_json)
+            .unwrap_or(Value::Null),
+        "retention": serde_json::from_str::<Value>(&row.retention_json)
+            .unwrap_or(Value::Null),
+        "enabled": row.enabled != 0,
+        "created_at": row.created_at,
+    })
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ApiKeyRow {
+    pub id: String,
+    pub user_id: String,
+    pub name: String,
+    pub prefix: String,
+    pub hash: String,
+    pub scopes_json: String,
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+}
+
+fn api_key_value(row: &ApiKeyRow) -> Value {
+    json!({
+        "id": row.id,
+        "user_id": row.user_id,
+        "name": row.name,
+        "prefix": row.prefix,
+        "scopes": serde_json::from_str::<Value>(&row.scopes_json).unwrap_or_else(|_| json!([])),
+        "last_used_at": row.last_used_at,
+        "created_at": row.created_at,
+    })
+}
+
+/// Generate an API key: `sp_<prefix>_<secret>`. Only the hash is stored.
+fn generate_api_key() -> (String, String, String) {
+    use rand::RngCore;
+    use sha2::{Digest, Sha256};
+
+    let mut prefix_bytes = [0u8; 6];
+    rand::thread_rng().fill_bytes(&mut prefix_bytes);
+    let mut secret_bytes = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut secret_bytes);
+    let prefix = hex::encode(prefix_bytes);
+    let secret = hex::encode(secret_bytes);
+    let token = format!("sp_{prefix}_{secret}");
+    let hash = hex::encode(Sha256::digest(token.as_bytes()));
+    (token, prefix, hash)
 }
 
 fn is_allowed_unit(unit: &str) -> bool {

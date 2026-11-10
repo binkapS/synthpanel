@@ -2,9 +2,10 @@
 
 use crate::extract::AuthUser;
 use crate::state::AppState;
-use axum::extract::State;
 use axum::extract::ws::{Message, WebSocketUpgrade};
+use axum::extract::{Query, State};
 use axum::response::Response;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,50 +60,78 @@ pub async fn dashboard_ws(
     })
 }
 
-/// Stream raw log lines from a file over the socket.
+#[derive(Debug, Deserialize)]
+pub struct LogTailQuery {
+    #[serde(default = "default_source")]
+    pub r#type: String,
+    #[serde(default)]
+    pub site_id: Option<String>,
+    #[serde(default = "default_lines")]
+    pub lines: usize,
+}
+
+fn default_source() -> String {
+    "panel".to_string()
+}
+
+fn default_lines() -> usize {
+    200
+}
+
+/// Stream log lines from the core over the socket.
 pub async fn logs_ws(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
+    Query(query): Query<LogTailQuery>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
     let _ = user;
-    let state_for_stream = state;
     upgrade.on_upgrade(move |socket| async move {
         let mut socket = socket;
         let mut ticker = tokio::time::interval(Duration::from_secs(2));
         let mut offset: u64 = 0;
-        let path = state_for_stream.config.log_dir.join("synthpanel-web.log");
 
         loop {
             ticker.tick().await;
-            let Ok(metadata) = tokio::fs::metadata(&path).await else {
-                continue;
-            };
-            let len = metadata.len();
-            if len < offset {
-                // The file was rotated; start over.
-                offset = 0;
-            }
-            if len == offset {
-                continue;
-            }
-            let mut file = match tokio::fs::File::open(&path).await {
-                Ok(file) => file,
-                Err(_) => continue,
-            };
-            use tokio::io::AsyncSeekExt;
-            if file.seek(std::io::SeekFrom::Start(offset)).await.is_err() {
-                continue;
-            }
-            let mut buffer = String::new();
+            let result: Value = match state
+                .core_call(
+                    methods::LOGS_TAIL,
+                    json!({
+                        "source": query.r#type,
+                        "site_id": query.site_id,
+                        "offset": offset,
+                        "lines": query.lines,
+                    }),
+                )
+                .await
             {
-                use tokio::io::AsyncReadExt;
-                if file.read_to_string(&mut buffer).await.is_err() {
-                    continue;
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = socket
+                        .send(Message::Text(
+                            json!({ "type": "error", "message": error.to_string() })
+                                .to_string()
+                                .into(),
+                        ))
+                        .await;
+                    return;
                 }
-            }
-            offset = len;
-            for line in buffer.lines() {
+            };
+
+            offset = result
+                .get("offset")
+                .and_then(Value::as_u64)
+                .unwrap_or(offset);
+
+            let lines = result
+                .get("lines")
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            for line in lines {
+                let Some(line) = line.as_str() else {
+                    continue;
+                };
                 if socket
                     .send(Message::Text(
                         json!({ "type": "log", "line": line }).to_string().into(),

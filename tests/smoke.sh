@@ -53,6 +53,8 @@ SYNTHPANEL_RUN_DIR="$WORK/run" \
 SYNTHPANEL_WWW_DIR="$WORK/www" \
 SYNTHPANEL_BACKUP_DIR="$WORK/backups" \
 SYNTHPANEL_NGINX_DIR="$WORK/nginx" \
+SYNTHPANEL_PHP_DIR="$WORK/php" \
+SYNTHPANEL_CRON_DIR="$WORK/cron" \
 RUST_LOG=info \
   target/release/synthpanel-core > "$CORE" 2>&1 &
 CORE_PID=$!
@@ -202,6 +204,112 @@ assert_contains "$(cat "$VHOST")" "server_name example.com www.example.com;"
 assert_contains "$(cat "$VHOST")" "fastcgi_pass unix:/run/php/php8.3-sp-$SITE_ID.sock;"
 log "vhost rendered correctly"
 
+# ---------------------------------------------------------------------------
+# Phase 3: operations — backups, cron, logs, files and API keys
+# ---------------------------------------------------------------------------
+
+DOC_ROOT="$WORK/www/sp_example.com"
+mkdir -p "$DOC_ROOT"
+printf 'hello from the backup\n' > "$DOC_ROOT/index.html"
+
+log "running a site backup"
+BACKUP="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d "{\"kind\":\"site\",\"site_id\":\"$SITE_ID\"}" \
+  $BASE/api/v1/backups/run)"
+assert_contains "$BACKUP" '"name"'
+assert_contains "$BACKUP" '"size"'
+BACKUP_ID="$(printf '%s' "$BACKUP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+log "backup id: $BACKUP_ID"
+
+BACKUPS="$(auth_get $BASE/api/v1/backups)"
+assert_contains "$BACKUPS" "$BACKUP_ID"
+
+log "verifying the backup"
+VERIFIED="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{}' \
+  "$BASE/api/v1/backups/$BACKUP_ID/verify")"
+assert_contains "$VERIFIED" '"verified":true'
+assert_contains "$VERIFIED" '"entries"'
+log "backup verified"
+
+DOWNLOAD_CODE="$(code -b "$COOKIES" "$BASE/api/v1/backups/$BACKUP_ID/download")"
+assert_eq "$DOWNLOAD_CODE" "200"
+log "backup download -> 200"
+
+log "creating a cron job"
+CRON="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"expression":"0 3 * * *","command":"echo smoke-cron","user":"nobody"}' \
+  $BASE/api/v1/cron)"
+assert_contains "$CRON" '"id"'
+CRON_ID="$(printf '%s' "$CRON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+JOBS="$(auth_get $BASE/api/v1/cron)"
+assert_contains "$JOBS" 'echo smoke-cron'
+assert_contains "$JOBS" '"next_run"'
+
+CRON_RUN="$(curl -sSk -b "$COOKIES" -X POST \
+  -H "x-csrf-token: $CSRF" \
+  "$BASE/api/v1/cron/$CRON_ID/run")"
+assert_contains "$CRON_RUN" '"exit_code":0'
+assert_contains "$CRON_RUN" 'smoke-cron'
+CRON_RUNS="$(auth_get "$BASE/api/v1/cron/$CRON_ID/runs")"
+assert_contains "$CRON_RUNS" '"runs"'
+log "cron job created, ran and recorded"
+
+DESCRIBE="$(auth_get "$BASE/api/v1/cron/describe?expression=0%203%20*%20*%20*")"
+assert_contains "$DESCRIBE" '"summary"'
+
+log "reading the panel log"
+mkdir -p "$WORK/log"
+printf '[error] smoke test log line\n' >> "$WORK/log/synthpanel-web.log"
+LOG_LINES="$(auth_get "$BASE/api/v1/logs?type=panel&search=smoke")"
+assert_contains "$LOG_LINES" 'smoke test log line'
+LOG_SOURCES="$(auth_get "$BASE/api/v1/logs/sources")"
+assert_contains "$LOG_SOURCES" 'nginx-access'
+log "log viewer returned filtered lines"
+
+log "exercising the file manager"
+mkdir -p "$WORK/www/files-smoke"
+curl -sSk -b "$COOKIES" -X PUT \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"scope":"www","path":"files-smoke/hello.txt","content":"file manager smoke"}' \
+  "$BASE/api/v1/files/content" > /dev/null
+FILE_READ="$(auth_get "$BASE/api/v1/files/content?scope=www&path=files-smoke/hello.txt")"
+assert_contains "$FILE_READ" 'file manager smoke'
+FILE_LIST="$(auth_get "$BASE/api/v1/files?scope=www&path=files-smoke")"
+assert_contains "$FILE_LIST" 'hello.txt'
+TRAVERSAL="$(code -b "$COOKIES" "$BASE/api/v1/files?scope=www&path=../etc")"
+assert_eq "$TRAVERSAL" "400"
+log "file manager read, wrote and rejected traversal"
+
+log "creating an API key"
+API_KEY="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"name":"smoke","scopes":["read"]}' \
+  $BASE/api/v1/api-keys)"
+assert_contains "$API_KEY" '"token"'
+API_TOKEN="$(printf '%s' "$API_KEY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+API_KEY_ID="$(printf '%s' "$API_KEY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+BEARER_ME="$(curl -sSk -H "Authorization: Bearer $API_TOKEN" $BASE/api/v1/auth/me)"
+assert_contains "$BEARER_ME" "$ADMIN_EMAIL"
+log "API key authenticated a request without a session"
+
+REVOKED="$(curl -sSk -b "$COOKIES" -X DELETE \
+  -H "x-csrf-token: $CSRF" \
+  "$BASE/api/v1/api-keys/$API_KEY_ID")"
+assert_contains "$REVOKED" '"removed":true'
+BEARER_AFTER="$(code -H "Authorization: Bearer $API_TOKEN" $BASE/api/v1/auth/me)"
+assert_eq "$BEARER_AFTER" "401"
+log "revoked API key -> 401"
+
 # Invalid domains are rejected.
 BAD="$(curl -sSk -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
   -H 'content-type: application/json' \
@@ -221,6 +329,26 @@ if [ -f "$VHOST" ]; then
   fail "the vhost was not removed"
 fi
 log "site deleted and vhost removed"
+
+# ---------------------------------------------------------------------------
+# Restore the site backup after deleting the site
+# ---------------------------------------------------------------------------
+
+log "restoring the site backup"
+RESTORED="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{}' \
+  "$BASE/api/v1/backups/$BACKUP_ID/restore")"
+assert_contains "$RESTORED" '"restored"'
+
+if [ ! -f "$VHOST" ]; then
+  fail "the restore did not recreate the vhost at $VHOST"
+fi
+if [ ! -f "$DOC_ROOT/index.html" ]; then
+  fail "the restore did not recreate the document root file"
+fi
+log "backup → delete site → restore works"
 
 # The audit log must contain the site operations.
 AUDIT="$(auth_get "$BASE/api/v1/audit?limit=50")"

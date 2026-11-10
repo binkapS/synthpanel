@@ -138,6 +138,149 @@ pub enum Command {
     /// List the SSH keys the panel manages.
     #[command(name = "security:ssh-keys")]
     SecuritySshKeys,
+    /// List backups and their schedules.
+    #[command(name = "backup:list")]
+    BackupList,
+    /// Create a backup now.
+    #[command(name = "backup:run")]
+    BackupRun {
+        /// Back up a single site id instead of everything.
+        #[arg(long)]
+        site: Option<String>,
+        /// Encrypt the archive with a passphrase.
+        #[arg(long)]
+        passphrase: Option<String>,
+        /// Destination as JSON, e.g. '{"type":"local","path":"/var/backups"}'.
+        #[arg(long)]
+        destination: Option<String>,
+    },
+    /// Restore a backup by id.
+    #[command(name = "backup:restore")]
+    BackupRestore {
+        /// Backup id.
+        id: String,
+        /// Passphrase for an encrypted archive.
+        #[arg(long)]
+        passphrase: Option<String>,
+    },
+    /// Verify a backup archive and print its manifest.
+    #[command(name = "backup:verify")]
+    BackupVerify {
+        /// Backup id.
+        id: String,
+        /// Passphrase for an encrypted archive.
+        #[arg(long)]
+        passphrase: Option<String>,
+    },
+    /// List cron jobs.
+    #[command(name = "cron:list")]
+    CronList,
+    /// Add a cron job.
+    #[command(name = "cron:add")]
+    CronAdd {
+        /// Five-field cron expression.
+        expression: String,
+        /// Shell command.
+        command: String,
+        /// System user the job runs as.
+        #[arg(long, default_value = "www-data")]
+        user: String,
+        /// Optional site id.
+        #[arg(long)]
+        site: Option<String>,
+    },
+    /// Delete a cron job.
+    #[command(name = "cron:delete")]
+    CronDelete {
+        /// Job id.
+        id: String,
+    },
+    /// Run a cron job now.
+    #[command(name = "cron:run")]
+    CronRun {
+        /// Job id.
+        id: String,
+    },
+    /// Print recent runs of a cron job.
+    #[command(name = "cron:runs")]
+    CronRuns {
+        /// Job id.
+        id: String,
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+    },
+    /// Read a log source.
+    #[command(name = "logs")]
+    Logs {
+        /// Source: panel, nginx-access, nginx-error, php-fpm or auth.
+        #[arg(long = "type", default_value = "panel")]
+        source: String,
+        /// Site id for per-site logs.
+        #[arg(long)]
+        site: Option<String>,
+        /// Only lines containing this text.
+        #[arg(long)]
+        search: Option<String>,
+        /// Only lines with this HTTP status.
+        #[arg(long)]
+        status: Option<u16>,
+        /// Maximum number of lines.
+        #[arg(long, default_value_t = 200)]
+        limit: i64,
+    },
+    /// List a directory through the file manager.
+    #[command(name = "files:list")]
+    FilesList {
+        /// Scope: www, etc, backups or logs.
+        #[arg(long, default_value = "www")]
+        scope: String,
+        /// Path relative to the scope root.
+        #[arg(long, default_value = "")]
+        path: String,
+    },
+    /// Print a file from the file manager.
+    #[command(name = "files:read")]
+    FilesRead {
+        /// Path relative to the scope root.
+        path: String,
+        #[arg(long, default_value = "www")]
+        scope: String,
+    },
+    /// Write a file through the file manager.
+    #[command(name = "files:write")]
+    FilesWrite {
+        /// Path relative to the scope root.
+        path: String,
+        /// Literal content.
+        #[arg(long)]
+        content: Option<String>,
+        /// Read the content from a local file.
+        #[arg(long)]
+        file: Option<PathBuf>,
+        #[arg(long, default_value = "www")]
+        scope: String,
+    },
+    /// List API keys.
+    #[command(name = "apikeys:list")]
+    ApiKeysList,
+    /// Create an API key. The token is printed once.
+    #[command(name = "apikeys:create")]
+    ApiKeysCreate {
+        /// A label for the key.
+        name: String,
+        /// Comma separated scopes.
+        #[arg(long, default_value = "read")]
+        scopes: String,
+        /// Owning panel user id.
+        #[arg(long)]
+        user: String,
+    },
+    /// Delete an API key.
+    #[command(name = "apikeys:delete")]
+    ApiKeysDelete {
+        /// Key id.
+        id: String,
+    },
     /// Create a panel user.
     #[command(name = "users:create")]
     UsersCreate {
@@ -387,6 +530,244 @@ async fn main() -> Result<()> {
         Command::SecuritySshKeys => {
             let result: Value = global
                 .call(synthpanel_ipc::methods::SECURITY_SSH_KEYS, json!({}))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::BackupList => {
+            let backups: Vec<Value> = global
+                .call(synthpanel_ipc::methods::BACKUPS_LIST, json!({}))
+                .await?;
+            let schedules: Vec<Value> = global
+                .call(synthpanel_ipc::methods::BACKUPS_SCHEDULES, json!({}))
+                .await?;
+            for backup in &backups {
+                println!("{}", global.as_json(backup));
+            }
+            if backups.is_empty() {
+                eprintln!("no backups yet");
+            }
+            for schedule in &schedules {
+                println!("schedule {}", global.as_json(schedule));
+            }
+            Ok(())
+        }
+        Command::BackupRun {
+            site,
+            passphrase,
+            destination,
+        } => {
+            let mut params = json!({
+                "kind": if site.is_some() { "site" } else { "full" },
+            });
+            if let Some(site) = site {
+                params["site_id"] = json!(site);
+            }
+            if let Some(passphrase) = passphrase {
+                params["passphrase"] = json!(passphrase);
+            }
+            if let Some(destination) = destination {
+                let value: Value = serde_json::from_str(destination)
+                    .context("the destination is not valid JSON")?;
+                params["destination"] = value;
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::BACKUPS_CREATE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::BackupRestore { id, passphrase } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::BACKUPS_RESTORE,
+                    json!({ "id": id, "passphrase": passphrase }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::BackupVerify { id, passphrase } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::BACKUPS_VERIFY,
+                    json!({ "id": id, "passphrase": passphrase }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::CronList => {
+            let jobs: Vec<Value> = global
+                .call(synthpanel_ipc::methods::CRON_LIST, json!({}))
+                .await?;
+            for job in &jobs {
+                println!("{}", global.as_json(job));
+            }
+            if jobs.is_empty() {
+                eprintln!("no cron jobs yet");
+            }
+            Ok(())
+        }
+        Command::CronAdd {
+            expression,
+            command,
+            user,
+            site,
+        } => {
+            let mut params = json!({
+                "expression": expression,
+                "command": command,
+                "user": user,
+            });
+            if let Some(site) = site {
+                params["site_id"] = json!(site);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::CRON_CREATE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::CronDelete { id } => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::CRON_DELETE, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::CronRun { id } => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::CRON_RUN, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::CronRuns { id, limit } => {
+            let runs: Vec<Value> = global
+                .call(
+                    synthpanel_ipc::methods::CRON_RUNS,
+                    json!({ "job_id": id, "limit": limit }),
+                )
+                .await?;
+            for run in &runs {
+                println!("{}", global.as_json(run));
+            }
+            if runs.is_empty() {
+                eprintln!("no runs recorded for this job");
+            }
+            Ok(())
+        }
+        Command::Logs {
+            source,
+            site,
+            search,
+            status,
+            limit,
+        } => {
+            let mut params = json!({ "source": source, "limit": limit });
+            if let Some(site) = site {
+                params["site_id"] = json!(site);
+            }
+            if let Some(search) = search {
+                params["search"] = json!(search);
+            }
+            if let Some(status) = status {
+                params["status"] = json!(status);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::LOGS_READ, params)
+                .await?;
+            if let Some(lines) = result.get("lines").and_then(Value::as_array) {
+                for line in lines {
+                    if let Some(message) = line.get("message").and_then(Value::as_str) {
+                        println!("{message}");
+                    } else {
+                        println!("{line}");
+                    }
+                }
+            }
+            Ok(())
+        }
+        Command::FilesList { scope, path } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::FILES_LIST,
+                    json!({ "scope": scope, "path": path }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::FilesRead { path, scope } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::FILES_READ,
+                    json!({ "scope": scope, "path": path }),
+                )
+                .await?;
+            if let Some(content) = result.get("content").and_then(Value::as_str) {
+                println!("{content}");
+            } else {
+                println!("{}", global.as_json(&result));
+            }
+            Ok(())
+        }
+        Command::FilesWrite {
+            path,
+            content,
+            file,
+            scope,
+        } => {
+            let content = match (content, file) {
+                (Some(content), _) => content.clone(),
+                (None, Some(file)) => std::fs::read_to_string(file)
+                    .with_context(|| format!("cannot read {}", file.display()))?,
+                (None, None) => bail!("pass --content or --file"),
+            };
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::FILES_WRITE,
+                    json!({ "scope": scope, "path": path, "content": content }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::ApiKeysList => {
+            let keys: Vec<Value> = global
+                .call(synthpanel_ipc::methods::API_KEYS_LIST, json!({}))
+                .await?;
+            for key in &keys {
+                println!("{}", global.as_json(key));
+            }
+            if keys.is_empty() {
+                eprintln!("no API keys yet");
+            }
+            Ok(())
+        }
+        Command::ApiKeysCreate { name, scopes, user } => {
+            let scopes: Vec<String> = scopes
+                .split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(String::from)
+                .collect();
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::API_KEYS_CREATE,
+                    json!({ "user_id": user, "name": name, "scopes": scopes }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::ApiKeysDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::API_KEYS_DELETE,
+                    json!({ "id": id }),
+                )
                 .await?;
             println!("{}", global.as_json(&result));
             Ok(())

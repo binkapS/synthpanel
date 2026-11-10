@@ -85,6 +85,19 @@ clap = { version = "4", features = ["derive", "env"] }
 indicatif = "0.17"
 dialoguer = "0.11"
 
+# Archives & encryption
+tar = "0.4"
+flate2 = "1"
+chacha20poly1305 = "0.10"
+
+# HTTP (S3 backups)
+reqwest = { version = "0.12", default-features = false, features = [
+    "rustls-tls",
+    "json",
+    "charset",
+    "http2",
+] }
+
 # Misc
 libc = "0.2"
 directories = "6"

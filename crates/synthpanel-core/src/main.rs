@@ -15,6 +15,10 @@ use tracing::{info, warn};
 async fn main() -> Result<()> {
     init_tracing();
 
+    // Pick a rustls provider explicitly: reqwest enables ring while other
+    // crates may enable aws-lc-rs, and rustls refuses to guess.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     let paths = Paths::from_env();
     paths
         .ensure_dirs()
@@ -65,6 +69,24 @@ async fn main() -> Result<()> {
                     }
                     Ok(_) => {}
                     Err(error) => warn!(%error, "failed to prune metrics"),
+                }
+            }
+        });
+    }
+
+    // Scheduler: cron jobs and backup schedules once a minute.
+    {
+        let pool = pool.clone();
+        let paths = paths.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                if let Err(error) = synthpanel_core::scheduler::tick_cron(&pool).await {
+                    warn!(%error, "cron scheduler tick failed");
+                }
+                if let Err(error) = synthpanel_core::scheduler::tick_backups(&pool, &paths).await {
+                    warn!(%error, "backup scheduler tick failed");
                 }
             }
         });

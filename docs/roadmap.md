@@ -64,12 +64,40 @@ aligned with the phases in [PLAN.md §10](../../PLAN.md#10-roadmap--milestones).
 - SPA: database list with engine health, security page with the firewall
   form, fail2ban jails and SSH key management.
 
-## Phase 3 — Operations
+## Phase 3 — Operations (complete)
 
-- Backups (local / S3 / SFTP) with restore and verification.
-- Cron UI with a human-readable schedule builder and run logs.
-- Log viewers with filters and tail-follow.
-- File manager, API keys, and a CLI that covers 90% of the UI operations.
+- Backups: full and per-site archives as a single `.tar.gz` with a
+  `synthpanel-manifest.json`, optional ChaCha20-Poly1305 encryption,
+  checksum verification, and restore (nginx vhosts, PHP-FPM pools, document
+  roots). Destinations: local, SFTP (via `sftp`/`ssh`), and S3-compatible
+  (hand-rolled SigV4). Schedules with retention pruning, plus
+  verify/download/delete from the UI and CLI.
+- Cron: five-field parser with human-readable descriptions, DB-backed jobs
+  written to `/etc/cron.d/synthpanel`, run-now with exit code and bounded
+  output, and per-job run history.
+- Logs: nginx access/error, PHP-FPM, panel and system auth sources with
+  time/level/status/search filters and a WebSocket tail that reads through
+  the core.
+- File manager: sandboxed scopes (`www`, `etc`, `backups`, `logs`) with list,
+  read, write, mkdir, rename, delete, chmod/chown, upload/download, and
+  tar.gz/zip archive + extract. Path traversal is rejected.
+- API keys: `sp_<prefix>_<secret>` bearer tokens, SHA-256 at rest, scopes,
+  last-used tracking, CSRF exemption for bearer clients, and revocation.
+- Scheduler: a 60-second tick runs due cron jobs and backup schedules.
+- REST API: `/api/v1/backups*`, `/api/v1/cron*`, `/api/v1/logs*`,
+  `/api/v1/files*`, `/api/v1/api-keys*`.
+- CLI: `backup:list|run|restore|verify`, `cron:list|add|delete|run|runs`,
+  `logs`, `files:list|read|write`, `apikeys:list|create|delete`.
+- SPA: Backups, Cron, Logs and Files pages, plus API-key management in
+  Settings.
+- End-to-end smoke test covers backup → delete site → restore, cron run
+  history, filtered log reads, file manager traversal rejection, and API-key
+  authentication/revocation.
+
+Known gaps: the apply-pipeline rollback path is unit-tested at the render
+level but has not been exercised against a real `nginx -t` failure (no nginx
+in CI); real SFTP/S3 transfers are implemented but not tested against live
+servers.
 
 ## Phase 4 — v1.0 hardening
 
