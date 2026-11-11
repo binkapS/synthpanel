@@ -88,13 +88,26 @@ impl FromRequestParts<std::sync::Arc<AppState>> for AuthUser {
             .headers
             .get(axum::http::header::COOKIE)
             .and_then(|value| value.to_str().ok())
-            .and_then(|value| cookie_value(value, SESSION_COOKIE))
-            .ok_or_else(|| ApiError::unauthorized("authentication required"))?;
+            .and_then(|value| cookie_value(value, SESSION_COOKIE));
 
-        let record = state
-            .sessions
-            .get(&token)
-            .ok_or_else(|| ApiError::unauthorized("session expired or invalid"))?;
+        let Some(token) = token else {
+            tracing::warn!(
+                path = %parts.uri.path(),
+                ip = %ip,
+                "the request carries no session cookie"
+            );
+            return Err(ApiError::unauthorized("authentication required"));
+        };
+
+        let record = state.sessions.get(&token);
+        let Some(record) = record else {
+            tracing::warn!(
+                path = %parts.uri.path(),
+                ip = %ip,
+                "the session is unknown or has expired"
+            );
+            return Err(ApiError::unauthorized("session expired or invalid"));
+        };
 
         Ok(AuthUser {
             user_id: record.user_id,

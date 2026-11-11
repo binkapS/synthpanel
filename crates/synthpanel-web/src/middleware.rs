@@ -32,6 +32,8 @@ pub async fn security_headers(
     request: Request,
     next: Next,
 ) -> Response {
+    let secure =
+        state.config.secure_cookies && crate::api::auth::request_is_secure(request.headers());
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -51,7 +53,10 @@ pub async fn security_headers(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(CONTENT_SECURITY_POLICY),
     );
-    if state.config.secure_cookies {
+    // HSTS only makes sense when the browser itself talks TLS. Behind a
+    // proxy that terminates TLS the browser may be on plain HTTP, and the
+    // header would lock it into HTTPS.
+    if secure {
         headers.insert(
             header::STRICT_TRANSPORT_SECURITY,
             HeaderValue::from_static("max-age=31536000"),

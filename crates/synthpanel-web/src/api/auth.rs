@@ -42,9 +42,31 @@ pub struct PasswordRequest {
     pub password: String,
 }
 
+/// Whether the client reached the panel over TLS.
+///
+/// The panel itself always speaks TLS, but a reverse proxy may terminate TLS
+/// and forward plain HTTP. In that case the `Secure` cookie flag has to
+/// follow the client's scheme: a browser silently drops a `Secure` cookie
+/// that arrives over plain HTTP, and the session would never be sent back.
+pub fn request_is_secure(headers: &axum::http::HeaderMap) -> bool {
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| {
+            value
+                .split(',')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .eq_ignore_ascii_case("https")
+        })
+        .unwrap_or(true)
+}
+
 pub async fn login(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     ApiJson(request): ApiJson<LoginRequest>,
 ) -> Result<Response, ApiError> {
     let ip = peer.ip().to_string();
@@ -101,12 +123,14 @@ pub async fn login(
         .into_response());
     }
 
-    establish_session(&state, &user, &ip, None).await
+    let secure = state.config.secure_cookies && request_is_secure(&headers);
+    establish_session(&state, &user, &ip, None, secure).await
 }
 
 pub async fn totp_verify(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: axum::http::HeaderMap,
     ApiJson(request): ApiJson<TwoFactorRequest>,
 ) -> Result<Response, ApiError> {
     let ip = peer.ip().to_string();
@@ -143,21 +167,21 @@ pub async fn totp_verify(
         return Err(ApiError::unauthorized("invalid verification code"));
     }
 
-    establish_session(&state, &user, &ip, None).await
+    let secure = state.config.secure_cookies && request_is_secure(&headers);
+    establish_session(&state, &user, &ip, None, secure).await
 }
 
-pub async fn logout(State(state): State<Arc<AppState>>, user: AuthUser) -> Response {
+pub async fn logout(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    headers: axum::http::HeaderMap,
+) -> Response {
     state.sessions.destroy(&user.token);
+    let secure = state.config.secure_cookies && request_is_secure(&headers);
     let mut response = Json(json!({ "ok": true })).into_response();
-    let headers = response.headers_mut();
-    headers.append(
-        header::SET_COOKIE,
-        clear_cookie(SESSION_COOKIE, state.config.secure_cookies),
-    );
-    headers.append(
-        header::SET_COOKIE,
-        clear_cookie(CSRF_COOKIE, state.config.secure_cookies),
-    );
+    let response_headers = response.headers_mut();
+    response_headers.append(header::SET_COOKIE, clear_cookie(SESSION_COOKIE, secure));
+    response_headers.append(header::SET_COOKIE, clear_cookie(CSRF_COOKIE, secure));
     response
 }
 
@@ -295,6 +319,7 @@ async fn establish_session(
     user: &Value,
     ip: &str,
     user_agent: Option<&str>,
+    secure: bool,
 ) -> Result<Response, ApiError> {
     let user_id = user
         .get("id")
@@ -339,23 +364,11 @@ async fn establish_session(
     let headers = response.headers_mut();
     headers.append(
         header::SET_COOKIE,
-        session_cookie(
-            SESSION_COOKIE,
-            &token,
-            ttl.as_secs() as i64,
-            state.config.secure_cookies,
-            true,
-        ),
+        session_cookie(SESSION_COOKIE, &token, ttl.as_secs() as i64, secure, true),
     );
     headers.append(
         header::SET_COOKIE,
-        session_cookie(
-            CSRF_COOKIE,
-            &csrf,
-            ttl.as_secs() as i64,
-            state.config.secure_cookies,
-            false,
-        ),
+        session_cookie(CSRF_COOKIE, &csrf, ttl.as_secs() as i64, secure, false),
     );
     Ok(response)
 }
@@ -410,4 +423,27 @@ fn clear_cookie(name: &str, secure: bool) -> HeaderValue {
         cookie.push_str("; Secure");
     }
     HeaderValue::from_str(&cookie).expect("cookie header is valid")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn a_request_without_a_forwarded_header_is_secure() {
+        let headers = HeaderMap::new();
+        assert!(request_is_secure(&headers));
+    }
+
+    #[test]
+    fn a_plain_http_proxy_is_not_secure() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-proto", "http".parse().unwrap());
+        assert!(!request_is_secure(&headers));
+        headers.insert("x-forwarded-proto", "https".parse().unwrap());
+        assert!(request_is_secure(&headers));
+        headers.insert("x-forwarded-proto", "https, http".parse().unwrap());
+        assert!(request_is_secure(&headers));
+    }
 }

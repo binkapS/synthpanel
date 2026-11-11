@@ -24,6 +24,7 @@
   async function submit() {
     error = '';
     busy = true;
+    let signedIn = false;
     try {
       if (challengeId) {
         const result = await api<LoginResponse>('/api/v1/auth/2fa/verify', {
@@ -32,6 +33,7 @@
         });
         void result;
         challengeId = null;
+        signedIn = true;
       } else {
         const result = await api<LoginResponse>('/api/v1/auth/login', {
           method: 'POST',
@@ -43,12 +45,21 @@
           busy = false;
           return;
         }
+        signedIn = true;
       }
       localStorage.setItem('synthpanel-email', email);
       const user = await fetchMe();
       session.set({ user });
     } catch (err) {
-      error = err instanceof ApiError ? err.message : 'Unable to sign in';
+      if (signedIn && err instanceof ApiError && err.status === 401) {
+        // The password was accepted but the session cookie did not come
+        // back: the browser dropped it, or the panel was reached over plain
+        // HTTP.
+        error =
+          'Signed in, but the browser did not keep the session cookie. Use https:// and allow cookies for this address.';
+      } else {
+        error = err instanceof ApiError ? err.message : 'Unable to sign in';
+      }
     } finally {
       busy = false;
     }
