@@ -52,15 +52,15 @@ pub fn ensure_certificate(cert_path: &Path, key_path: &Path, hostname: &str) -> 
 ///
 /// The hostname is stored next to the certificate, so a changed panel
 /// hostname produces a new certificate instead of a name mismatch in the
-/// browser.
+/// browser. A certificate without a stamp comes from an older version and is
+/// replaced once.
 fn certificate_matches(cert_path: &Path, hostname: &str) -> bool {
     let Some(stamp) = hostname_stamp_path(cert_path) else {
-        return true;
+        return false;
     };
     match std::fs::read_to_string(&stamp) {
         Ok(stored) => stored.trim() == hostname.trim(),
-        // No stamp: an existing certificate is kept as it is.
-        Err(_) => true,
+        Err(_) => false,
     }
 }
 
