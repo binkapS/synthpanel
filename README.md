@@ -32,7 +32,7 @@ an unprivileged web process that talks to it over a Unix socket.
 | Area | What you get |
 | --- | --- |
 | **Sites** | One domain = one Nginx vhost + one isolated PHP-FPM pool. Templates for static, PHP, Laravel, Symfony, WordPress and Node. Suspend, custom directives, per-site `php.ini` overrides. |
-| **SSL** | Let's Encrypt over HTTP-01 for every site *and* for the panel itself, custom certificates, expiry warnings. |
+| **SSL** | Let's Encrypt over HTTP-01 for every site *and* for the panel itself, with expiry warnings. |
 | **Databases** | MariaDB/MySQL, PostgreSQL and Redis. The database is provisioned on the server first, then recorded in the panel — the panel state never drifts from reality. |
 | **Backups** | Full and per-site archives (`.tar.gz` + manifest), optional ChaCha20-Poly1305 encryption, verification and restore, to a local disk, SFTP or an S3-compatible store. |
 | **Cron** | Five-field expressions with a human-readable summary, written to `/etc/cron.d/synthpanel`, with a run log and a run-now button. |
@@ -116,7 +116,7 @@ Then:
    the panel itself.
 4. **Sites → Add site** — your first domain gets a vhost and a PHP-FPM pool.
 5. **Users → New user** — invite your team. Roles are `admin`, `operator` and
-   `user`; quotas limit the sites and databases per account.
+   `user`; every account carries a quota for sites and databases.
 
 ## The three interfaces
 
