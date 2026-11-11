@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, ApiError } from '../lib/api';
-  import { session } from '../lib/stores';
+  import { t } from '../lib/i18n';
+  import { fetchMe, session } from '../lib/stores';
 
   interface LoginResponse {
     requires_2fa: boolean;
@@ -44,8 +45,8 @@
         }
       }
       localStorage.setItem('synthpanel-email', email);
-      const me = await api<{ user: unknown }>('/api/v1/auth/me');
-      session.set(me as never);
+      const user = await fetchMe();
+      session.set({ user });
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'Unable to sign in';
     } finally {
@@ -62,16 +63,16 @@
       >
         SP
       </div>
-      <h1 class="text-xl font-semibold">Sign in to SynthPanel</h1>
+      <h1 class="text-xl font-semibold">{$t('login.title')}</h1>
       <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">
-        Manage your server from a single place.
+        {$t('login.subtitle')}
       </p>
     </div>
 
     <form class="card space-y-4 p-6" onsubmit={(event) => { event.preventDefault(); submit(); }}>
       {#if challengeId}
         <div>
-          <label class="label" for="code">Authentication code</label>
+          <label class="label" for="code">{$t('login.code')}</label>
           <input
             id="code"
             class="input tracking-[0.4em]"
@@ -82,12 +83,12 @@
             required
           />
           <p class="mt-1.5 text-xs text-slate-500 dark:text-slate-400">
-            Enter the 6-digit code from your authenticator app.
+            {$t('login.codeHint')}
           </p>
         </div>
       {:else}
         <div>
-          <label class="label" for="email">Email</label>
+          <label class="label" for="email">{$t('login.email')}</label>
           <input
             id="email"
             class="input"
@@ -98,7 +99,7 @@
           />
         </div>
         <div>
-          <label class="label" for="password">Password</label>
+          <label class="label" for="password">{$t('login.password')}</label>
           <input
             id="password"
             class="input"
@@ -117,7 +118,7 @@
       {/if}
 
       <button class="btn-primary w-full" type="submit" disabled={busy}>
-        {busy ? 'Please wait…' : challengeId ? 'Verify' : 'Sign in'}
+        {busy ? 'Please wait…' : challengeId ? 'Verify' : $t('login.submit')}
       </button>
 
       {#if challengeId}

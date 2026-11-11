@@ -4,3 +4,9 @@ crates/synthpanel-web/frontend/dist/
 *.log
 .DS_Store
 cargo-deny
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+docs-site/node_modules/
+docs-site/.vitepress/dist/
+docs-site/.vitepress/cache/

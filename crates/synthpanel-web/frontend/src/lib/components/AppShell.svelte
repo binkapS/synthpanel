@@ -17,26 +17,32 @@
     Sun,
     Users,
   } from '@lucide/svelte';
+  import { t } from '../i18n';
   import { currentPath, navigate } from '../router';
   import { logout, session, theme, toggleTheme } from '../stores';
 
   let { children }: { children: Snippet } = $props();
 
   const links = [
-    { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/sites', label: 'Sites', icon: Globe },
-    { href: '/databases', label: 'Databases', icon: Database },
-    { href: '/php', label: 'PHP', icon: Server },
-    { href: '/security', label: 'Security', icon: ShieldCheck },
-    { href: '/backups', label: 'Backups', icon: Archive },
-    { href: '/cron', label: 'Cron', icon: Clock },
-    { href: '/logs', label: 'Logs', icon: ScrollText },
-    { href: '/files', label: 'Files', icon: FolderTree },
-    { href: '/users', label: 'Users', icon: Users },
-    { href: '/settings', label: 'Settings', icon: Settings },
+    { href: '/', labelKey: 'nav.dashboard', icon: LayoutDashboard },
+    { href: '/sites', labelKey: 'nav.sites', icon: Globe },
+    { href: '/databases', labelKey: 'nav.databases', icon: Database },
+    { href: '/php', labelKey: 'nav.php', icon: Server },
+    { href: '/security', labelKey: 'nav.security', icon: ShieldCheck },
+    { href: '/backups', labelKey: 'nav.backups', icon: Archive },
+    { href: '/cron', labelKey: 'nav.cron', icon: Clock },
+    { href: '/logs', labelKey: 'nav.logs', icon: ScrollText },
+    { href: '/files', labelKey: 'nav.files', icon: FolderTree },
+    { href: '/users', labelKey: 'nav.users', icon: Users },
+    { href: '/settings', labelKey: 'nav.settings', icon: Settings },
   ];
 
 </script>
+
+<a
+  href="#main"
+  class="sr-only rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50"
+>{$t('nav.skip')}</a>
 
 <div class="flex min-h-full">
   <aside
@@ -48,7 +54,7 @@
       </div>
       <span class="text-base font-semibold">SynthPanel</span>
     </div>
-    <nav class="space-y-1 p-3">
+    <nav class="space-y-1 p-3" aria-label={$t('nav.main')}>
       {#each links as link (link.href)}
         <a
           href={link.href}
@@ -60,7 +66,7 @@
           }}
         >
           <link.icon size={16} />
-          {link.label}
+          {$t(link.labelKey)}
         </a>
       {/each}
     </nav>
@@ -104,11 +110,11 @@
       </div>
     </header>
 
-    <main class="flex-1 px-4 py-6 sm:px-6">
+    <main id="main" tabindex="-1" class="flex-1 px-4 py-6 sm:px-6">
       <div class="mx-auto w-full max-w-6xl">
         <div class="mb-6 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
           <Activity size={14} />
-          <span>Live server overview</span>
+          <span>{$t('app.tagline')}</span>
         </div>
         {@render children()}
       </div>

@@ -24,6 +24,7 @@ pub mod security;
 pub mod settings;
 pub mod sites;
 pub mod ssl;
+pub mod update;
 pub mod users;
 
 pub use config::Paths;

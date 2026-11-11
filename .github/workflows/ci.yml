@@ -43,6 +43,12 @@ jobs:
       - name: Build release
         run: cargo build --release --workspace
 
+      - name: Build .deb
+        run: VERSION=0.1.0 packaging/build-deb.sh
+
+      - name: Self-update integration test
+        run: tests/update.sh
+
   frontend:
     runs-on: ubuntu-24.04
     steps:
@@ -61,4 +67,46 @@ jobs:
         working-directory: crates/synthpanel-web/frontend
         run: |
           npx svelte-check --tsconfig ./tsconfig.json --fail-on-warn
+          npm run build
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable
+          rustup default stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Build frontend
+        working-directory: crates/synthpanel-web/frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: End-to-end tests
+        run: e2e/run.sh
+
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Build docs site
+        working-directory: docs-site
+        run: |
+          npm install --no-audit --no-fund
           npm run build

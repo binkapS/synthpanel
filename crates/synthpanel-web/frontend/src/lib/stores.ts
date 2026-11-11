@@ -35,11 +35,15 @@ export function toggleTheme(): void {
   theme.update((value) => (value === 'dark' ? 'light' : 'dark'));
 }
 
+export async function fetchMe(): Promise<User> {
+  return api<User>('/api/v1/auth/me');
+}
+
 export async function loadSession(): Promise<User | null> {
   try {
-    const data = await api<SessionState>('/api/v1/auth/me');
-    session.set(data);
-    return data.user;
+    const user = await fetchMe();
+    session.set({ user });
+    return user;
   } catch {
     session.set(null);
     return null;

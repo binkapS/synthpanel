@@ -178,6 +178,11 @@ pub mod methods {
     pub const API_KEYS_CREATE: &str = "api_keys.create";
     pub const API_KEYS_DELETE: &str = "api_keys.delete";
     pub const API_KEYS_VERIFY: &str = "api_keys.verify";
+
+    pub const UPDATE_CHECK: &str = "update.check";
+    pub const UPDATE_APPLY: &str = "update.apply";
+    pub const UPDATE_STATUS: &str = "update.status";
+    pub const UPDATE_ROLLBACK: &str = "update.rollback";
 }
 
 /// Well-known error codes.

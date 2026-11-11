@@ -1627,6 +1627,161 @@ impl IpcServer {
                 }
             }
 
+            methods::UPDATE_CHECK => {
+                let channel = self.update_channel(params).await?;
+                let source = crate::update::update_source();
+                let check = crate::update::check(env!("CARGO_PKG_VERSION"), &channel, &source)
+                    .await
+                    .map_err(update_error)?;
+                Ok(serde_json::to_value(check).map_err(internal)?)
+            }
+            methods::UPDATE_APPLY => {
+                let channel = self.update_channel(params).await?;
+                let source = crate::update::update_source();
+                let check = crate::update::check(env!("CARGO_PKG_VERSION"), &channel, &source)
+                    .await
+                    .map_err(update_error)?;
+                let Some(release) = check.release else {
+                    return Ok(json!({
+                        "updated": false,
+                        "current_version": check.current_version,
+                        "message": "the panel is already up to date",
+                    }));
+                };
+                let install_dir = std::env::var_os("SYNTHPANEL_INSTALL_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("/usr/local/bin"));
+                let base = self.paths.lib_dir.join("updates");
+                let plan = crate::update::UpdatePlan {
+                    manifest: release,
+                    install_dir,
+                    staging_dir: base.join("staging"),
+                    backup_dir: base.join("rollback"),
+                    restart_services: true,
+                    health_check: Some(
+                        std::env::var("SYNTHPANEL_UPDATE_HEALTHCHECK")
+                            .unwrap_or_else(|_| "./synthpanel --version".to_string()),
+                    ),
+                };
+                let id = uuid::Uuid::new_v4().to_string();
+                let started = chrono::Utc::now().to_rfc3339();
+                let target_version = plan.manifest.version.clone();
+                let from_version = check.current_version.clone();
+                match crate::update::apply(&plan, &from_version).await {
+                    Ok(result) => {
+                        let finished = chrono::Utc::now().to_rfc3339();
+                        sqlx::query(
+                            "INSERT INTO updates
+                             (id, from_version, to_version, status, backup_dir, error,
+                              started_at, finished_at)
+                             VALUES (?, ?, ?, 'ok', ?, NULL, ?, ?)",
+                        )
+                        .bind(&id)
+                        .bind(&from_version)
+                        .bind(&result.to_version)
+                        .bind(&result.backup_dir)
+                        .bind(&started)
+                        .bind(&finished)
+                        .execute(&self.pool)
+                        .await
+                        .map_err(internal)?;
+                        let _ = audit::record(
+                            &self.pool,
+                            None,
+                            None,
+                            "update.apply",
+                            Some(&result.to_version),
+                            &json!({ "from": from_version, "to": result.to_version }),
+                            None,
+                        )
+                        .await;
+                        Ok(json!({ "updated": true, "result": result }))
+                    }
+                    Err(error) => {
+                        let finished = chrono::Utc::now().to_rfc3339();
+                        let _ = sqlx::query(
+                            "INSERT INTO updates
+                             (id, from_version, to_version, status, backup_dir, error,
+                              started_at, finished_at)
+                             VALUES (?, ?, ?, 'failed', '', ?, ?, ?)",
+                        )
+                        .bind(&id)
+                        .bind(&from_version)
+                        .bind(&target_version)
+                        .bind(error.to_string())
+                        .bind(&started)
+                        .bind(&finished)
+                        .execute(&self.pool)
+                        .await;
+                        Err(Error::new(
+                            codes::INTERNAL,
+                            format!("the update failed: {error}"),
+                        ))
+                    }
+                }
+            }
+            methods::UPDATE_STATUS => {
+                let channel = self.update_channel(params).await?;
+                let rows = sqlx::query_as::<_, UpdateRow>(
+                    "SELECT id, from_version, to_version, status, backup_dir, error,
+                            started_at, finished_at
+                     FROM updates ORDER BY started_at DESC LIMIT 10",
+                )
+                .fetch_all(&self.pool)
+                .await
+                .map_err(internal)?;
+                Ok(json!({
+                    "current_version": env!("CARGO_PKG_VERSION"),
+                    "channel": channel,
+                    "source": crate::update::update_source(),
+                    "history": rows.iter().map(update_value).collect::<Vec<_>>(),
+                }))
+            }
+            methods::UPDATE_ROLLBACK => {
+                let id = opt_str(params, "id");
+                let backup_dir = match (opt_str(params, "backup_dir"), id) {
+                    (Some(dir), _) => PathBuf::from(dir),
+                    (None, Some(id)) => {
+                        let row = sqlx::query_as::<_, UpdateRow>(
+                            "SELECT id, from_version, to_version, status, backup_dir, error,
+                                    started_at, finished_at
+                             FROM updates WHERE id = ?",
+                        )
+                        .bind(id)
+                        .fetch_optional(&self.pool)
+                        .await
+                        .map_err(internal)?
+                        .ok_or_else(|| Error::new(codes::NOT_FOUND, "update not found"))?;
+                        PathBuf::from(row.backup_dir)
+                    }
+                    (None, None) => {
+                        return Err(Error::new(
+                            codes::BAD_REQUEST,
+                            "an update id or backup_dir is required",
+                        ));
+                    }
+                };
+                if !backup_dir.is_dir() {
+                    return Err(Error::new(codes::NOT_FOUND, "the rollback copy is missing"));
+                }
+                let install_dir = std::env::var_os("SYNTHPANEL_INSTALL_DIR")
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from("/usr/local/bin"));
+                crate::update::rollback(&backup_dir, &install_dir).map_err(internal)?;
+                crate::update::restart_services().map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "update.rollback",
+                    Some(&backup_dir.to_string_lossy()),
+                    &json!({}),
+                    None,
+                )
+                .await;
+                Ok(json!({ "rolled_back": true }))
+            }
+
             other => Err(Error::new(
                 codes::UNSUPPORTED,
                 format!("unknown method `{other}`"),
@@ -2060,6 +2215,52 @@ fn generate_api_key() -> (String, String, String) {
     let token = format!("sp_{prefix}_{secret}");
     let hash = hex::encode(Sha256::digest(token.as_bytes()));
     (token, prefix, hash)
+}
+
+impl IpcServer {
+    async fn update_channel(&self, params: &Value) -> Result<String, Error> {
+        if let Some(channel) = opt_str(params, "channel") {
+            return Ok(channel.to_string());
+        }
+        let channel = self
+            .stores
+            .settings
+            .get("update.channel")
+            .await
+            .map_err(internal)?
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_else(|| "stable".to_string());
+        Ok(channel)
+    }
+}
+
+fn update_error(error: anyhow::Error) -> Error {
+    Error::new(codes::INTERNAL, error.to_string())
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct UpdateRow {
+    pub id: String,
+    pub from_version: String,
+    pub to_version: String,
+    pub status: String,
+    pub backup_dir: String,
+    pub error: Option<String>,
+    pub started_at: String,
+    pub finished_at: Option<String>,
+}
+
+fn update_value(row: &UpdateRow) -> Value {
+    json!({
+        "id": row.id,
+        "from_version": row.from_version,
+        "to_version": row.to_version,
+        "status": row.status,
+        "backup_dir": row.backup_dir,
+        "error": row.error,
+        "started_at": row.started_at,
+        "finished_at": row.finished_at,
+    })
 }
 
 fn is_allowed_unit(unit: &str) -> bool {

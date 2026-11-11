@@ -11,6 +11,7 @@ pub mod files;
 pub mod logs;
 pub mod security;
 pub mod sites;
+pub mod update;
 
 use crate::state::AppState;
 use axum::Router;
@@ -121,5 +122,9 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/api-keys/{id}",
             axum::routing::delete(apikeys::delete),
         )
+        .route("/api/v1/update", get(update::status))
+        .route("/api/v1/update/check", post(update::check))
+        .route("/api/v1/update/apply", post(update::apply))
+        .route("/api/v1/update/rollback", post(update::rollback))
         .with_state(state)
 }

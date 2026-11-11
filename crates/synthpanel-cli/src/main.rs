@@ -66,6 +66,29 @@ pub enum Command {
     /// Show current panel settings.
     #[command(name = "settings")]
     Settings,
+    /// Check for updates and apply the newest release.
+    #[command(name = "update")]
+    Update {
+        /// Only check; do not install.
+        #[arg(long)]
+        check: bool,
+        /// Update channel: stable or beta.
+        #[arg(long)]
+        channel: Option<String>,
+    },
+    /// Show the current version, update channel and recent update history.
+    #[command(name = "update:status")]
+    UpdateStatus,
+    /// Roll back to the binaries saved by a previous update.
+    #[command(name = "update:rollback")]
+    UpdateRollback {
+        /// Update id from `update:status`.
+        #[arg(long)]
+        id: Option<String>,
+        /// Explicit rollback directory.
+        #[arg(long)]
+        backup_dir: Option<String>,
+    },
     /// List sites.
     #[command(name = "sites:list")]
     SitesList,
@@ -394,6 +417,41 @@ async fn main() -> Result<()> {
             if points.is_empty() {
                 eprintln!("no samples in range `{range}`");
             }
+            Ok(())
+        }
+        Command::Update { check, channel } => {
+            let mut params = json!({});
+            if let Some(channel) = channel {
+                params["channel"] = json!(channel);
+            }
+            if *check {
+                let result: Value = global
+                    .call(synthpanel_ipc::methods::UPDATE_CHECK, params)
+                    .await?;
+                println!("{}", global.as_json(&result));
+                return Ok(());
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::UPDATE_APPLY, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::UpdateStatus => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::UPDATE_STATUS, json!({}))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::UpdateRollback { id, backup_dir } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::UPDATE_ROLLBACK,
+                    json!({ "id": id, "backup_dir": backup_dir }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
             Ok(())
         }
         Command::Audit { limit } => {

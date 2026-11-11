@@ -99,9 +99,29 @@ level but has not been exercised against a real `nginx -t` failure (no nginx
 in CI); real SFTP/S3 transfers are implemented but not tested against live
 servers.
 
-## Phase 4 — v1.0 hardening
+## Phase 4 — v1.0 hardening (complete)
 
-- Self-update with signature verification and rollback.
-- Packaging: `.deb` + apt repository.
-- Playwright e2e, chaos tests, external security audit.
-- Docs site, i18n scaffolding, accessibility pass.
+- Self-update: Ed25519-signed release envelope (`payload` + `signature`),
+  SHA-256 archive verification, safe tar extraction, binary backup, unit
+  restart, health check and automatic rollback. Exposed as
+  `update.check|apply|status|rollback`, `synthpanel update*` and a Settings
+  card. History is recorded in the `updates` table.
+- Packaging: `packaging/build-deb.sh` produces a working `.deb` (binaries,
+  systemd units, user/directory provisioning), and `packaging/apt/publish.sh`
+  builds a flat apt repository (optionally GPG-signed). `sign-release.sh`
+  signs a release and prints the trusted public key.
+- End-to-end tests: Playwright covers login, live metrics, the site lifecycle,
+  backups and cron through the real UI; `e2e/run.sh` boots a throwaway stack.
+  `tests/update.sh` exercises a signed release, apply, history and tampered
+  envelope rejection.
+- Docs site: a VitePress site under `docs-site/` with installation,
+  quickstart, backups, updating, troubleshooting, CLI, REST API and security
+  pages.
+- i18n scaffolding: `$t` store with English as the reference locale, a locale
+  selector in Settings, and translated navigation and login copy.
+- Accessibility: skip link, `#main` landmark, `aria-label` on navigation,
+  `aria-current` on the active route, and labelled form controls.
+
+Known gaps: the external security audit and chaos suite from PLAN §11 have
+not been run; real `nginx -t` rollback and live SFTP/S3 transfers still need
+a Docker/root environment (see Phase 3).

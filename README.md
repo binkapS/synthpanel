@@ -5,9 +5,11 @@ It installs and manages a complete LEMP stack — Nginx, multi-version PHP-FPM,
 MariaDB/PostgreSQL, Redis — and lets you operate it from a clean web UI, a
 REST API, or a CLI.
 
-> **Status: Phase 0 foundations.** This is the early development tree. See
-> [PLAN.md](./PLAN.md) for the full design and [docs/roadmap.md](./docs/roadmap.md)
-> for what is implemented and what is still to come.
+> **Status: Phase 4 (v1.0 hardening).** Sites, databases, security, backups,
+> cron, logs, the file manager, API keys and signed self-update are implemented.
+> See [PLAN.md](./PLAN.md) for the full design and
+> [docs/roadmap.md](./docs/roadmap.md) for what is implemented and what is
+> still to come.
 
 ## Layout
 
@@ -20,8 +22,14 @@ crates/
   synthpanel-installer one-command bootstrap
 packaging/
   systemd/             unit files
-  debian/              .deb control + build script
+  debian/              .deb control
+  apt/                 flat apt repository publisher
+  build-deb.sh         .deb builder
+  sign-release.sh      Ed25519 release signer
   install.sh           curl | sudo bash bootstrap
+e2e/                   Playwright end-to-end tests
+docs-site/             VitePress documentation site
+tests/                 smoke, update and integration scripts
 frontend/              embedded Svelte 5 SPA (inside synthpanel-web)
 ```
 
