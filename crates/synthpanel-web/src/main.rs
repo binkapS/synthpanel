@@ -65,12 +65,15 @@ async fn main() -> Result<()> {
         .parse()
         .with_context(|| format!("invalid bind address `{}`", config.bind_addr))?;
 
-    let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem_file(
-        config.tls_cert_path(),
-        config.tls_key_path(),
-    )
-    .await
-    .context("failed to load the panel TLS certificate")?;
+    // The certificate is resolved from disk on every handshake, so the panel
+    // can issue a new certificate for itself without a restart.
+    let certificates =
+        synthpanel_web::tls::PanelCertificates::new(config.tls_cert_path(), config.tls_key_path());
+    let tls_config = axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(
+        certificates
+            .server_config()
+            .context("failed to build the panel TLS configuration")?,
+    ));
 
     info!(%addr, "synthpanel-web listening (https)");
 

@@ -340,6 +340,22 @@ log "invalid domain -> 400"
 # Phase 5: alerting, deployments and the terminal
 # ---------------------------------------------------------------------------
 
+log "the PHP status is reported"
+PHP_STATUS="$(auth_get $BASE/api/v1/php/status)"
+assert_contains "$PHP_STATUS" '"versions"'
+assert_contains "$PHP_STATUS" '"8.3"'
+
+log "the panel certificate is reported"
+PANEL_CERT="$(auth_get $BASE/api/v1/panel/ssl/status)"
+assert_contains "$PANEL_CERT" '"hostname"'
+assert_contains "$PANEL_CERT" '"path"'
+
+log "the ACME challenge route rejects unknown tokens"
+CHALLENGE_CODE="$(code "$BASE/.well-known/acme-challenge/does-not-exist")"
+assert_eq "$CHALLENGE_CODE" "404"
+CHALLENGE_TRAVERSAL="$(code "$BASE/.well-known/acme-challenge/..%2F..%2Fetc%2Fpasswd")"
+assert_eq "$CHALLENGE_TRAVERSAL" "400"
+
 log "creating an alert channel"
 CHANNEL="$(curl -sSk -b "$COOKIES" -X POST \
   -H 'content-type: application/json' \

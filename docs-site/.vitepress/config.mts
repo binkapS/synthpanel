@@ -21,6 +21,8 @@ export default defineConfig({
             { text: 'Deployments', link: '/guide/deployments' },
             { text: 'Alerts', link: '/guide/alerts' },
             { text: 'Terminal', link: '/guide/terminal' },
+            { text: 'PHP', link: '/guide/php' },
+            { text: 'Panel certificate', link: '/guide/panel-certificate' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],
         },

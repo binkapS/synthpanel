@@ -1,5 +1,6 @@
 //! SynthPanel web process: HTTP API, session handling and the embedded SPA.
 
+pub mod acme;
 pub mod api;
 pub mod auth;
 pub mod config;
@@ -7,6 +8,7 @@ pub mod error;
 pub mod extract;
 pub mod ipc;
 pub mod middleware;
+pub mod qr;
 pub mod ratelimit;
 pub mod session;
 pub mod state;

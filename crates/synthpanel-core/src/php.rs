@@ -4,6 +4,7 @@ use crate::sites::SiteExtras;
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PhpOverrides {
@@ -76,11 +77,146 @@ pub fn is_supported_version(version: &str) -> bool {
     PHP_VERSIONS.contains(&version)
 }
 
+/// What the panel knows about the PHP installation of this server.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PhpStatus {
+    /// The versions the panel supports.
+    pub versions: Vec<String>,
+    /// One entry per supported version.
+    pub installed: Vec<PhpVersion>,
+    /// The sites that use each version.
+    pub sites: Vec<PhpSite>,
+}
+
+/// A single PHP version.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PhpVersion {
+    pub version: String,
+    /// The FPM binary, when it is on the PATH.
+    pub binary: Option<String>,
+    /// The directory that holds the generated pools.
+    pub pool_dir: String,
+    /// The pools the panel generated for this version.
+    pub pools: Vec<String>,
+    /// Whether the service is running.
+    pub active: bool,
+}
+
+/// A site and the PHP version it runs on.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PhpSite {
+    pub id: String,
+    pub domain: String,
+    pub version: String,
+}
+
+/// Collect the PHP status of the server.
+pub async fn status(pool: &sqlx::SqlitePool) -> Result<PhpStatus> {
+    let paths = crate::apply::Paths::from_env();
+    let mut installed = Vec::new();
+
+    for (index, version) in PHP_VERSIONS.iter().enumerate() {
+        let binary = which(&format!("php-fpm{}", version.replace('.', "")))
+            .map(|path| path.to_string_lossy().to_string());
+        let pool_dir = paths
+            .php_pools
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from("."));
+        let pool_root = pool_dir.join("fpm/pool.d");
+        let mut pools = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&pool_root) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("synthpanel-") && name.ends_with(".conf") {
+                    pools.push(name);
+                }
+            }
+        }
+        pools.sort();
+        installed.push(PhpVersion {
+            version: (*version).to_string(),
+            binary,
+            pool_dir: pool_root.to_string_lossy().to_string(),
+            pools,
+            active: false,
+        });
+    }
+
+    let rows = sqlx::query_as::<_, PhpSiteRow>(
+        "SELECT id, domain, COALESCE(php_version, '8.3') AS version FROM sites ORDER BY domain",
+    )
+    .fetch_all(pool)
+    .await?;
+    let sites = rows
+        .into_iter()
+        .map(|row| PhpSite {
+            id: row.id,
+            domain: row.domain,
+            version: row.version,
+        })
+        .collect();
+
+    Ok(PhpStatus {
+        versions: PHP_VERSIONS.iter().map(|v| (*v).to_string()).collect(),
+        installed,
+        sites,
+    })
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct PhpSiteRow {
+    id: String,
+    domain: String,
+    version: String,
+}
+
+/// Find a binary on the PATH.
+fn which(binary: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    for dir in std::env::split_paths(&path) {
+        let candidate = dir.join(binary);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::db;
     use crate::sites::{CreateSite, Sites};
+
+    #[tokio::test]
+    async fn reports_the_versions_and_the_sites() {
+        let mut path = std::env::temp_dir();
+        path.push(format!("sp-php-status-{}.db", uuid::Uuid::new_v4()));
+        let pool = db::connect(&path).await.unwrap();
+        db::migrate(&pool).await.unwrap();
+        let sites = Sites::new(pool.clone());
+        sites
+            .create(CreateSite {
+                domain: "example.com".into(),
+                aliases: vec![],
+                document_root: "/var/www/sp_test/public".into(),
+                template: "php".into(),
+                php_version: Some("8.2".into()),
+                ssl_mode: "none".into(),
+                owner_id: None,
+                directives: String::new(),
+            })
+            .await
+            .unwrap();
+
+        let status = status(&pool).await.unwrap();
+        assert_eq!(status.versions, vec!["8.1", "8.2", "8.3", "8.4"]);
+        assert_eq!(status.installed.len(), 4);
+        assert_eq!(status.sites.len(), 1);
+        assert_eq!(status.sites[0].domain, "example.com");
+        assert_eq!(status.sites[0].version, "8.2");
+    }
 
     async fn make_site(overrides: &str) -> SiteExtras {
         let mut path = std::env::temp_dir();

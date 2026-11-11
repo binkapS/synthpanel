@@ -596,9 +596,48 @@ impl IpcServer {
                     "expiring_soon": crate::ssl::expires_within(&live_fullchain, 30),
                 }))
             }
+            methods::PANEL_SSL_STATUS => {
+                let hostname = self.panel_hostname().await?;
+                let status = crate::ssl::panel_status(&hostname, &self.paths.tls_dir);
+                Ok(serde_json::to_value(status).map_err(internal)?)
+            }
+            methods::PANEL_SSL_ISSUE => {
+                let hostname = self.panel_hostname().await?;
+                let method = opt_str(params, "method").unwrap_or("webroot").to_string();
+                let email = opt_str(params, "email").map(str::to_string);
+                let webroot = self.paths.lib_dir.join("acme-webroot");
+                let result = crate::ssl::issue_panel(
+                    &hostname,
+                    &self.paths.tls_dir,
+                    &method,
+                    email.as_deref(),
+                    &webroot,
+                )
+                .await
+                .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "panel.ssl.issue",
+                    Some(&hostname),
+                    &json!({ "method": method, "issued": result.issued }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(result).map_err(internal)?)
+            }
             methods::PHP_VERSIONS => {
                 let versions: Vec<&str> = crate::php::PHP_VERSIONS.to_vec();
                 Ok(serde_json::to_value(versions).map_err(internal)?)
+            }
+            methods::PHP_STATUS => {
+                let mut status = crate::php::status(&self.pool).await.map_err(internal)?;
+                for version in &mut status.installed {
+                    let unit = format!("php-fpm{}", version.version.replace('.', ""));
+                    version.active = systemctl_is_active(&unit).await == "active";
+                }
+                Ok(serde_json::to_value(status).map_err(internal)?)
             }
             methods::SITES_DELETE => {
                 let id = param_str(params, "id")?.to_string();
@@ -2554,6 +2593,27 @@ fn generate_api_key() -> (String, String, String) {
 }
 
 impl IpcServer {
+    /// The hostname the panel is reachable under.
+    ///
+    /// The value configured in the panel settings wins; the machine hostname
+    /// is the fallback.
+    async fn panel_hostname(&self) -> Result<String, Error> {
+        let stored = self
+            .stores
+            .settings
+            .get("hostname")
+            .await
+            .map_err(internal)?
+            .and_then(|value| value.as_str().map(str::to_string))
+            .unwrap_or_default();
+        let hostname = if stored.trim().is_empty() || stored == "localhost" {
+            sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string())
+        } else {
+            stored
+        };
+        Ok(hostname)
+    }
+
     async fn update_channel(&self, params: &Value) -> Result<String, Error> {
         if let Some(channel) = opt_str(params, "channel") {
             return Ok(channel.to_string());

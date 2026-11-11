@@ -157,3 +157,27 @@ Known gaps: the terminal does not support `su`/`sudo` prompts that need a
 second TTY, the SMTP client has no implicit-TLS mode (port 465), and
 multi-server agents, the plugin API and DNS zone management are not
 implemented.
+
+## Phase 6 — Panel polish (complete)
+
+- PHP page: the supported versions, the FPM binary of each version, the
+  pools the panel generated and the sites that use them. The endpoint is
+  `php.status` and the page replaces the old "coming soon" placeholder.
+- Dashboard quick actions are real navigation again (add site, run backup,
+  open terminal) instead of disabled buttons.
+- Panel certificate: the panel can request a Let's Encrypt certificate for
+  its own hostname (webroot or standalone), install it and serve it without
+  a restart — the rustls resolver reloads the files when they change. The
+  status shows the issuer, the expiry and whether the certificate is
+  self-signed.
+- ACME challenge endpoint: the panel serves
+  `/.well-known/acme-challenge/<token>` from `/var/lib/synthpanel/acme-webroot`
+  so the HTTP-01 validation can reach it.
+- Two-factor setup shows a QR code (rendered server-side as an SVG) next to
+  the secret.
+- Certificate parsing bug: the PEM base64 payload is wrapped over several
+  lines, which the decoder rejected — the expiry of a certificate was never
+  readable. The decoder now ignores whitespace.
+
+Known gaps: requesting a certificate for the panel needs port 80 to reach the
+panel (directly or through a proxy) and acme.sh to be installed.

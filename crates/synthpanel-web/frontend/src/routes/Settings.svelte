@@ -16,9 +16,29 @@
   let error = $state('');
   let busy = $state(false);
 
+  interface PanelCertificate {
+    hostname: string;
+    path: string;
+    exists: boolean;
+    self_signed: boolean;
+    issuer: string;
+    subject: string;
+    expires_at: string | null;
+    days_left: number | null;
+    acme_installed: boolean;
+  }
+
+  let panelCertificate = $state<PanelCertificate | null>(null);
+  let certMethod = $state('webroot');
+  let certEmail = $state('');
+  let certBusy = $state(false);
+  let certMessage = $state('');
+  let certError = $state('');
+
   let twoFactorSecret = $state('');
   let twoFactorCode = $state('');
   let twoFactorUri = $state('');
+  let twoFactorQr = $state('');
   let twoFactorMessage = $state('');
   let twoFactorError = $state('');
 
@@ -89,7 +109,7 @@
       });
       createdToken = result.token;
       keyName = '';
-      await Promise.all([loadApiKeys(), loadUpdateStatus()]);
+      await Promise.all([loadApiKeys(), loadUpdateStatus(), loadPanelCertificate()]);
     } catch (err) {
       keyError = err instanceof ApiError ? err.message : 'Unable to create the API key';
     }
@@ -99,7 +119,7 @@
     if (!confirm(`Revoke API key ${key.name}?`)) return;
     try {
       await api(`/api/v1/api-keys/${key.id}`, { method: 'DELETE' });
-      await Promise.all([loadApiKeys(), loadUpdateStatus()]);
+      await Promise.all([loadApiKeys(), loadUpdateStatus(), loadPanelCertificate()]);
     } catch (err) {
       keyError = err instanceof ApiError ? err.message : 'Unable to revoke the API key';
     }
@@ -111,7 +131,7 @@
       hostname = String(settings.hostname ?? '');
       timezone = String(settings.timezone ?? 'UTC');
       locale = String(settings.locale ?? 'en');
-      await Promise.all([loadApiKeys(), loadUpdateStatus()]);
+      await Promise.all([loadApiKeys(), loadUpdateStatus(), loadPanelCertificate()]);
     } catch (err) {
       error = err instanceof ApiError ? err.message : 'Unable to load settings';
     }
@@ -123,6 +143,37 @@
       updateChannel = updateStatus.channel || 'stable';
     } catch {
       updateStatus = null;
+    }
+  }
+
+  async function loadPanelCertificate() {
+    try {
+      panelCertificate = await api<PanelCertificate>('/api/v1/panel/ssl/status');
+    } catch {
+      panelCertificate = null;
+    }
+  }
+
+  async function issuePanelCertificate() {
+    certBusy = true;
+    certError = '';
+    certMessage = '';
+    try {
+      const result = await api<{ issued: boolean; message: string; expires_at: string | null }>(
+        '/api/v1/panel/ssl/issue',
+        {
+          method: 'POST',
+          body: JSON.stringify({ method: certMethod, email: certEmail || undefined }),
+        },
+      );
+      certMessage = result.issued
+        ? `The certificate was issued${result.expires_at ? ` and expires on ${result.expires_at}` : ''}. Reload the browser to use it.`
+        : result.message;
+      await loadPanelCertificate();
+    } catch (err) {
+      certError = err instanceof ApiError ? err.message : 'The certificate could not be issued';
+    } finally {
+      certBusy = false;
     }
   }
 
@@ -190,12 +241,14 @@
     twoFactorMessage = '';
     twoFactorError = '';
     try {
-      const result = await api<{ secret: string; otpauth_url: string }>('/api/v1/auth/2fa/setup', {
-        method: 'POST',
-      });
+      const result = await api<{ secret: string; otpauth_url: string; qr_code: string }>(
+        '/api/v1/auth/2fa/setup',
+        { method: 'POST' },
+      );
       twoFactorSecret = result.secret;
       twoFactorUri = result.otpauth_url;
-      twoFactorMessage = 'Scan the secret in your authenticator app, then confirm the code.';
+      twoFactorQr = result.qr_code ?? '';
+      twoFactorMessage = 'Scan the code in your authenticator app, then confirm the code.';
     } catch (err) {
       twoFactorError = err instanceof ApiError ? err.message : 'Unable to start 2FA setup';
     }
@@ -211,6 +264,7 @@
       });
       twoFactorSecret = '';
       twoFactorCode = '';
+      twoFactorQr = '';
       twoFactorMessage = 'Two-factor authentication is now enabled.';
       const user = await fetchMe();
       session.set({ user });
@@ -291,6 +345,87 @@
     </form>
   </Card>
 
+  <Card title="Panel certificate" subtitle="the certificate the panel serves">
+    <div class="space-y-4">
+      {#if panelCertificate}
+        <dl class="grid gap-3 text-sm sm:grid-cols-2">
+          <div>
+            <dt class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">Hostname</dt>
+            <dd class="mt-0.5 font-mono">{panelCertificate.hostname}</dd>
+          </div>
+          <div>
+            <dt class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">Issuer</dt>
+            <dd class="mt-0.5">
+              {panelCertificate.issuer || 'unknown'}
+              {#if panelCertificate.self_signed}
+                <span class="ml-1 text-xs text-amber-600 dark:text-amber-400">(self-signed)</span>
+              {/if}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">Expires</dt>
+            <dd class="mt-0.5">
+              {panelCertificate.expires_at ?? 'unknown'}
+              {#if panelCertificate.days_left !== null && panelCertificate.days_left < 30}
+                <span class="ml-1 text-xs text-amber-600 dark:text-amber-400">
+                  in {panelCertificate.days_left} day(s)
+                </span>
+              {/if}
+            </dd>
+          </div>
+          <div>
+            <dt class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">File</dt>
+            <dd class="mt-0.5 font-mono text-xs break-all">{panelCertificate.path}</dd>
+          </div>
+        </dl>
+      {:else}
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          The certificate status is not available.
+        </p>
+      {/if}
+
+      {#if panelCertificate && !panelCertificate.acme_installed}
+        <p class="rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-950/60 dark:text-amber-200">
+          acme.sh is not installed on this server, so no certificate can be issued automatically.
+          Install it with <span class="font-mono">curl https://get.acme.sh | sh</span> or place your own
+          certificate in the file above.
+        </p>
+      {/if}
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label class="label" for="cert-method">Method</label>
+          <select id="cert-method" class="input" bind:value={certMethod}>
+            <option value="webroot">webroot (the panel serves the challenge)</option>
+            <option value="standalone">standalone (acme.sh binds port 80)</option>
+          </select>
+        </div>
+        <div>
+          <label class="label" for="cert-email">E-mail (optional)</label>
+          <input id="cert-email" class="input" bind:value={certEmail} placeholder="admin@example.com" />
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-500 dark:text-slate-400">
+        The hostname has to resolve to this server and port 80 has to reach the panel (or
+        <span class="font-mono">/var/lib/synthpanel/acme-webroot</span>). The certificate is installed
+        without a restart; reload the browser afterwards.
+      </p>
+
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="btn-primary" onclick={issuePanelCertificate} disabled={certBusy}>
+          {#if certBusy}Requesting…{:else}Request certificate{/if}
+        </button>
+        {#if certMessage}
+          <span class="text-sm text-emerald-600 dark:text-emerald-400">{certMessage}</span>
+        {/if}
+        {#if certError}
+          <span class="text-sm text-rose-600 dark:text-rose-400">{certError}</span>
+        {/if}
+      </div>
+    </div>
+  </Card>
+
   <Card title="Two-factor authentication" subtitle="TOTP with an authenticator app">
     <div class="space-y-4">
       <div class="flex items-center gap-2 text-sm">
@@ -301,11 +436,22 @@
       {#if !totpEnabled}
         {#if twoFactorSecret}
           <div class="rounded-lg bg-slate-50 p-4 dark:bg-slate-950">
-            <p class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">Secret</p>
-            <p class="mt-1 font-mono text-sm break-all">{twoFactorSecret}</p>
-            <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">
-              otpauth URI: <span class="break-all font-mono">{twoFactorUri}</span>
-            </p>
+            <div class="flex flex-col gap-4 sm:flex-row">
+              {#if twoFactorQr}
+                <img
+                  src={twoFactorQr}
+                  alt="Two-factor authentication QR code"
+                  class="size-48 shrink-0 rounded-lg bg-white p-2"
+                />
+              {/if}
+              <div class="min-w-0">
+                <p class="text-xs font-medium text-slate-500 uppercase dark:text-slate-400">Secret</p>
+                <p class="mt-1 font-mono text-sm break-all">{twoFactorSecret}</p>
+                <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">
+                  otpauth URI: <span class="break-all font-mono">{twoFactorUri}</span>
+                </p>
+              </div>
+            </div>
             <div class="mt-4 flex flex-wrap items-end gap-3">
               <div class="w-40">
                 <label class="label" for="totp-code">Authenticator code</label>

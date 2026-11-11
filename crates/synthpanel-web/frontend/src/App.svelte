@@ -12,6 +12,7 @@
   import Files from './routes/Files.svelte';
   import Login from './routes/Login.svelte';
   import Logs from './routes/Logs.svelte';
+  import Php from './routes/Php.svelte';
   import Placeholder from './routes/Placeholder.svelte';
   import Security from './routes/Security.svelte';
   import Settings from './routes/Settings.svelte';
@@ -53,7 +54,7 @@
       case '/terminal':
         return Terminal;
       case '/php':
-        return Placeholder;
+        return Php;
       default:
         return Placeholder;
     }

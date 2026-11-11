@@ -11,6 +11,7 @@ pub mod databases;
 pub mod deployments;
 pub mod files;
 pub mod logs;
+pub mod panel;
 pub mod security;
 pub mod sites;
 pub mod terminal;
@@ -85,6 +86,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/sites/{id}/suspend", post(sites::suspend))
         .route("/api/v1/sites/{id}/unsuspend", post(sites::unsuspend))
         .route("/api/v1/php/versions", get(sites::php_versions))
+        .route("/api/v1/php/status", get(sites::php_status))
         .route(
             "/api/v1/sites/{id}",
             get(sites::get).patch(sites::update).delete(sites::delete),
@@ -163,6 +165,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/terminal/{id}/read", get(terminal::read))
         .route("/api/v1/terminal/{id}/resize", post(terminal::resize))
         .route("/ws/terminal/{id}", get(crate::ws::terminal_ws))
+        .route(
+            "/.well-known/acme-challenge/{token}",
+            get(crate::acme::challenge),
+        )
+        .route("/api/v1/panel/ssl/status", get(panel::status))
+        .route("/api/v1/panel/ssl/issue", post(panel::issue))
         .route("/api/v1/update", get(update::status))
         .route("/api/v1/update/check", post(update::check))
         .route("/api/v1/update/apply", post(update::apply))

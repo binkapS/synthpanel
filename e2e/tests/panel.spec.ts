@@ -80,6 +80,13 @@ test('deployments page lists the deployment form', async ({ page }) => {
   await expect(page.getByLabel('Repository')).toBeVisible();
 });
 
+test('php page lists the versions', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'PHP' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'PHP' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'PHP 8.3' })).toBeVisible();
+});
+
 test('terminal page opens a shell', async ({ page }) => {
   await signIn(page);
   await page.getByRole('link', { name: 'Terminal' }).click();

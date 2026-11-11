@@ -1,13 +1,114 @@
 //! Panel TLS material: load an existing certificate or generate a self-signed
 //! one on first start.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use rustls::server::{ClientHello, ResolvesServerCert};
+use rustls::sign::CertifiedKey;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use tracing::warn;
 
 /// The state directory the panel falls back to when the TLS directory is not
 /// writable by the web user.
 const DEFAULT_STATE_DIR: &str = "/var/lib/synthpanel";
+
+/// A certificate resolver that picks the certificate up from disk.
+///
+/// The panel can issue a new certificate for itself while it is running, so
+/// the resolver checks the files on every handshake and reloads them when
+/// they changed.
+#[derive(Debug)]
+pub struct PanelCertificates {
+    cert_path: PathBuf,
+    key_path: PathBuf,
+    cached: Mutex<Option<(Arc<CertifiedKey>, SystemTime)>>,
+}
+
+impl PanelCertificates {
+    pub fn new(cert_path: PathBuf, key_path: PathBuf) -> Self {
+        Self {
+            cert_path,
+            key_path,
+            cached: Mutex::new(None),
+        }
+    }
+
+    /// The rustls configuration for the panel.
+    pub fn server_config(&self) -> Result<rustls::ServerConfig> {
+        let provider = rustls::crypto::aws_lc_rs::default_provider();
+        Ok(rustls::ServerConfig::builder_with_provider(provider.into())
+            .with_safe_default_protocol_versions()?
+            .with_no_client_auth()
+            .with_cert_resolver(Arc::new(Self::new(
+                self.cert_path.clone(),
+                self.key_path.clone(),
+            ))))
+    }
+
+    /// Load the certificate and key, reusing the cached copy when the files
+    /// did not change.
+    fn load(&self) -> Option<Arc<CertifiedKey>> {
+        let modified = std::fs::metadata(&self.cert_path)
+            .and_then(|meta| meta.modified())
+            .ok()?;
+
+        let mut cached = self.cached.lock().ok()?;
+        if let Some((key, stamp)) = cached.as_ref() {
+            if *stamp == modified {
+                return Some(key.clone());
+            }
+        }
+
+        let key = match load_certified_key(&self.cert_path, &self.key_path) {
+            Ok(key) => key,
+            Err(error) => {
+                warn!(
+                    %error,
+                    cert = %self.cert_path.display(),
+                    "cannot load the panel certificate"
+                );
+                return None;
+            }
+        };
+        *cached = Some((key.clone(), modified));
+        Some(key)
+    }
+}
+
+impl ResolvesServerCert for PanelCertificates {
+    fn resolve(&self, _client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        self.load()
+    }
+}
+
+/// Read a certificate chain and its key from PEM files.
+fn load_certified_key(cert_path: &Path, key_path: &Path) -> Result<Arc<CertifiedKey>> {
+    let cert_file = std::fs::File::open(cert_path)
+        .with_context(|| format!("cannot open {}", cert_path.display()))?;
+    let mut cert_reader = std::io::BufReader::new(cert_file);
+    let chain = rustls_pemfile::certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .with_context(|| format!("cannot parse {}", cert_path.display()))?;
+    if chain.is_empty() {
+        bail!("the certificate file {} is empty", cert_path.display());
+    }
+
+    let key_file = std::fs::File::open(key_path)
+        .with_context(|| format!("cannot open {}", key_path.display()))?;
+    let mut key_reader = std::io::BufReader::new(key_file);
+    let key = rustls_pemfile::private_key(&mut key_reader)
+        .with_context(|| format!("cannot parse {}", key_path.display()))?
+        .ok_or_else(|| anyhow::anyhow!("the key file {} has no key", key_path.display()))?;
+    let signing = rustls::crypto::aws_lc_rs::sign::any_supported_type(&key)
+        .context("the private key is not supported")?;
+
+    Ok(Arc::new(CertifiedKey {
+        cert: chain,
+        key: signing,
+        ocsp: None,
+    }))
+}
 
 pub fn ensure_certificate(cert_path: &Path, key_path: &Path, hostname: &str) -> Result<bool> {
     if cert_path.exists() && key_path.exists() && certificate_matches(cert_path, hostname) {

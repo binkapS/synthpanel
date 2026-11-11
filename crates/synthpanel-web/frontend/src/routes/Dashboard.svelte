@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import {
-    Activity,
+    Archive,
     Cpu,
-    Gauge,
+    Globe,
     HardDrive,
     MemoryStick,
     Network,
     RefreshCw,
+    TerminalSquare,
   } from '@lucide/svelte';
   import { api, ApiError } from '../lib/api';
+  import { navigate } from '../lib/router';
   import { connectSocket } from '../lib/socket';
   import { formatBytes, formatPercent, relativeTime } from '../lib/format';
   import AuditFeed from '../lib/components/AuditFeed.svelte';
@@ -206,18 +208,15 @@
 
   <Card title="Quick actions" subtitle="common tasks">
     <div class="flex flex-wrap gap-2">
-      <span class="btn-secondary pointer-events-none opacity-60">
-        <Activity size={15} /> Add site
-      </span>
-      <span class="btn-secondary pointer-events-none opacity-60">
-        <Gauge size={15} /> Issue SSL
-      </span>
-      <span class="btn-secondary pointer-events-none opacity-60">
-        <HardDrive size={15} /> Run backup
-      </span>
+      <button class="btn-secondary" onclick={() => navigate('/sites')}>
+        <Globe size={15} /> Add site
+      </button>
+      <button class="btn-secondary" onclick={() => navigate('/backups')}>
+        <Archive size={15} /> Run backup
+      </button>
+      <button class="btn-secondary" onclick={() => navigate('/terminal')}>
+        <TerminalSquare size={15} /> Open terminal
+      </button>
     </div>
-    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">
-      Site management arrives with Phase 1 of the SynthPanel roadmap.
-    </p>
   </Card>
 </div>

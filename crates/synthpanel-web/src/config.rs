@@ -11,6 +11,7 @@ pub struct WebConfig {
     pub ipc_token_path: PathBuf,
     pub tls_dir: PathBuf,
     pub log_dir: PathBuf,
+    pub lib_dir: PathBuf,
     pub static_dir: PathBuf,
     pub session_ttl_secs: u64,
     pub secure_cookies: bool,
@@ -38,6 +39,7 @@ impl WebConfig {
         let ipc_token_path = env_path("SYNTHPANEL_IPC_TOKEN_FILE", "/etc/synthpanel/ipc-token");
         let tls_dir = env_path("SYNTHPANEL_TLS_DIR", "/etc/synthpanel/tls");
         let log_dir = env_path("SYNTHPANEL_LOG_DIR", "/var/log/synthpanel");
+        let lib_dir = env_path("SYNTHPANEL_LIB_DIR", "/var/lib/synthpanel");
         let static_dir = env_path("SYNTHPANEL_STATIC_DIR", "frontend/dist");
         let session_ttl_secs = env_str("SYNTHPANEL_SESSION_TTL", "86400")
             .parse()
@@ -52,11 +54,17 @@ impl WebConfig {
             ipc_token_path,
             tls_dir,
             log_dir,
+            lib_dir,
             static_dir,
             session_ttl_secs,
             secure_cookies,
             panel_hostname,
         }
+    }
+
+    /// The directory that holds the ACME challenges for the panel hostname.
+    pub fn acme_webroot(&self) -> PathBuf {
+        self.lib_dir.join("acme-webroot")
     }
 
     pub fn tls_cert_path(&self) -> PathBuf {

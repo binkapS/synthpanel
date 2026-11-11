@@ -70,6 +70,7 @@ rcgen = "0.14"
 
 # Crypto
 argon2 = "0.5"
+qrcodegen = "1.8"
 totp-rs = { version = "5", features = ["otpauth"] }
 rand = "0.8"
 sha2 = "0.10"

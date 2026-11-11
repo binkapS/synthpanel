@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
     // The web process writes the panel certificate, so the TLS directory has
     // to belong to the unprivileged web user — otherwise the web service
     // cannot start.
-    chown_to_synthpanel(&paths.tls_dir);
+    synthpanel_core::ownership::chown_to_synthpanel(&paths.tls_dir);
     info!(etc = %paths.etc_dir.display(), "synthpanel-core starting");
 
     ensure_ipc_token(&paths.ipc_token_path).await?;
@@ -173,27 +173,7 @@ fn generate_secure_token(bytes: usize) -> String {
 fn restrict_file(path: &Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
-    chown_to_synthpanel(path);
-}
-
-/// Best-effort chown to root:synthpanel. Fails silently when the user or group
-/// does not exist (development) or when the process is not root.
-fn chown_to_synthpanel(path: &Path) {
-    use std::ffi::CString;
-    use std::os::unix::ffi::OsStrExt;
-    let Ok(cpath) = CString::new(path.as_os_str().as_bytes()) else {
-        return;
-    };
-    unsafe {
-        let user = CString::new("synthpanel").unwrap();
-        let group = CString::new("synthpanel").unwrap();
-        let pw = libc::getpwnam(user.as_ptr());
-        let gr = libc::getgrnam(group.as_ptr());
-        if pw.is_null() || gr.is_null() {
-            return;
-        }
-        libc::chown(cpath.as_ptr(), (*pw).pw_uid, (*gr).gr_gid);
-    }
+    synthpanel_core::ownership::chown_to_synthpanel(path);
 }
 
 fn bind_socket(paths: &Paths) -> Result<UnixListener> {
@@ -208,7 +188,7 @@ fn bind_socket(paths: &Paths) -> Result<UnixListener> {
         .with_context(|| format!("failed to bind {}", socket_path.display()))?;
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(socket_path, std::fs::Permissions::from_mode(0o660))?;
-    chown_to_synthpanel(socket_path);
+    synthpanel_core::ownership::chown_to_synthpanel(socket_path);
     Ok(listener)
 }
 

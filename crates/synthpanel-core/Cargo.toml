@@ -41,3 +41,6 @@ ring = { workspace = true }
 tokio-rustls = { workspace = true }
 webpki-roots = { workspace = true }
 hmac = { workspace = true }
+
+[dev-dependencies]
+rcgen = { workspace = true }

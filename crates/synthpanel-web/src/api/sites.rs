@@ -151,6 +151,15 @@ pub async fn php_versions(
     Ok(Json(json!({ "versions": versions })))
 }
 
+/// Report the PHP installation of this server.
+pub async fn php_status(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+) -> Result<Json<Value>, ApiError> {
+    let status: Value = state.core_call(methods::PHP_STATUS, json!({})).await?;
+    Ok(Json(status))
+}
+
 /// Issue a Let's Encrypt certificate for a site over HTTP-01.
 pub async fn issue_ssl(
     State(state): State<Arc<AppState>>,

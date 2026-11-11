@@ -29,6 +29,7 @@ tower-http = { workspace = true }
 http = { workspace = true }
 http-body-util = { workspace = true }
 argon2 = { workspace = true }
+qrcodegen = { workspace = true }
 totp-rs = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }

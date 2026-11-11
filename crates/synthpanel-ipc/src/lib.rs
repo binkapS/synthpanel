@@ -125,7 +125,10 @@ pub mod methods {
     pub const SITES_DELETE: &str = "sites.delete";
     pub const SITES_SSL_ISSUE: &str = "sites.ssl.issue";
     pub const SITES_SSL_STATUS: &str = "sites.ssl.status";
+    pub const PANEL_SSL_STATUS: &str = "panel.ssl.status";
+    pub const PANEL_SSL_ISSUE: &str = "panel.ssl.issue";
     pub const PHP_VERSIONS: &str = "php.versions";
+    pub const PHP_STATUS: &str = "php.status";
     pub const DATABASES_LIST: &str = "databases.list";
     pub const DATABASES_GET: &str = "databases.get";
     pub const DATABASES_CREATE: &str = "databases.create";

@@ -227,6 +227,7 @@ pub async fn totp_setup(
     Ok(Json(json!({
         "secret": secret,
         "otpauth_url": uri,
+        "qr_code": crate::qr::data_uri(&uri).unwrap_or_default(),
     })))
 }
 
