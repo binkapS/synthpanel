@@ -23,6 +23,10 @@ async fn main() -> Result<()> {
     paths
         .ensure_dirs()
         .context("failed to create SynthPanel directories")?;
+    // The web process writes the panel certificate, so the TLS directory has
+    // to belong to the unprivileged web user — otherwise the web service
+    // cannot start.
+    chown_to_synthpanel(&paths.tls_dir);
     info!(etc = %paths.etc_dir.display(), "synthpanel-core starting");
 
     ensure_ipc_token(&paths.ipc_token_path).await?;

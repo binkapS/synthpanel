@@ -15,8 +15,11 @@ async fn main() -> Result<()> {
     // explicitly so the process-level default is deterministic.
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    let config = WebConfig::from_env();
-    std::fs::create_dir_all(&config.tls_dir).context("failed to create the TLS directory")?;
+    let mut config = WebConfig::from_env();
+    // The panel certificate is written by this unprivileged process, so the
+    // directory has to be writable by it. Fall back to the panel state
+    // directory when it is not.
+    config.tls_dir = synthpanel_web::tls::prepare_tls_dir(&config.tls_dir);
 
     let generated = synthpanel_web::tls::ensure_certificate(
         &config.tls_cert_path(),

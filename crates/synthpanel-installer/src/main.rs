@@ -156,6 +156,21 @@ fn create_layout() -> Result<()> {
     if !run_ok("getent", &["group", "synthpanel"]) {
         run("groupadd", &["synthpanel"]).ok();
     }
+
+    // The web process writes the panel certificate, so the TLS directory has
+    // to belong to it. Without this the web service cannot start.
+    std::fs::create_dir_all("/etc/synthpanel/tls")
+        .with_context(|| "cannot create /etc/synthpanel/tls")?;
+    run("chown", &["synthpanel:synthpanel", "/etc/synthpanel/tls"])
+        .with_context(|| "cannot hand /etc/synthpanel/tls to the web user")?;
+    run("chmod", &["0750", "/etc/synthpanel/tls"]).ok();
+    for dir in [
+        "/var/lib/synthpanel",
+        "/var/log/synthpanel",
+        "/var/backups/synthpanel",
+    ] {
+        run("chown", &["synthpanel:synthpanel", dir]).ok();
+    }
     Ok(())
 }
 
