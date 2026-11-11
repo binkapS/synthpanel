@@ -477,13 +477,12 @@ impl Global {
 }
 
 /// Read a password from the terminal without echoing it.
+/// Read a password without echoing it.
 fn prompt_password(label: &str) -> Result<String> {
-    use std::io::Write;
-    print!("{label}: ");
-    std::io::stdout().flush()?;
-    let mut password = String::new();
-    std::io::stdin().read_line(&mut password)?;
-    Ok(password.trim().to_string())
+    match dialoguer::Password::new().with_prompt(label).interact() {
+        Ok(value) => Ok(value.trim().to_string()),
+        Err(error) => bail!("cannot read the password: {error}"),
+    }
 }
 
 fn print_table(title: &str, rows: &[(&str, &str)]) {

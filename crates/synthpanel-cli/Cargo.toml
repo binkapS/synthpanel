@@ -21,6 +21,7 @@ tracing-subscriber = { workspace = true }
 anyhow = { workspace = true }
 thiserror = { workspace = true }
 clap = { workspace = true }
+dialoguer = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }

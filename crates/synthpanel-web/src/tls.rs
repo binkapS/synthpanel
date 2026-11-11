@@ -10,7 +10,7 @@ use tracing::warn;
 const DEFAULT_STATE_DIR: &str = "/var/lib/synthpanel";
 
 pub fn ensure_certificate(cert_path: &Path, key_path: &Path, hostname: &str) -> Result<bool> {
-    if cert_path.exists() && key_path.exists() {
+    if cert_path.exists() && key_path.exists() && certificate_matches(cert_path, hostname) {
         return Ok(false);
     }
     if let Some(parent) = cert_path.parent() {
@@ -44,7 +44,44 @@ pub fn ensure_certificate(cert_path: &Path, key_path: &Path, hostname: &str) -> 
     })?;
     restrict_permissions(key_path)?;
     restrict_permissions(cert_path)?;
+    remember_hostname(cert_path, hostname)?;
     Ok(true)
+}
+
+/// Whether the certificate on disk was issued for the configured hostname.
+///
+/// The hostname is stored next to the certificate, so a changed panel
+/// hostname produces a new certificate instead of a name mismatch in the
+/// browser.
+fn certificate_matches(cert_path: &Path, hostname: &str) -> bool {
+    let Some(stamp) = hostname_stamp_path(cert_path) else {
+        return true;
+    };
+    match std::fs::read_to_string(&stamp) {
+        Ok(stored) => stored.trim() == hostname.trim(),
+        // No stamp: an existing certificate is kept as it is.
+        Err(_) => true,
+    }
+}
+
+/// Remember the hostname a certificate was issued for.
+fn remember_hostname(cert_path: &Path, hostname: &str) -> Result<()> {
+    let Some(stamp) = hostname_stamp_path(cert_path) else {
+        return Ok(());
+    };
+    std::fs::write(&stamp, hostname).with_context(|| {
+        format!(
+            "cannot write the certificate hostname to {}",
+            stamp.display()
+        )
+    })
+}
+
+/// The file that records the hostname of a certificate.
+fn hostname_stamp_path(cert_path: &Path) -> Option<std::path::PathBuf> {
+    cert_path
+        .parent()
+        .map(|dir| dir.join("panel-cert.hostname"))
 }
 
 /// Pick a directory the web process can write the panel certificate to.
@@ -129,5 +166,20 @@ mod tests {
         unsafe { std::env::remove_var("SYNTHPANEL_STATE_DIR") };
         let _ = std::fs::remove_file(&file);
         let _ = std::fs::remove_dir_all(&state);
+    }
+
+    #[test]
+    fn a_changed_hostname_produces_a_new_certificate() {
+        let dir = std::env::temp_dir().join(format!("sp-tls-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert = dir.join("panel-cert.pem");
+        let key = dir.join("panel-key.pem");
+
+        assert!(ensure_certificate(&cert, &key, "panel.example.com").unwrap());
+        // The same hostname keeps the certificate.
+        assert!(!ensure_certificate(&cert, &key, "panel.example.com").unwrap());
+        // A different hostname replaces it.
+        assert!(ensure_certificate(&cert, &key, "other.example.com").unwrap());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

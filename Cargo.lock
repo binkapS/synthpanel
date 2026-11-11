@@ -2730,6 +2730,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clap",
+ "dialoguer",
  "hex",
  "serde",
  "serde_json",
