@@ -2596,7 +2596,8 @@ impl IpcServer {
     /// The hostname the panel is reachable under.
     ///
     /// The value configured in the panel settings wins; the machine hostname
-    /// is the fallback.
+    /// is the fallback. A value that is not a hostname (a URL, for example)
+    /// is ignored, because it cannot be used for a certificate.
     async fn panel_hostname(&self) -> Result<String, Error> {
         let stored = self
             .stores
@@ -2606,10 +2607,10 @@ impl IpcServer {
             .map_err(internal)?
             .and_then(|value| value.as_str().map(str::to_string))
             .unwrap_or_default();
-        let hostname = if stored.trim().is_empty() || stored == "localhost" {
-            sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string())
-        } else {
-            stored
+        let cleaned = clean_hostname(&stored);
+        let hostname = match cleaned {
+            Some(hostname) => hostname,
+            None => sysinfo::System::host_name().unwrap_or_else(|| "localhost".to_string()),
         };
         Ok(hostname)
     }
@@ -2737,6 +2738,31 @@ fn base64_decode(value: &str) -> Result<Vec<u8>, Error> {
     BASE64
         .decode(value.trim())
         .map_err(|error| Error::new(codes::BAD_REQUEST, format!("invalid base64: {error}")))
+}
+
+/// Normalise a configured hostname.
+///
+/// A URL (`https://panel.example.com/`) is accepted and reduced to its host,
+/// everything that is not a hostname is rejected.
+fn clean_hostname(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Take the host of a URL when one was entered.
+    let host = match trimmed.split_once("://") {
+        Some((_, rest)) => rest.split('/').next().unwrap_or_default(),
+        None => trimmed.split('/').next().unwrap_or_default(),
+    };
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() || host == "localhost" {
+        return None;
+    }
+    // A hostname has no whitespace and no port.
+    if host.contains(char::is_whitespace) || host.contains(':') {
+        return None;
+    }
+    Some(host)
 }
 
 /// Map an error to a client error: the request was wrong, not the panel.
@@ -2890,6 +2916,26 @@ mod tests {
     use crate::db;
     use serde_json::json;
     use std::time::Duration;
+
+    #[test]
+    fn cleans_up_configured_hostnames() {
+        assert_eq!(
+            clean_hostname("panel.example.com").as_deref(),
+            Some("panel.example.com")
+        );
+        assert_eq!(
+            clean_hostname("https://panel.example.com/").as_deref(),
+            Some("panel.example.com")
+        );
+        assert_eq!(
+            clean_hostname("  Panel.Example.com.  ").as_deref(),
+            Some("panel.example.com")
+        );
+        assert!(clean_hostname("").is_none());
+        assert!(clean_hostname("localhost").is_none());
+        assert!(clean_hostname("panel example com").is_none());
+        assert!(clean_hostname("panel.example.com:8443").is_none());
+    }
 
     async fn test_server() -> (IpcServer, Paths) {
         let mut base = std::env::temp_dir();

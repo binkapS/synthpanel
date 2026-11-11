@@ -312,7 +312,9 @@
         <label class="label" for="hostname">Hostname</label>
         <input id="hostname" class="input" bind:value={hostname} placeholder="panel.example.com" />
         <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">
-          Required before a Let's Encrypt certificate can be issued for the panel itself.
+          The name your browser uses, without a scheme — for example
+          <span class="font-mono">panel.example.com</span>. It is required before a Let's Encrypt
+          certificate can be issued for the panel itself.
         </p>
       </div>
       <div class="grid gap-4 sm:grid-cols-2">
