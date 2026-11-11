@@ -40,7 +40,7 @@ export default defineConfig({
     },
     socialLinks: [{ icon: 'github', link: 'https://github.com/binkapS/synthpanel' }],
     footer: {
-      message: 'Released under the AGPL-3.0 license.',
+      message: 'Released under the AGPL-3.0-or-later license.',
       copyright: 'Copyright © SynthPanel contributors',
     },
   },

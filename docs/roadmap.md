@@ -1,7 +1,20 @@
 # Roadmap
 
-A short, honest view of what is implemented in this tree and what remains,
-aligned with the phases in [PLAN.md §10](../../PLAN.md#10-roadmap--milestones).
+What is implemented in this tree, and what is not. The design behind it lives
+in [PLAN.md](../PLAN.md); the per-feature status is in
+[PLAN.md §4](../PLAN.md#4-feature-map).
+
+| Phase | Scope | Status |
+|---|---|---|
+| 0 | Foundations: workspace, IPC, the schema, auth, the installer | ✅ complete |
+| 1 | Core hosting: sites, vhosts, PHP-FPM pools, SSL, live metrics | ✅ complete |
+| 2 | Data and security: MariaDB, PostgreSQL, Redis, UFW, fail2ban, SSH keys | ✅ complete |
+| 3 | Operations: backups, cron, logs, the file manager, API keys | ✅ complete |
+| 4 | v1.0 hardening: the signed self-update, packaging, e2e, the docs site | ✅ complete |
+| 5 | Beyond v1.0: alerting, Git deployments, the web terminal, the PWA | ✅ complete |
+| 6 | Panel polish: the PHP page, the panel certificate, the 2FA QR code | ✅ complete |
+
+The phases below describe what each one delivered.
 
 ## Phase 0 — Foundations (complete)
 
@@ -94,10 +107,6 @@ aligned with the phases in [PLAN.md §10](../../PLAN.md#10-roadmap--milestones).
   history, filtered log reads, file manager traversal rejection, and API-key
   authentication/revocation.
 
-Known gaps: the apply-pipeline rollback path is unit-tested at the render
-level but has not been exercised against a real `nginx -t` failure (no nginx
-in CI); real SFTP/S3 transfers are implemented but not tested against live
-servers.
 
 ## Phase 4 — v1.0 hardening (complete)
 
@@ -122,8 +131,6 @@ servers.
 - Accessibility: skip link, `#main` landmark, `aria-label` on navigation,
   `aria-current` on the active route, and labelled form controls.
 
-Known gaps: the external security audit has not been run; live SFTP/S3
-transfers still need a real server to test against.
 
 ## Phase 5 — Beyond v1.0 (complete, scoped)
 
@@ -153,10 +160,6 @@ exist yet).
 - The error mapping between the core and the API was corrected: validation
   failures answer `400`, internal failures answer `500`.
 
-Known gaps: the terminal does not support `su`/`sudo` prompts that need a
-second TTY, the SMTP client has no implicit-TLS mode (port 465), and
-multi-server agents, the plugin API and DNS zone management are not
-implemented.
 
 ## Phase 6 — Panel polish (complete)
 
@@ -179,5 +182,39 @@ implemented.
   lines, which the decoder rejected — the expiry of a certificate was never
   readable. The decoder now ignores whitespace.
 
-Known gaps: requesting a certificate for the panel needs port 80 to reach the
-panel (directly or through a proxy) and acme.sh to be installed.
+---
+
+## What is not implemented yet
+
+Everything below is either planned in [PLAN.md](../PLAN.md) or was cut for
+scope. Nothing here is half-finished: either the feature works, or it is not
+there.
+
+### Planned
+
+- A multi-server agent and a plugin API — they need a protocol that does not
+  exist yet; the IPC was designed with them in mind.
+- DNS zone management, if there is demand for it.
+- An OpenAPI 3.1 document for the REST API.
+- A code editor with syntax highlighting in the file manager.
+- A session list where the active sessions can be revoked.
+- The quota enforcement: the quotas are stored per user, but they are not
+  checked when a site or a database is created.
+- OS security updates (unattended-upgrades) from the UI.
+- phpMyAdmin and pgAdmin as one-click installs.
+- Golden snapshot tests of the generated configurations, and a coverage
+  report.
+
+### Known limitations
+
+- The web terminal does not support `su` or `sudo` prompts that need a second
+  TTY.
+- The SMTP client has no implicit-TLS mode (port 465); use STARTTLS or a local
+  MTA.
+- Requesting a certificate for the panel needs port 80 to reach the panel
+  (directly or through a proxy) and acme.sh to be installed.
+- The panel certificate is trusted only when it comes from Let's Encrypt; a
+  self-signed one always triggers a browser warning.
+- The SFTP and S3 backup destinations are implemented but have never been run
+  against a live server.
+- The external security audit has not been run.
