@@ -36,6 +36,7 @@ pub struct IpcServer {
     pool: sqlx::SqlitePool,
     host: String,
     started_at: Instant,
+    terminals: crate::terminal::TerminalRegistry,
 }
 
 impl Clone for IpcServer {
@@ -52,6 +53,7 @@ impl Clone for IpcServer {
             pool: self.pool.clone(),
             host: self.host.clone(),
             started_at: self.started_at,
+            terminals: self.terminals.clone(),
         }
     }
 }
@@ -71,6 +73,7 @@ impl IpcServer {
             pool,
             host,
             started_at: Instant::now(),
+            terminals: crate::terminal::TerminalRegistry::new(),
         }
     }
 
@@ -648,9 +651,9 @@ impl IpcServer {
             }
             methods::DATABASES_CREATE => {
                 let engine_name = param_str(params, "engine")?;
-                let engine = crate::database::require_engine(engine_name).map_err(internal)?;
+                let engine = crate::database::require_engine(engine_name).map_err(bad_request)?;
                 let name = param_str(params, "name")?;
-                let name = crate::database::validate_name(name).map_err(internal)?;
+                let name = crate::database::validate_name(name).map_err(bad_request)?;
                 let owner_id = params
                     .get("owner_id")
                     .and_then(Value::as_str)
@@ -660,7 +663,8 @@ impl IpcServer {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .unwrap_or_else(|| name.clone());
-                let username = crate::database::validate_username(&username).map_err(internal)?;
+                let username =
+                    crate::database::validate_username(&username).map_err(bad_request)?;
                 let password = params
                     .get("password")
                     .and_then(Value::as_str)
@@ -787,7 +791,8 @@ impl IpcServer {
                     .await
                     .map_err(internal)?;
                 let username = users.first().map(|user| user.username.clone());
-                let engine = crate::database::require_engine(&record.engine).map_err(internal)?;
+                let engine =
+                    crate::database::require_engine(&record.engine).map_err(bad_request)?;
                 let credentials = self.database_credentials();
                 let dropped = match engine {
                     crate::database::Engine::Mysql => {
@@ -841,7 +846,7 @@ impl IpcServer {
                     return Err(Error::new(codes::NOT_FOUND, "database not found"));
                 }
                 let username = param_str(params, "username")?;
-                let username = crate::database::validate_username(username).map_err(internal)?;
+                let username = crate::database::validate_username(username).map_err(bad_request)?;
                 let password = params
                     .get("password")
                     .and_then(Value::as_str)
@@ -924,8 +929,8 @@ impl IpcServer {
                         .unwrap_or(true),
                 };
                 let rule = FirewallRule {
-                    port: crate::security::validate_port(&rule.port).map_err(internal)?,
-                    source: crate::security::validate_source(&rule.source).map_err(internal)?,
+                    port: crate::security::validate_port(&rule.port).map_err(bad_request)?,
+                    source: crate::security::validate_source(&rule.source).map_err(bad_request)?,
                     ..rule
                 };
                 let output = crate::security::ufw_apply(&rule).map_err(internal)?;
@@ -981,7 +986,7 @@ impl IpcServer {
                 let public_key = param_str(params, "public_key")?;
                 let user = params.get("user").and_then(Value::as_str).unwrap_or("root");
                 let (key_type, fingerprint) =
-                    crate::security::validate_ssh_key(public_key).map_err(internal)?;
+                    crate::security::validate_ssh_key(public_key).map_err(bad_request)?;
                 crate::security::install_ssh_key(user, public_key).map_err(internal)?;
                 let id = uuid::Uuid::new_v4().to_string();
                 let now = chrono::Utc::now().to_rfc3339();
@@ -1446,13 +1451,13 @@ impl IpcServer {
                 let sandbox = self.file_sandbox(params)?;
                 let listing = sandbox
                     .list(opt_str(params, "path").unwrap_or(""))
-                    .map_err(internal)?;
-                Ok(serde_json::to_value(listing).map_err(internal)?)
+                    .map_err(bad_request)?;
+                Ok(serde_json::to_value(listing).map_err(bad_request)?)
             }
             methods::FILES_READ => {
                 let sandbox = self.file_sandbox(params)?;
                 let path = param_str(params, "path")?;
-                let bytes = sandbox.read_file(path).map_err(internal)?;
+                let bytes = sandbox.read_file(path).map_err(bad_request)?;
                 if bytes.len() > 8 * 1024 * 1024 {
                     return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
                 }
@@ -1482,28 +1487,28 @@ impl IpcServer {
                 if bytes.len() > 16 * 1024 * 1024 {
                     return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
                 }
-                sandbox.write_file(path, &bytes).map_err(internal)?;
+                sandbox.write_file(path, &bytes).map_err(bad_request)?;
                 Ok(json!({ "written": bytes.len() }))
             }
             methods::FILES_MKDIR => {
                 let sandbox = self.file_sandbox(params)?;
                 sandbox
                     .create_dir(param_str(params, "path")?)
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "created": true }))
             }
             methods::FILES_RENAME => {
                 let sandbox = self.file_sandbox(params)?;
                 sandbox
                     .rename(param_str(params, "from")?, param_str(params, "to")?)
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "renamed": true }))
             }
             methods::FILES_DELETE => {
                 let sandbox = self.file_sandbox(params)?;
                 let removed = sandbox
                     .delete(param_str(params, "path")?)
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "removed": removed }))
             }
             methods::FILES_CHMOD => {
@@ -1512,11 +1517,11 @@ impl IpcServer {
                 if let Some(mode) = opt_str(params, "mode") {
                     let mode = u32::from_str_radix(mode.trim_start_matches('0'), 8)
                         .map_err(|_| Error::new(codes::BAD_REQUEST, "invalid octal mode"))?;
-                    sandbox.chmod(path, mode).map_err(internal)?;
+                    sandbox.chmod(path, mode).map_err(bad_request)?;
                 }
                 sandbox
                     .chown(path, opt_str(params, "owner"), opt_str(params, "group"))
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "updated": true }))
             }
             methods::FILES_ARCHIVE => {
@@ -1533,7 +1538,7 @@ impl IpcServer {
                 };
                 let (name, size) = sandbox
                     .archive(param_str(params, "path")?, format)
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "path": name, "size": size }))
             }
             methods::FILES_EXTRACT => {
@@ -1543,7 +1548,7 @@ impl IpcServer {
                         param_str(params, "path")?,
                         opt_str(params, "into").unwrap_or(""),
                     )
-                    .map_err(internal)?;
+                    .map_err(bad_request)?;
                 Ok(json!({ "entries": entries }))
             }
 
@@ -1698,6 +1703,14 @@ impl IpcServer {
                         Ok(json!({ "updated": true, "result": result }))
                     }
                     Err(error) => {
+                        let _ = crate::alerts::emit(
+                            &self.pool,
+                            crate::alerts::events::UPDATE_FAILED,
+                            "critical",
+                            &format!("the update to {target_version} failed: {error}"),
+                            &json!({ "from": from_version, "to": target_version }),
+                        )
+                        .await;
                         let finished = chrono::Utc::now().to_rfc3339();
                         let _ = sqlx::query(
                             "INSERT INTO updates
@@ -1780,6 +1793,329 @@ impl IpcServer {
                 )
                 .await;
                 Ok(json!({ "rolled_back": true }))
+            }
+
+            methods::ALERTS_LIST => {
+                let limit = param_i64(params, "limit", 50)?;
+                let alerts = crate::alerts::list_alerts(&self.pool, limit)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(alerts).map_err(internal)?)
+            }
+            methods::ALERTS_TEST => {
+                let channel_id = param_str(params, "channel_id")?;
+                let message =
+                    opt_str(params, "message").unwrap_or("This is a test alert from SynthPanel.");
+                let channel = crate::alerts::load_channel(&self.pool, channel_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| {
+                        Error::new(codes::NOT_FOUND, "the alert channel does not exist")
+                    })?;
+                let alert = crate::alerts::Alert {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    rule_id: None,
+                    event: "test".into(),
+                    severity: "info".into(),
+                    message: message.to_string(),
+                    status: "pending".into(),
+                    error: None,
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    delivered_at: None,
+                };
+                crate::alerts::deliver(&channel, &alert, &json!({ "test": true }))
+                    .await
+                    .map_err(|error| Error::new(codes::INTERNAL, error.to_string()))?;
+                Ok(json!({ "delivered": true, "channel": channel.name }))
+            }
+            methods::ALERT_CHANNELS_LIST => {
+                let channels = crate::alerts::list_channels(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(channels).map_err(internal)?)
+            }
+            methods::ALERT_CHANNELS_CREATE => {
+                let name = param_str(params, "name")?;
+                let kind = param_str(params, "kind")?;
+                let config = params.get("config").cloned().unwrap_or(Value::Null);
+                let channel = crate::alerts::create_channel(&self.pool, name, kind, config)
+                    .await
+                    .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "alert.channel.create",
+                    Some(&channel.name),
+                    &json!({ "id": channel.id, "kind": channel.kind }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(channel).map_err(internal)?)
+            }
+            methods::ALERT_CHANNELS_DELETE => {
+                let id = param_str(params, "id")?;
+                let removed = crate::alerts::delete_channel(&self.pool, id)
+                    .await
+                    .map_err(internal)?;
+                if !removed {
+                    return Err(Error::new(
+                        codes::NOT_FOUND,
+                        "the alert channel does not exist",
+                    ));
+                }
+                Ok(json!({ "removed": true }))
+            }
+            methods::ALERT_RULES_LIST => {
+                let rules = crate::alerts::list_rules(&self.pool)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(rules).map_err(internal)?)
+            }
+            methods::ALERT_RULES_CREATE => {
+                let name = param_str(params, "name")?;
+                let event = param_str(params, "event")?;
+                let severity = opt_str(params, "severity").unwrap_or("warning");
+                let channel_id = param_str(params, "channel_id")?;
+                let cooldown = param_i64(params, "cooldown_secs", 900)?;
+                let rule = crate::alerts::create_rule(
+                    &self.pool, name, event, severity, channel_id, cooldown,
+                )
+                .await
+                .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "alert.rule.create",
+                    Some(&rule.name),
+                    &json!({ "id": rule.id, "event": rule.event }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(rule).map_err(internal)?)
+            }
+            methods::ALERT_RULES_DELETE => {
+                let id = param_str(params, "id")?;
+                let removed = crate::alerts::delete_rule(&self.pool, id)
+                    .await
+                    .map_err(internal)?;
+                if !removed {
+                    return Err(Error::new(
+                        codes::NOT_FOUND,
+                        "the alert rule does not exist",
+                    ));
+                }
+                Ok(json!({ "removed": true }))
+            }
+
+            methods::DEPLOYMENTS_LIST => {
+                let site_id = opt_str(params, "site_id");
+                let deployments = crate::deploy::list(&self.pool, site_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(deployments).map_err(internal)?)
+            }
+            methods::DEPLOYMENTS_CREATE => {
+                let site_id = param_str(params, "site_id")?;
+                let site = self
+                    .stores
+                    .sites
+                    .get(site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "the site does not exist"))?;
+                let deployment = crate::deploy::create(
+                    &self.pool,
+                    site_id,
+                    param_str(params, "repo_url")?,
+                    opt_str(params, "branch").unwrap_or("main"),
+                    opt_str(params, "target_subdir").unwrap_or(""),
+                    opt_str(params, "build_command").unwrap_or(""),
+                    opt_str(params, "deploy_user").unwrap_or("www-data"),
+                )
+                .await
+                .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "deployment.create",
+                    Some(&site.domain),
+                    &json!({ "id": deployment.id, "repo": deployment.repo_url }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(deployment).map_err(internal)?)
+            }
+            methods::DEPLOYMENTS_UPDATE => {
+                let id = param_str(params, "id")?;
+                let patch = crate::deploy::DeploymentPatch {
+                    repo_url: opt_str(params, "repo_url").map(str::to_string),
+                    branch: opt_str(params, "branch").map(str::to_string),
+                    target_subdir: opt_str(params, "target_subdir").map(str::to_string),
+                    build_command: opt_str(params, "build_command").map(str::to_string),
+                    deploy_user: opt_str(params, "deploy_user").map(str::to_string),
+                    enabled: params.get("enabled").and_then(Value::as_bool),
+                };
+                let deployment = crate::deploy::update(&self.pool, id, patch)
+                    .await
+                    .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
+                Ok(serde_json::to_value(deployment).map_err(internal)?)
+            }
+            methods::DEPLOYMENTS_DELETE => {
+                let id = param_str(params, "id")?;
+                let removed = crate::deploy::delete(&self.pool, id)
+                    .await
+                    .map_err(internal)?;
+                if !removed {
+                    return Err(Error::new(
+                        codes::NOT_FOUND,
+                        "the deployment does not exist",
+                    ));
+                }
+                Ok(json!({ "removed": true }))
+            }
+            methods::DEPLOYMENTS_RUN => {
+                let id = param_str(params, "id")?;
+                let deployment = crate::deploy::get(&self.pool, id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "the deployment does not exist"))?;
+                let site = self
+                    .stores
+                    .sites
+                    .get(&deployment.site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "the site does not exist"))?;
+                let workspace = crate::deploy::Workspace {
+                    base_dir: self.paths.lib_dir.join("deploy"),
+                };
+                let run =
+                    crate::deploy::run(&self.pool, &deployment, &site.document_root, &workspace)
+                        .await
+                        .map_err(internal)?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "deployment.run",
+                    Some(&site.domain),
+                    &json!({ "id": run.id, "status": run.status }),
+                    None,
+                )
+                .await;
+                if run.status == "failed" {
+                    let _ = crate::alerts::emit(
+                        &self.pool,
+                        crate::alerts::events::DEPLOY_FAILED,
+                        "warning",
+                        &format!("the deployment of {} failed: {}", site.domain, run.message),
+                        &json!({ "site": site.domain, "deployment": deployment.id }),
+                    )
+                    .await;
+                } else {
+                    let _ = crate::alerts::emit(
+                        &self.pool,
+                        crate::alerts::events::DEPLOY_SUCCEEDED,
+                        "info",
+                        &format!("the deployment of {} succeeded", site.domain),
+                        &json!({ "site": site.domain, "commit": run.commit_sha }),
+                    )
+                    .await;
+                }
+                Ok(serde_json::to_value(run).map_err(internal)?)
+            }
+            methods::DEPLOYMENTS_RUNS => {
+                let id = param_str(params, "id")?;
+                let limit = param_i64(params, "limit", 20)?;
+                let runs = crate::deploy::list_runs(&self.pool, id, limit)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(runs).map_err(internal)?)
+            }
+
+            methods::TERMINAL_LIST => {
+                let sessions = self.terminals.list().await;
+                Ok(serde_json::to_value(sessions).map_err(internal)?)
+            }
+            methods::TERMINAL_OPEN => {
+                let options = crate::terminal::TerminalOptions {
+                    shell: opt_str(params, "shell").map(str::to_string),
+                    cwd: opt_str(params, "cwd").map(str::to_string),
+                    user: opt_str(params, "user").map(str::to_string),
+                    rows: params.get("rows").and_then(Value::as_u64).map(|v| v as u16),
+                    cols: params.get("cols").and_then(Value::as_u64).map(|v| v as u16),
+                };
+                let session = self
+                    .terminals
+                    .open(options)
+                    .await
+                    .map_err(|error| Error::new(codes::INTERNAL, error.to_string()))?;
+                let _ = audit::record(
+                    &self.pool,
+                    None,
+                    None,
+                    "terminal.open",
+                    Some(&session.shell),
+                    &json!({ "id": session.id }),
+                    None,
+                )
+                .await;
+                Ok(serde_json::to_value(session).map_err(internal)?)
+            }
+            methods::TERMINAL_WRITE => {
+                let id = param_str(params, "id")?;
+                let data = match (opt_str(params, "data_b64"), opt_str(params, "data")) {
+                    (Some(encoded), _) => base64_decode(encoded)?,
+                    (None, Some(text)) => text.as_bytes().to_vec(),
+                    (None, None) => {
+                        return Err(Error::new(
+                            codes::BAD_REQUEST,
+                            "no terminal input was given",
+                        ));
+                    }
+                };
+                let written = self
+                    .terminals
+                    .write(id, &data)
+                    .await
+                    .map_err(|error| Error::new(codes::NOT_FOUND, error.to_string()))?;
+                Ok(json!({ "written": written }))
+            }
+            methods::TERMINAL_READ => {
+                let id = param_str(params, "id")?;
+                let max = param_i64(params, "max", 65536)?;
+                let chunk = self
+                    .terminals
+                    .read(id, max as usize)
+                    .await
+                    .map_err(|error| Error::new(codes::NOT_FOUND, error.to_string()))?;
+                Ok(json!({
+                    "id": chunk.id,
+                    "data": chunk.data,
+                    "closed": chunk.closed,
+                }))
+            }
+            methods::TERMINAL_RESIZE => {
+                let id = param_str(params, "id")?;
+                let rows = param_i64(params, "rows", 24)? as u16;
+                let cols = param_i64(params, "cols", 80)? as u16;
+                self.terminals
+                    .resize(id, rows, cols)
+                    .await
+                    .map_err(|error| Error::new(codes::NOT_FOUND, error.to_string()))?;
+                Ok(json!({ "resized": true }))
+            }
+            methods::TERMINAL_CLOSE => {
+                let id = param_str(params, "id")?;
+                let closed = self
+                    .terminals
+                    .close(id)
+                    .await
+                    .map_err(|error| Error::new(codes::INTERNAL, error.to_string()))?;
+                Ok(json!({ "closed": closed }))
             }
 
             other => Err(Error::new(
@@ -2332,6 +2668,20 @@ impl IpcServer {
             postgres_password: std::env::var("SYNTHPANEL_POSTGRES_PASSWORD").ok(),
         }
     }
+}
+
+/// Decode base64 input, rejecting invalid data.
+fn base64_decode(value: &str) -> Result<Vec<u8>, Error> {
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    BASE64
+        .decode(value.trim())
+        .map_err(|error| Error::new(codes::BAD_REQUEST, format!("invalid base64: {error}")))
+}
+
+/// Map an error to a client error: the request was wrong, not the panel.
+fn bad_request(error: impl std::fmt::Display) -> Error {
+    Error::new(codes::BAD_REQUEST, error.to_string())
 }
 
 fn internal(error: impl std::fmt::Display) -> Error {

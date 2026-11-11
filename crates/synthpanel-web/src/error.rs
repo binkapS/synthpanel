@@ -75,6 +75,7 @@ impl From<crate::ipc::CoreError> for ApiError {
                     "bad_request" => StatusCode::BAD_REQUEST,
                     "unauthorized" => StatusCode::UNAUTHORIZED,
                     "rate_limited" => StatusCode::TOO_MANY_REQUESTS,
+                    "internal" => StatusCode::INTERNAL_SERVER_ERROR,
                     _ => StatusCode::BAD_REQUEST,
                 };
                 ApiError::new(status, &code, message)

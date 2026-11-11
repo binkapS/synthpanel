@@ -46,6 +46,23 @@ cargo build --release -p synthpanel-core -p synthpanel-web -p synthpanel-cli
 CORE="$WORK/core.log"
 WEB="$WORK/web.log"
 
+# The apply pipeline validates the configuration with `nginx -t` and reloads
+# it with `systemctl`. Both are stubbed so the test behaves the same on a
+# developer machine, in CI and on a real server.
+STUBS="$WORK/stubs"
+mkdir -p "$STUBS"
+cat > "$STUBS/nginx" <<'STUB'
+#!/bin/sh
+echo "nginx: the configuration file test is successful"
+exit 0
+STUB
+cat > "$STUBS/systemctl" <<'STUB'
+#!/bin/sh
+exit 0
+STUB
+chmod +x "$STUBS/nginx" "$STUBS/systemctl"
+
+PATH="$STUBS:$PATH" \
 SYNTHPANEL_ETC_DIR="$WORK/etc" \
 SYNTHPANEL_LIB_DIR="$WORK/lib" \
 SYNTHPANEL_LOG_DIR="$WORK/log" \
@@ -318,6 +335,99 @@ BAD="$(curl -sSk -o /dev/null -w '%{http_code}' -b "$COOKIES" -X POST \
   $BASE/api/v1/sites)"
 assert_eq "$BAD" "400"
 log "invalid domain -> 400"
+
+# ---------------------------------------------------------------------------
+# Phase 5: alerting, deployments and the terminal
+# ---------------------------------------------------------------------------
+
+log "creating an alert channel"
+CHANNEL="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"name":"ops-webhook","kind":"webhook","config":{"url":"http://127.0.0.1:9/hook"}}' \
+  $BASE/api/v1/alerts/channels)"
+assert_contains "$CHANNEL" '"kind":"webhook"'
+CHANNEL_ID="$(printf '%s' "$CHANNEL" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+log "creating an alert rule"
+RULE="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d "{\"name\":\"failed backups\",\"event\":\"backup.failed\",\"severity\":\"critical\",\"channel_id\":\"$CHANNEL_ID\"}" \
+  $BASE/api/v1/alerts/rules)"
+assert_contains "$RULE" '"event":"backup.failed"'
+
+log "listing the channels, rules and history"
+CHANNELS="$(auth_get $BASE/api/v1/alerts/channels)"
+assert_contains "$CHANNELS" "$CHANNEL_ID"
+RULES="$(auth_get $BASE/api/v1/alerts/rules)"
+assert_contains "$RULES" '"event":"backup.failed"'
+ALERTS="$(auth_get $BASE/api/v1/alerts)"
+assert_contains "$ALERTS" '"alerts"'
+
+# An unreachable webhook must be reported instead of silently swallowed.
+TEST_CODE="$(code -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d "{\"channel_id\":\"$CHANNEL_ID\"}" \
+  $BASE/api/v1/alerts/test)"
+assert_eq "$TEST_CODE" "500"
+log "the alert test delivery reported the failure"
+
+log "creating a deployment"
+DEPLOY="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d "{\"site_id\":\"$SITE_ID\",\"repo_url\":\"file:///nonexistent/repo.git\",\"branch\":\"main\",\"build_command\":\"\"}" \
+  $BASE/api/v1/deployments)"
+assert_contains "$DEPLOY" '"repo_url":"file:///nonexistent/repo.git"'
+DEPLOY_ID="$(printf '%s' "$DEPLOY" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+DEPLOYMENTS="$(auth_get $BASE/api/v1/deployments)"
+assert_contains "$DEPLOYMENTS" "$DEPLOY_ID"
+
+log "running the deployment against a missing repository"
+RUN="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{}' \
+  "$BASE/api/v1/deployments/$DEPLOY_ID/run")"
+assert_contains "$RUN" '"status":"failed"'
+RUNS="$(auth_get "$BASE/api/v1/deployments/$DEPLOY_ID/runs")"
+assert_contains "$RUNS" '"status":"failed"'
+log "the failed deployment was recorded"
+
+log "opening a terminal session"
+SESSION="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"rows":24,"cols":80}' \
+  $BASE/api/v1/terminal/open)"
+assert_contains "$SESSION" '"id"'
+SESSION_ID="$(printf '%s' "$SESSION" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+log "running a command in the terminal"
+curl -sSk -o /dev/null -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"data":"echo synthpanel-terminal-ok\n"}' \
+  "$BASE/api/v1/terminal/$SESSION_ID/write"
+
+TERMINAL_OUT=""
+for _ in $(seq 1 40); do
+  TERMINAL_OUT="$(auth_get "$BASE/api/v1/terminal/$SESSION_ID/read")"
+  case "$TERMINAL_OUT" in
+    *synthpanel-terminal-ok*) break ;;
+  esac
+  sleep 0.25
+done
+assert_contains "$TERMINAL_OUT" "synthpanel-terminal-ok"
+
+CLOSED="$(curl -sSk -b "$COOKIES" -X DELETE \
+  -H "x-csrf-token: $CSRF" \
+  "$BASE/api/v1/terminal/$SESSION_ID")"
+assert_contains "$CLOSED" '"closed":true'
+log "the terminal ran a command and was closed"
 
 log "deleting the site"
 DELETED="$(curl -sSk -b "$COOKIES" -X DELETE \

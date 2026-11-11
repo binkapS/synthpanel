@@ -3,9 +3,11 @@
   import {
     Activity,
     Archive,
+    BellRing,
     Clock,
     Database,
     FolderTree,
+    GitBranch,
     Globe,
     LayoutDashboard,
     LogOut,
@@ -15,6 +17,7 @@
     Settings,
     ShieldCheck,
     Sun,
+    TerminalSquare,
     Users,
   } from '@lucide/svelte';
   import { t } from '../i18n';
@@ -33,6 +36,9 @@
     { href: '/cron', labelKey: 'nav.cron', icon: Clock },
     { href: '/logs', labelKey: 'nav.logs', icon: ScrollText },
     { href: '/files', labelKey: 'nav.files', icon: FolderTree },
+    { href: '/deployments', labelKey: 'nav.deployments', icon: GitBranch },
+    { href: '/alerts', labelKey: 'nav.alerts', icon: BellRing },
+    { href: '/terminal', labelKey: 'nav.terminal', icon: TerminalSquare },
     { href: '/users', labelKey: 'nav.users', icon: Users },
     { href: '/settings', labelKey: 'nav.settings', icon: Settings },
   ];

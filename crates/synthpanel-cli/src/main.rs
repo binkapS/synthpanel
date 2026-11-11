@@ -232,6 +232,109 @@ pub enum Command {
         #[arg(long, default_value_t = 20)]
         limit: i64,
     },
+    /// List the alert history.
+    #[command(name = "alerts:list")]
+    AlertsList,
+    /// List the alert channels.
+    #[command(name = "alerts:channels")]
+    AlertsChannels,
+    /// Add an alert channel.
+    #[command(name = "alerts:channel:add")]
+    AlertsChannelAdd {
+        /// Channel name.
+        name: String,
+        /// Channel type: email or webhook.
+        #[arg(long)]
+        kind: String,
+        /// Channel configuration as JSON.
+        #[arg(long)]
+        config: String,
+    },
+    /// Add an alert rule.
+    #[command(name = "alerts:rule:add")]
+    AlertsRuleAdd {
+        /// Rule name.
+        name: String,
+        /// Event, e.g. backup.failed.
+        event: String,
+        /// Channel id the rule delivers to.
+        #[arg(long)]
+        channel: String,
+        /// Severity: info, warning or critical.
+        #[arg(long, default_value = "warning")]
+        severity: String,
+        /// Repeat suppression in seconds.
+        #[arg(long, default_value_t = 900)]
+        cooldown: i64,
+    },
+    /// Delete an alert channel.
+    #[command(name = "alerts:channel:delete")]
+    AlertsChannelDelete {
+        /// Channel id.
+        id: String,
+    },
+    /// Delete an alert rule.
+    #[command(name = "alerts:rule:delete")]
+    AlertsRuleDelete {
+        /// Rule id.
+        id: String,
+    },
+    /// Send a test alert to a channel.
+    #[command(name = "alerts:test")]
+    AlertsTest {
+        /// Channel id.
+        #[arg(long)]
+        channel: String,
+    },
+    /// List the Git deployments.
+    #[command(name = "deploy:list")]
+    DeployList {
+        /// Only show the deployments of this site.
+        #[arg(long)]
+        site: Option<String>,
+    },
+    /// Add a Git deployment for a site.
+    #[command(name = "deploy:add")]
+    DeployAdd {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// Repository url.
+        #[arg(long)]
+        repo: String,
+        /// Branch to deploy.
+        #[arg(long, default_value = "main")]
+        branch: String,
+        /// Sub-directory of the repository to publish.
+        #[arg(long, default_value = "")]
+        subdir: String,
+        /// Build command, e.g. "npm ci && npm run build".
+        #[arg(long, default_value = "")]
+        build: String,
+        /// User the build runs as.
+        #[arg(long, default_value = "www-data")]
+        user: String,
+    },
+    /// Run a deployment.
+    #[command(name = "deploy:run")]
+    DeployRun {
+        /// Deployment id.
+        id: String,
+    },
+    /// Print the run history of a deployment.
+    #[command(name = "deploy:runs")]
+    DeployRuns {
+        /// Deployment id.
+        id: String,
+        #[arg(long, default_value_t = 20)]
+        limit: i64,
+    },
+    /// Delete a deployment.
+    #[command(name = "deploy:delete")]
+    DeployDelete {
+        /// Deployment id.
+        id: String,
+    },
     /// Read a log source.
     #[command(name = "logs")]
     Logs {
@@ -714,6 +817,165 @@ async fn main() -> Result<()> {
             if runs.is_empty() {
                 eprintln!("no runs recorded for this job");
             }
+            Ok(())
+        }
+        Command::AlertsList => {
+            let alerts: Vec<Value> = global
+                .call(synthpanel_ipc::methods::ALERTS_LIST, json!({}))
+                .await?;
+            for alert in &alerts {
+                println!("{}", global.as_json(alert));
+            }
+            if alerts.is_empty() {
+                eprintln!("no alerts yet");
+            }
+            Ok(())
+        }
+        Command::AlertsChannels => {
+            let channels: Vec<Value> = global
+                .call(synthpanel_ipc::methods::ALERT_CHANNELS_LIST, json!({}))
+                .await?;
+            for channel in &channels {
+                println!("{}", global.as_json(channel));
+            }
+            if channels.is_empty() {
+                eprintln!("no alert channels yet");
+            }
+            Ok(())
+        }
+        Command::AlertsChannelAdd { name, kind, config } => {
+            let config: Value =
+                serde_json::from_str(config).context("the channel config is not valid JSON")?;
+            let channel: Value = global
+                .call(
+                    synthpanel_ipc::methods::ALERT_CHANNELS_CREATE,
+                    json!({ "name": name, "kind": kind, "config": config }),
+                )
+                .await?;
+            println!("{}", global.as_json(&channel));
+            Ok(())
+        }
+        Command::AlertsRuleAdd {
+            name,
+            event,
+            channel,
+            severity,
+            cooldown,
+        } => {
+            let rule: Value = global
+                .call(
+                    synthpanel_ipc::methods::ALERT_RULES_CREATE,
+                    json!({
+                        "name": name,
+                        "event": event,
+                        "channel_id": channel,
+                        "severity": severity,
+                        "cooldown_secs": cooldown,
+                    }),
+                )
+                .await?;
+            println!("{}", global.as_json(&rule));
+            Ok(())
+        }
+        Command::AlertsChannelDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::ALERT_CHANNELS_DELETE,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::AlertsRuleDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::ALERT_RULES_DELETE,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::AlertsTest { channel } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::ALERTS_TEST,
+                    json!({ "channel_id": channel }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DeployList { site } => {
+            let deployments: Vec<Value> = global
+                .call(
+                    synthpanel_ipc::methods::DEPLOYMENTS_LIST,
+                    json!({ "site_id": site }),
+                )
+                .await?;
+            for deployment in &deployments {
+                println!("{}", global.as_json(deployment));
+            }
+            if deployments.is_empty() {
+                eprintln!("no deployments yet");
+            }
+            Ok(())
+        }
+        Command::DeployAdd {
+            site,
+            repo,
+            branch,
+            subdir,
+            build,
+            user,
+        } => {
+            let deployment: Value = global
+                .call(
+                    synthpanel_ipc::methods::DEPLOYMENTS_CREATE,
+                    json!({
+                        "site_id": site,
+                        "repo_url": repo,
+                        "branch": branch,
+                        "target_subdir": subdir,
+                        "build_command": build,
+                        "deploy_user": user,
+                    }),
+                )
+                .await?;
+            println!("{}", global.as_json(&deployment));
+            Ok(())
+        }
+        Command::DeployRun { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::DEPLOYMENTS_RUN,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DeployRuns { id, limit } => {
+            let runs: Vec<Value> = global
+                .call(
+                    synthpanel_ipc::methods::DEPLOYMENTS_RUNS,
+                    json!({ "id": id, "limit": limit }),
+                )
+                .await?;
+            for run in &runs {
+                println!("{}", global.as_json(run));
+            }
+            Ok(())
+        }
+        Command::DeployDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::DEPLOYMENTS_DELETE,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
             Ok(())
         }
         Command::Logs {

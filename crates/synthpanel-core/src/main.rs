@@ -88,6 +88,9 @@ async fn main() -> Result<()> {
                 if let Err(error) = synthpanel_core::scheduler::tick_backups(&pool, &paths).await {
                     warn!(%error, "backup scheduler tick failed");
                 }
+                if let Err(error) = synthpanel_core::scheduler::tick_alerts(&pool, &paths).await {
+                    warn!(%error, "the alert tick failed");
+                }
             }
         });
     }

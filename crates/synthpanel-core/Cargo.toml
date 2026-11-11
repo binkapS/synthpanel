@@ -38,4 +38,6 @@ chacha20poly1305 = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 ring = { workspace = true }
+tokio-rustls = { workspace = true }
+webpki-roots = { workspace = true }
 hmac = { workspace = true }

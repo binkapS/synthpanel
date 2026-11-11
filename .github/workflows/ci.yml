@@ -49,6 +49,9 @@ jobs:
       - name: Self-update integration test
         run: tests/update.sh
 
+      - name: Chaos test (apply pipeline rollback)
+        run: tests/chaos.sh
+
   frontend:
     runs-on: ubuntu-24.04
     steps:

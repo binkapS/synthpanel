@@ -3,8 +3,8 @@
 use crate::extract::AuthUser;
 use crate::state::AppState;
 use axum::extract::ws::{Message, WebSocketUpgrade};
-use axum::extract::{Query, State};
-use axum::response::Response;
+use axum::extract::{Path, Query, State};
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -143,6 +143,113 @@ pub async fn logs_ws(
                 }
             }
         }
+    })
+}
+
+/// Relay a terminal session between the browser and the core.
+///
+/// The browser sends `{"type":"input","data":"…"}` and
+/// `{"type":"resize","rows":24,"cols":80}` frames; the server pushes
+/// `{"type":"output","data":"…"}` frames back.
+pub async fn terminal_ws(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    upgrade: WebSocketUpgrade,
+) -> Response {
+    if let Err(error) = crate::api::admin::require_admin(&state, &user).await {
+        return error.into_response();
+    }
+    upgrade.on_upgrade(move |socket| async move {
+        use futures_util::{SinkExt, StreamExt};
+
+        let (mut sink, mut stream) = socket.split();
+        let state = state.clone();
+        let session_id = id.clone();
+
+        // Forward the browser input to the core.
+        let writer_state = state.clone();
+        let writer_id = session_id.clone();
+        let writer = tokio::spawn(async move {
+            while let Some(Ok(message)) = stream.next().await {
+                let text = match message {
+                    Message::Text(text) => text.to_string(),
+                    Message::Close(_) => break,
+                    Message::Ping(_) | Message::Pong(_) | Message::Binary(_) => continue,
+                };
+                let Ok(frame) = serde_json::from_str::<Value>(&text) else {
+                    continue;
+                };
+                match frame.get("type").and_then(Value::as_str) {
+                    Some("input") => {
+                        let data = frame.get("data").and_then(Value::as_str).unwrap_or("");
+                        let _ = writer_state
+                            .core_call::<Value>(
+                                methods::TERMINAL_WRITE,
+                                json!({ "id": writer_id, "data": data }),
+                            )
+                            .await;
+                    }
+                    Some("resize") => {
+                        let rows = frame.get("rows").and_then(Value::as_u64).unwrap_or(24) as u16;
+                        let cols = frame.get("cols").and_then(Value::as_u64).unwrap_or(80) as u16;
+                        let _ = writer_state
+                            .core_call::<Value>(
+                                methods::TERMINAL_RESIZE,
+                                json!({ "id": writer_id, "rows": rows, "cols": cols }),
+                            )
+                            .await;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        // Poll the core for output.
+        loop {
+            let result: Value = match state
+                .core_call(methods::TERMINAL_READ, json!({ "id": session_id }))
+                .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = sink
+                        .send(Message::Text(
+                            json!({ "type": "error", "message": error.to_string() })
+                                .to_string()
+                                .into(),
+                        ))
+                        .await;
+                    break;
+                }
+            };
+            let data = result.get("data").and_then(Value::as_str).unwrap_or("");
+            if !data.is_empty()
+                && sink
+                    .send(Message::Text(
+                        json!({ "type": "output", "data": data }).to_string().into(),
+                    ))
+                    .await
+                    .is_err()
+            {
+                break;
+            }
+            if result
+                .get("closed")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                let _ = sink
+                    .send(Message::Text(
+                        json!({ "type": "closed" }).to_string().into(),
+                    ))
+                    .await;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(120)).await;
+        }
+
+        writer.abort();
     })
 }
 

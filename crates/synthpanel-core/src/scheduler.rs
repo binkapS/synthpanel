@@ -8,6 +8,7 @@ use crate::config::Paths;
 use crate::cron::Schedule;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use serde_json::json;
 use sqlx::SqlitePool;
 use tracing::{info, warn};
 
@@ -118,6 +119,14 @@ pub async fn tick_backups(pool: &SqlitePool, paths: &Paths) -> Result<usize> {
             }
             Err(error) => {
                 warn!(schedule = %schedule.name, %error, "scheduled backup failed");
+                let _ = crate::alerts::emit(
+                    pool,
+                    crate::alerts::events::BACKUP_FAILED,
+                    "critical",
+                    &format!("the scheduled backup `{}` failed: {error}", schedule.name),
+                    &json!({ "schedule": schedule.name, "schedule_id": schedule.id }),
+                )
+                .await;
                 let id = uuid::Uuid::new_v4().to_string();
                 let _ = sqlx::query(
                     "INSERT INTO backups
@@ -171,4 +180,62 @@ async fn prune_retention(pool: &SqlitePool, destination: &Destination, retention
             .execute(pool)
             .await;
     }
+}
+
+/// Watch the server for conditions that deserve an alert.
+///
+/// The check runs once a minute; the cooldown of the matching rule keeps it
+/// from flooding the channels.
+pub async fn tick_alerts(pool: &SqlitePool, paths: &Paths) -> Result<()> {
+    check_disk(pool, paths).await?;
+    check_certificates(pool).await?;
+    Ok(())
+}
+
+/// Alert when a filesystem fills up.
+async fn check_disk(pool: &SqlitePool, paths: &Paths) -> Result<()> {
+    let snapshot = crate::metrics::Collector::new(pool.clone()).sample();
+    let used = snapshot.disk_used;
+    if used < 85.0 {
+        return Ok(());
+    }
+    let severity = if used >= 95.0 { "critical" } else { "warning" };
+    let _ = crate::alerts::emit(
+        pool,
+        crate::alerts::events::DISK_USAGE,
+        severity,
+        &format!("the disk is {used:.1}% full"),
+        &json!({ "disk_used": used, "www_dir": paths.www_dir.display().to_string() }),
+    )
+    .await;
+    Ok(())
+}
+
+/// Alert when a certificate is about to expire.
+async fn check_certificates(pool: &SqlitePool) -> Result<()> {
+    let acme = crate::ssl::AcmePaths::from_env();
+    let rows = sqlx::query_scalar::<_, String>(
+        "SELECT domain FROM sites WHERE ssl_mode = 'le' AND status = 'active'",
+    )
+    .fetch_all(pool)
+    .await?;
+    for domain in rows {
+        let domain_paths = acme.domain_paths(&domain);
+        let (fullchain, _) = domain_paths.live_paths();
+        if !fullchain.exists() {
+            continue;
+        }
+        if crate::ssl::expires_within(&fullchain, 14) {
+            let expires = crate::ssl::read_expiry(&fullchain).unwrap_or_default();
+            let _ = crate::alerts::emit(
+                pool,
+                crate::alerts::events::SSL_EXPIRING,
+                "warning",
+                &format!("the certificate for {domain} expires on {expires}"),
+                &json!({ "domain": domain, "expires_at": expires }),
+            )
+            .await;
+        }
+    }
+    Ok(())
 }

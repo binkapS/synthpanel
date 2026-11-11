@@ -183,6 +183,29 @@ pub mod methods {
     pub const UPDATE_APPLY: &str = "update.apply";
     pub const UPDATE_STATUS: &str = "update.status";
     pub const UPDATE_ROLLBACK: &str = "update.rollback";
+
+    pub const ALERTS_LIST: &str = "alerts.list";
+    pub const ALERTS_TEST: &str = "alerts.test";
+    pub const ALERT_CHANNELS_LIST: &str = "alert_channels.list";
+    pub const ALERT_CHANNELS_CREATE: &str = "alert_channels.create";
+    pub const ALERT_CHANNELS_DELETE: &str = "alert_channels.delete";
+    pub const ALERT_RULES_LIST: &str = "alert_rules.list";
+    pub const ALERT_RULES_CREATE: &str = "alert_rules.create";
+    pub const ALERT_RULES_DELETE: &str = "alert_rules.delete";
+
+    pub const DEPLOYMENTS_LIST: &str = "deployments.list";
+    pub const DEPLOYMENTS_CREATE: &str = "deployments.create";
+    pub const DEPLOYMENTS_UPDATE: &str = "deployments.update";
+    pub const DEPLOYMENTS_DELETE: &str = "deployments.delete";
+    pub const DEPLOYMENTS_RUN: &str = "deployments.run";
+    pub const DEPLOYMENTS_RUNS: &str = "deployments.runs";
+
+    pub const TERMINAL_LIST: &str = "terminal.list";
+    pub const TERMINAL_OPEN: &str = "terminal.open";
+    pub const TERMINAL_WRITE: &str = "terminal.write";
+    pub const TERMINAL_READ: &str = "terminal.read";
+    pub const TERMINAL_RESIZE: &str = "terminal.resize";
+    pub const TERMINAL_CLOSE: &str = "terminal.close";
 }
 
 /// Well-known error codes.

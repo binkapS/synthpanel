@@ -1,16 +1,19 @@
 //! REST API v1.
 
 pub mod admin;
+pub mod alerts;
 pub mod apikeys;
 pub mod auth;
 pub mod backups;
 pub mod cron;
 pub mod dashboard;
 pub mod databases;
+pub mod deployments;
 pub mod files;
 pub mod logs;
 pub mod security;
 pub mod sites;
+pub mod terminal;
 pub mod update;
 
 use crate::state::AppState;
@@ -122,6 +125,44 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/api-keys/{id}",
             axum::routing::delete(apikeys::delete),
         )
+        .route("/api/v1/alerts", get(alerts::list))
+        .route("/api/v1/alerts/test", post(alerts::test))
+        .route(
+            "/api/v1/alerts/channels",
+            get(alerts::channels).post(alerts::create_channel),
+        )
+        .route(
+            "/api/v1/alerts/channels/{id}",
+            axum::routing::delete(alerts::delete_channel),
+        )
+        .route(
+            "/api/v1/alerts/rules",
+            get(alerts::rules).post(alerts::create_rule),
+        )
+        .route(
+            "/api/v1/alerts/rules/{id}",
+            axum::routing::delete(alerts::delete_rule),
+        )
+        .route(
+            "/api/v1/deployments",
+            get(deployments::list).post(deployments::create),
+        )
+        .route(
+            "/api/v1/deployments/{id}",
+            patch(deployments::update).delete(deployments::delete),
+        )
+        .route("/api/v1/deployments/{id}/run", post(deployments::run))
+        .route("/api/v1/deployments/{id}/runs", get(deployments::runs))
+        .route("/api/v1/terminal", get(terminal::list))
+        .route("/api/v1/terminal/open", post(terminal::open))
+        .route(
+            "/api/v1/terminal/{id}",
+            axum::routing::delete(terminal::close),
+        )
+        .route("/api/v1/terminal/{id}/write", post(terminal::write))
+        .route("/api/v1/terminal/{id}/read", get(terminal::read))
+        .route("/api/v1/terminal/{id}/resize", post(terminal::resize))
+        .route("/ws/terminal/{id}", get(crate::ws::terminal_ws))
         .route("/api/v1/update", get(update::status))
         .route("/api/v1/update/check", post(update::check))
         .route("/api/v1/update/apply", post(update::apply))

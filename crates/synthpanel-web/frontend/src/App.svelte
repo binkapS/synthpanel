@@ -3,8 +3,10 @@
   import { currentPath } from './lib/router';
   import { loadSession, loading, session } from './lib/stores';
   import AppShell from './lib/components/AppShell.svelte';
+  import Alerts from './routes/Alerts.svelte';
   import Backups from './routes/Backups.svelte';
   import Cron from './routes/Cron.svelte';
+  import Deployments from './routes/Deployments.svelte';
   import Dashboard from './routes/Dashboard.svelte';
   import Databases from './routes/Databases.svelte';
   import Files from './routes/Files.svelte';
@@ -15,6 +17,7 @@
   import Settings from './routes/Settings.svelte';
   import SiteDetailRoute from './routes/SiteDetailRoute.svelte';
   import Sites from './routes/Sites.svelte';
+  import Terminal from './routes/Terminal.svelte';
   import Users from './routes/Users.svelte';
 
   const route = $derived.by(() => {
@@ -43,6 +46,12 @@
         return Logs;
       case '/files':
         return Files;
+      case '/alerts':
+        return Alerts;
+      case '/deployments':
+        return Deployments;
+      case '/terminal':
+        return Terminal;
       case '/php':
         return Placeholder;
       default:

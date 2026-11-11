@@ -122,6 +122,38 @@ servers.
 - Accessibility: skip link, `#main` landmark, `aria-label` on navigation,
   `aria-current` on the active route, and labelled form controls.
 
-Known gaps: the external security audit and chaos suite from PLAN §11 have
-not been run; real `nginx -t` rollback and live SFTP/S3 transfers still need
-a Docker/root environment (see Phase 3).
+Known gaps: the external security audit has not been run; live SFTP/S3
+transfers still need a real server to test against.
+
+## Phase 5 — Beyond v1.0 (complete, scoped)
+
+The optional Phase 5 items from PLAN §10 are implemented, except the
+multi-server agent and the plugin API (both need a protocol that does not
+exist yet).
+
+- Alerting: channels (webhook with an HMAC-SHA256 signature, or email over
+  SMTP with AUTH and STARTTLS, or a local MTA via `sendmail`) and rules that
+  match an event, a severity and a cooldown. Events: failed backups, failed
+  cron jobs, failed and successful deployments, expiring certificates, a
+  full disk and failed updates. Every delivery is recorded with its error.
+- Git deployments: a site can be connected to a repository. The panel clones
+  or updates it, runs an optional build command as the deploy user and
+  publishes the result into the document root. The previous release is kept,
+  so a failed build or a failed publish is rolled back automatically.
+- Web terminal: the core allocates a pseudo-terminal and runs the shell
+  inside it; the browser talks to it through a WebSocket. The panel
+  deliberately does **not** open an SSH port — the terminal is only reachable
+  through the authenticated API and only for administrators.
+- PWA: a web application manifest, a service worker that caches the app
+  shell (never the API), install icons and shortcuts.
+- Chaos test: `tests/chaos.sh` puts a failing `nginx` on the PATH and proves
+  that a broken change never reaches the server and that a broken new site
+  leaves no vhost behind. This closes the gap that was still open after
+  Phase 4.
+- The error mapping between the core and the API was corrected: validation
+  failures answer `400`, internal failures answer `500`.
+
+Known gaps: the terminal does not support `su`/`sudo` prompts that need a
+second TTY, the SMTP client has no implicit-TLS mode (port 465), and
+multi-server agents, the plugin API and DNS zone management are not
+implemented.

@@ -5,11 +5,11 @@ It installs and manages a complete LEMP stack — Nginx, multi-version PHP-FPM,
 MariaDB/PostgreSQL, Redis — and lets you operate it from a clean web UI, a
 REST API, or a CLI.
 
-> **Status: Phase 4 (v1.0 hardening).** Sites, databases, security, backups,
-> cron, logs, the file manager, API keys and signed self-update are implemented.
-> See [PLAN.md](./PLAN.md) for the full design and
-> [docs/roadmap.md](./docs/roadmap.md) for what is implemented and what is
-> still to come.
+> **Status: Phase 5.** Sites, databases, security, backups, cron, logs, the
+> file manager, API keys, signed self-update, alerting, Git deployments, a web
+> terminal and a PWA are implemented. See [PLAN.md](./PLAN.md) for the full
+> design and [docs/roadmap.md](./docs/roadmap.md) for what is implemented and
+> what is still to come.
 
 ## Layout
 

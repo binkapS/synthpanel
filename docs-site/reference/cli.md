@@ -48,4 +48,15 @@ synthpanel apikeys:delete <id>
 synthpanel update --check
 synthpanel update:status
 synthpanel update:rollback --id <update-id>
+
+synthpanel alerts:list
+synthpanel alerts:channels
+synthpanel alerts:channel:add ops --kind webhook --config '{"url":"https://…"}'
+synthpanel alerts:rule:add "failed backups" backup.failed --channel <id>
+synthpanel alerts:test --channel <id>
+
+synthpanel deploy:list
+synthpanel deploy:add --site <site-id> --repo https://github.com/example/app.git
+synthpanel deploy:run <deployment-id>
+synthpanel deploy:runs <deployment-id>
 ```

@@ -7,6 +7,7 @@
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, TimeZone, Timelike, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use sqlx::SqlitePool;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -468,6 +469,17 @@ pub async fn run_due(pool: &SqlitePool, dir: &Path) -> Result<usize> {
                 ran += 1;
                 if record.exit_code != 0 {
                     tracing::warn!(job = %job.id, exit = record.exit_code, "cron job failed");
+                    let _ = crate::alerts::emit(
+                        pool,
+                        crate::alerts::events::CRON_FAILED,
+                        "warning",
+                        &format!(
+                            "the cron job `{}` exited with {}",
+                            job.command, record.exit_code
+                        ),
+                        &json!({ "job_id": job.id, "command": job.command }),
+                    )
+                    .await;
                 }
             }
             Err(error) => tracing::warn!(job = %job.id, %error, "cron job could not run"),

@@ -333,11 +333,23 @@ async fn backup_file(path: &Path, backups: &Path, id: &str, kind: &str) -> Resul
     Ok(Some(target))
 }
 
+/// Restore a file from its backup.
+///
+/// When there is no backup the file did not exist before the change, so it is
+/// removed again — a half-written config must never survive a rollback.
 async fn restore_backup(path: &Path, backup: Option<&Path>) {
-    let Some(backup) = backup else { return };
-    if backup.exists() {
-        if let Err(error) = tokio::fs::copy(backup, path).await {
-            warn!(error = %error, backup = %backup.display(), "cannot restore backup");
+    match backup {
+        Some(backup) if backup.exists() => {
+            if let Err(error) = tokio::fs::copy(backup, path).await {
+                warn!(error = %error, backup = %backup.display(), "cannot restore backup");
+            }
+        }
+        _ => {
+            if let Err(error) = tokio::fs::remove_file(path).await {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    warn!(error = %error, path = %path.display(), "cannot remove the rolled back file");
+                }
+            }
         }
     }
 }
@@ -358,5 +370,29 @@ mod tests {
     fn which_resolves_builtins() {
         assert!(which("ls").is_some());
         assert!(which("definitely-missing-xyz").is_none());
+    }
+
+    #[tokio::test]
+    async fn a_rollback_removes_a_file_that_did_not_exist_before() {
+        let dir = std::env::temp_dir().join(format!("sp-apply-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vhost.conf");
+        std::fs::write(&path, "broken").unwrap();
+        restore_backup(&path, None).await;
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn a_rollback_restores_the_previous_content() {
+        let dir = std::env::temp_dir().join(format!("sp-apply-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("vhost.conf");
+        let backup = dir.join("vhost.conf.bak");
+        std::fs::write(&path, "broken").unwrap();
+        std::fs::write(&backup, "working").unwrap();
+        restore_backup(&path, Some(&backup)).await;
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "working");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -33,7 +33,7 @@ test('site lifecycle through the UI', async ({ page }) => {
   await page.getByRole('button', { name: 'Add site' }).click();
   await page.getByLabel('Domain').fill(domain);
   await page.getByRole('button', { name: 'Create site' }).click();
-  await expect(page.getByText(domain)).toBeVisible();
+  await expect(page.getByRole('button', { name: domain, exact: true })).toBeVisible();
 });
 
 test('backups page runs a backup', async ({ page }) => {
@@ -52,4 +52,38 @@ test('cron page creates a job', async ({ page }) => {
   await page.getByLabel('Command').fill('echo e2e');
   await page.getByRole('button', { name: 'Create job' }).click();
   await expect(page.getByText('echo e2e')).toBeVisible();
+});
+
+test('alerts page creates a channel and a rule', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'Alerts' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Alerts' })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add channel' }).click();
+  await page.getByLabel('Name').fill('e2e-webhook');
+  await page.getByLabel('URL').fill('https://example.com/hook');
+  await page.getByRole('button', { name: 'Create channel' }).click();
+  await expect(page.getByText('The alert channel was created.')).toBeVisible();
+  await expect(page.getByText('e2e-webhook', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Add rule' }).click();
+  await page.getByLabel('Name').fill('e2e-rule');
+  await page.getByRole('button', { name: 'Create rule' }).click();
+  await expect(page.getByText('The alert rule was created.')).toBeVisible();
+});
+
+test('deployments page lists the deployment form', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'Deployments' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Deployments' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add deployment' }).click();
+  await expect(page.getByLabel('Repository')).toBeVisible();
+});
+
+test('terminal page opens a shell', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'Terminal' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Terminal' })).toBeVisible();
+  await expect(page.getByLabel('Terminal', { exact: true })).toBeVisible();
+  await expect(page.getByText(/Connected to/)).toBeVisible({ timeout: 20_000 });
 });
