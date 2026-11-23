@@ -255,8 +255,11 @@ WantedBy=multi-user.target
 fn generate_daemon_env() -> String {
     let token = generate_secure_token(32);
     let key = generate_secure_token(32);
-    std::fs::write("/etc/synthpanel/ipc-token", token.clone()).ok();
-    std::fs::write("/etc/synthpanel/secret.key", key).ok();
+    // The token is the master credential of the core: it lives in the run
+    // directory, which is a tmpfs and not one of the file-manager scopes.
+    std::fs::create_dir_all("/run/synthpanel").ok();
+    std::fs::write("/run/synthpanel/ipc-token", token.clone()).ok();
+    std::fs::write("/var/lib/synthpanel/secret.key", key).ok();
     concat!(
         "SYNTHPANEL_ETC_DIR=/etc/synthpanel\n",
         "SYNTHPANEL_LIB_DIR=/var/lib/synthpanel\n",
@@ -265,9 +268,9 @@ fn generate_daemon_env() -> String {
         "SYNTHPANEL_WWW_DIR=/var/www\n",
         "SYNTHPANEL_BACKUP_DIR=/var/backups/synthpanel\n",
         "SYNTHPANEL_SOCKET_PATH=/run/synthpanel/core.sock\n",
-        "SYNTHPANEL_IPC_TOKEN_FILE=/etc/synthpanel/ipc-token\n",
+        "SYNTHPANEL_IPC_TOKEN_FILE=/run/synthpanel/ipc-token\n",
         "SYNTHPANEL_TLS_DIR=/etc/synthpanel/tls\n",
-        "SYNTHPANEL_SECRET_KEY_FILE=/etc/synthpanel/secret.key\n",
+        "SYNTHPANEL_SECRET_KEY_FILE=/var/lib/synthpanel/secret.key\n",
         "SYNTHPANEL_CORE_SOCKET=/run/synthpanel/core.sock\n",
         "SYNTHPANEL_WEB_ADDR=0.0.0.0:8443\n",
         "SYNTHPANEL_SESSION_TTL=86400\n",
@@ -318,7 +321,7 @@ async fn create_admin(args: &Args) -> Result<String> {
         warn!("core socket is not up yet; deferring admin user creation to the first-run wizard");
         return Ok(email);
     }
-    let token = std::fs::read_to_string("/etc/synthpanel/ipc-token")
+    let token = std::fs::read_to_string("/run/synthpanel/ipc-token")
         .context("cannot read the IPC token")?;
     let mut client = synthpanel_ipc::Client::connect(socket, token.trim().to_string()).await?;
     let existing: Option<serde_json::Value> = client

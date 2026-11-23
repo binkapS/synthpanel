@@ -8,7 +8,7 @@ journalctl -u synthpanel-core -n 100 --no-pager
 ```
 
 The web process needs the IPC token written by the core at
-`/etc/synthpanel/ipc-token`. Start the core first.
+`/run/synthpanel/ipc-token`. Start the core first.
 
 ## A site change broke nginx
 

@@ -3,6 +3,7 @@
 pub mod acme;
 pub mod api;
 pub mod auth;
+pub mod authz;
 pub mod config;
 pub mod error;
 pub mod extract;
@@ -38,6 +39,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state),
             middleware::csrf_guard,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
+            crate::authz::authorize,
         ))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state),

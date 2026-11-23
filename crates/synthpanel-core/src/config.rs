@@ -46,14 +46,19 @@ impl Paths {
             "SYNTHPANEL_SOCKET_PATH",
             &format!("{}/core.sock", run_dir.display()),
         );
+        // The IPC token is the master credential of the core: it must not
+        // live in a directory the file manager can read. The run directory is
+        // a tmpfs that is recreated on every boot.
         let ipc_token_path = env_path(
             "SYNTHPANEL_IPC_TOKEN_FILE",
-            &format!("{}/ipc-token", etc_dir.display()),
+            &format!("{}/ipc-token", run_dir.display()),
         );
         let tls_dir = env_path("SYNTHPANEL_TLS_DIR", &format!("{}/tls", etc_dir.display()));
+        // The secret key is persistent state, not runtime state, so it lives
+        // next to the database — which is not a file-manager scope either.
         let secret_key_path = env_path(
             "SYNTHPANEL_SECRET_KEY_FILE",
-            &format!("{}/secret.key", etc_dir.display()),
+            &format!("{}/secret.key", lib_dir.display()),
         );
 
         Self {

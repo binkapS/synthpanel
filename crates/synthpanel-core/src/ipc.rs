@@ -157,10 +157,49 @@ impl IpcServer {
         expected.as_bytes().ct_eq(token.as_bytes()).into()
     }
 
+    /// Check that the owner may create another site.
+    async fn check_site_quota(&self, owner_id: &str) -> Result<(), Error> {
+        let quota: Option<i64> = sqlx::query_scalar("SELECT quota_sites FROM users WHERE id = ?")
+            .bind(owner_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(internal)?;
+        let Some(quota) = quota else {
+            return Ok(());
+        };
+        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sites WHERE owner_id = ?")
+            .bind(owner_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(internal)?;
+        if used >= quota {
+            return Err(Error::new(
+                codes::BAD_REQUEST,
+                format!("the quota of {used} site(s) is reached"),
+            ));
+        }
+        Ok(())
+    }
+
+    /// The actor of the request, if the caller identified itself.
+    fn actor_of(envelope: &Envelope) -> (Option<&str>, Option<&str>, Option<&str>) {
+        match &envelope.actor {
+            Some(actor) => (
+                Some(actor.id.as_str()).filter(|value| !value.is_empty()),
+                Some(actor.name.as_str()).filter(|value| !value.is_empty()),
+                Some(actor.ip.as_str()).filter(|value| !value.is_empty()),
+            ),
+            None => (None, None, None),
+        }
+    }
+
     async fn dispatch(&self, envelope: &Envelope) -> Result<Value, Error> {
         if !self.authorized(&envelope.token).await {
             return Err(Error::new(codes::UNAUTHORIZED, "invalid token"));
         }
+        // The actor travels with the request, so the audit entries the core
+        // writes itself are attributable to a person.
+        let (actor_id, actor_name, actor_ip) = Self::actor_of(envelope);
         let params = &envelope.params;
         match envelope.method.as_str() {
             methods::HEALTH => Ok(json!({
@@ -369,6 +408,11 @@ impl IpcServer {
                     .and_then(Value::as_str)
                     .map(str::to_string)
                     .unwrap_or_default();
+                // The quota of the owner is checked before anything is
+                // provisioned on the server.
+                if let Some(owner) = owner_id.as_deref() {
+                    self.check_site_quota(owner).await?;
+                }
                 let input = CreateSite {
                     domain: domain.clone(),
                     aliases: aliases.clone(),
@@ -402,12 +446,12 @@ impl IpcServer {
                     .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "sites.create",
                     Some(site.domain.as_str()),
                     &json!({ "id": site.id, "aliases": aliases }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "site": site, "applied": result }))
@@ -501,12 +545,12 @@ impl IpcServer {
                             .map_err(internal)?;
                         let _ = audit::record(
                             &self.pool,
-                            None,
-                            None,
+                            actor_id,
+                            actor_name,
                             "sites.update",
                             Some(site.domain.as_str()),
                             &json!({ "id": site.id }),
-                            None,
+                            actor_ip,
                         )
                         .await;
                         Ok(json!({ "site": site, "applied": result }))
@@ -556,12 +600,12 @@ impl IpcServer {
                             .map_err(internal)?;
                         let _ = audit::record(
                             &self.pool,
-                            None,
-                            None,
+                            actor_id,
+                            actor_name,
                             "sites.ssl.issue",
                             Some(domain.as_str()),
                             &json!({ "id": id, "expires_at": result.expires_at }),
-                            None,
+                            actor_ip,
                         )
                         .await;
                         return Ok(json!({ "result": result, "applied": applied }));
@@ -569,12 +613,12 @@ impl IpcServer {
                 }
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "sites.ssl.issue",
                     Some(domain.as_str()),
                     &json!({ "id": id, "issued": false }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "result": result }))
@@ -617,12 +661,12 @@ impl IpcServer {
                 .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "panel.ssl.issue",
                     Some(&hostname),
                     &json!({ "method": method, "issued": result.issued }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(result).map_err(internal)?)
@@ -645,12 +689,12 @@ impl IpcServer {
                 let fs = self.apply.remove_site(&id).await.map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "sites.delete",
                     Some(id.as_str()),
                     &json!({ "removed": removed }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "removed": removed, "fs": fs }))
@@ -755,12 +799,12 @@ impl IpcServer {
                     let message = provisioning_error.unwrap_or_else(|| "unknown error".into());
                     let _ = audit::record(
                         &self.pool,
-                        None,
-                        None,
+                        actor_id,
+                        actor_name,
                         "databases.create",
                         Some(name.as_str()),
                         &json!({ "engine": engine.as_str(), "error": message }),
-                        None,
+                        actor_ip,
                     )
                     .await;
                     return Err(Error::new(
@@ -783,12 +827,12 @@ impl IpcServer {
                     .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "databases.create",
                     Some(name.as_str()),
                     &json!({ "engine": engine.as_str(), "username": username }),
-                    None,
+                    actor_ip,
                 )
                 .await;
 
@@ -847,12 +891,12 @@ impl IpcServer {
                 if let Err(error) = dropped {
                     let _ = audit::record(
                         &self.pool,
-                        None,
-                        None,
+                        actor_id,
+                        actor_name,
                         "databases.delete",
                         Some(record.name.as_str()),
                         &json!({ "error": error.to_string() }),
-                        None,
+                        actor_ip,
                     )
                     .await;
                     return Err(Error::new(
@@ -863,12 +907,12 @@ impl IpcServer {
                 let removed = self.stores.databases.delete(id).await.map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "databases.delete",
                     Some(record.name.as_str()),
                     &json!({ "engine": record.engine }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "removed": removed }))
@@ -975,12 +1019,12 @@ impl IpcServer {
                 let output = crate::security::ufw_apply(&rule).map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "security.firewall.apply",
                     Some(rule.port.as_str()),
                     &json!({ "rule": rule }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "output": output }))
@@ -1000,12 +1044,12 @@ impl IpcServer {
                 let output = crate::security::fail2ban_unban(jail, ip).map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "security.fail2ban.unban",
                     Some(ip),
                     &json!({ "jail": jail }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "output": output }))
@@ -1023,7 +1067,18 @@ impl IpcServer {
             methods::SECURITY_SSH_KEY_ADD => {
                 let label = param_str(params, "label")?;
                 let public_key = param_str(params, "public_key")?;
-                let user = params.get("user").and_then(Value::as_str).unwrap_or("root");
+                let user = params
+                    .get("user")
+                    .and_then(Value::as_str)
+                    .unwrap_or("synthpanel");
+                // A key for root would be a root login; only the accounts of
+                // the stack may be given one.
+                if user == "root" {
+                    return Err(Error::new(
+                        codes::BAD_REQUEST,
+                        "a key may not be installed for root",
+                    ));
+                }
                 let (key_type, fingerprint) =
                     crate::security::validate_ssh_key(public_key).map_err(bad_request)?;
                 crate::security::install_ssh_key(user, public_key).map_err(internal)?;
@@ -1044,12 +1099,12 @@ impl IpcServer {
                 .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "security.ssh_key.add",
                     Some(label),
                     &json!({ "user": user, "type": key_type }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "id": id, "label": label, "fingerprint": fingerprint }))
@@ -1074,12 +1129,12 @@ impl IpcServer {
                     .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "security.ssh_key.remove",
                     Some(row.label.as_str()),
                     &json!({}),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "removed": true }))
@@ -1122,12 +1177,12 @@ impl IpcServer {
                 .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "backups.create",
                     plan.site_domain.as_deref(),
                     &json!({ "id": result.id, "size": result.size }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(result).map_err(internal)?)
@@ -1154,12 +1209,12 @@ impl IpcServer {
                 }
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "backups.delete",
                     Some(row.name.as_str()),
                     &json!({ "id": id }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "removed": true }))
@@ -1204,12 +1259,12 @@ impl IpcServer {
                 .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "backups.restore",
                     Some(row.name.as_str()),
                     &json!({ "id": id, "entries": result.restored.len() }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(result).map_err(internal)?)
@@ -1336,6 +1391,7 @@ impl IpcServer {
                     return Err(Error::new(codes::BAD_REQUEST, "the command is empty"));
                 }
                 let user = opt_str(params, "user").unwrap_or("www-data");
+                check_job_user(&self.pool, user).await?;
                 let site_id = opt_str(params, "site_id");
                 let id = uuid::Uuid::new_v4().to_string();
                 let now = chrono::Utc::now().to_rfc3339();
@@ -1356,12 +1412,12 @@ impl IpcServer {
                 self.sync_crontab().await?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "cron.create",
                     Some(command),
                     &json!({ "id": id, "expression": expression }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "id": id }))
@@ -1383,6 +1439,7 @@ impl IpcServer {
                 })?;
                 let command = opt_str(params, "command").unwrap_or(&existing.command);
                 let user = opt_str(params, "user").unwrap_or(&existing.user);
+                check_job_user(&self.pool, user).await?;
                 let site_id = match params.get("site_id") {
                     Some(Value::Null) => None,
                     Some(value) => value.as_str().map(str::to_string),
@@ -1490,13 +1547,13 @@ impl IpcServer {
                 let sandbox = self.file_sandbox(params)?;
                 let listing = sandbox
                     .list(opt_str(params, "path").unwrap_or(""))
-                    .map_err(bad_request)?;
-                Ok(serde_json::to_value(listing).map_err(bad_request)?)
+                    .map_err(file_error)?;
+                Ok(serde_json::to_value(listing).map_err(file_error)?)
             }
             methods::FILES_READ => {
                 let sandbox = self.file_sandbox(params)?;
                 let path = param_str(params, "path")?;
-                let bytes = sandbox.read_file(path).map_err(bad_request)?;
+                let bytes = sandbox.read_file(path).map_err(file_error)?;
                 if bytes.len() > 8 * 1024 * 1024 {
                     return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
                 }
@@ -1526,28 +1583,28 @@ impl IpcServer {
                 if bytes.len() > 16 * 1024 * 1024 {
                     return Err(Error::new(codes::BAD_REQUEST, "the file is too large"));
                 }
-                sandbox.write_file(path, &bytes).map_err(bad_request)?;
+                sandbox.write_file(path, &bytes).map_err(file_error)?;
                 Ok(json!({ "written": bytes.len() }))
             }
             methods::FILES_MKDIR => {
                 let sandbox = self.file_sandbox(params)?;
                 sandbox
                     .create_dir(param_str(params, "path")?)
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "created": true }))
             }
             methods::FILES_RENAME => {
                 let sandbox = self.file_sandbox(params)?;
                 sandbox
                     .rename(param_str(params, "from")?, param_str(params, "to")?)
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "renamed": true }))
             }
             methods::FILES_DELETE => {
                 let sandbox = self.file_sandbox(params)?;
                 let removed = sandbox
                     .delete(param_str(params, "path")?)
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "removed": removed }))
             }
             methods::FILES_CHMOD => {
@@ -1556,11 +1613,11 @@ impl IpcServer {
                 if let Some(mode) = opt_str(params, "mode") {
                     let mode = u32::from_str_radix(mode.trim_start_matches('0'), 8)
                         .map_err(|_| Error::new(codes::BAD_REQUEST, "invalid octal mode"))?;
-                    sandbox.chmod(path, mode).map_err(bad_request)?;
+                    sandbox.chmod(path, mode).map_err(file_error)?;
                 }
                 sandbox
                     .chown(path, opt_str(params, "owner"), opt_str(params, "group"))
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "updated": true }))
             }
             methods::FILES_ARCHIVE => {
@@ -1577,7 +1634,7 @@ impl IpcServer {
                 };
                 let (name, size) = sandbox
                     .archive(param_str(params, "path")?, format)
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "path": name, "size": size }))
             }
             methods::FILES_EXTRACT => {
@@ -1587,7 +1644,7 @@ impl IpcServer {
                         param_str(params, "path")?,
                         opt_str(params, "into").unwrap_or(""),
                     )
-                    .map_err(bad_request)?;
+                    .map_err(file_error)?;
                 Ok(json!({ "entries": entries }))
             }
 
@@ -1731,12 +1788,12 @@ impl IpcServer {
                         .map_err(internal)?;
                         let _ = audit::record(
                             &self.pool,
-                            None,
-                            None,
+                            actor_id,
+                            actor_name,
                             "update.apply",
                             Some(&result.to_version),
                             &json!({ "from": from_version, "to": result.to_version }),
-                            None,
+                            actor_ip,
                         )
                         .await;
                         Ok(json!({ "updated": true, "result": result }))
@@ -1813,6 +1870,20 @@ impl IpcServer {
                         ));
                     }
                 };
+                // The rollback directory is never taken from the request
+                // unchecked: it would be a way to copy arbitrary files over
+                // the panel binaries.
+                let updates_dir = self.paths.lib_dir.join("updates");
+                let allowed =
+                    std::fs::canonicalize(&updates_dir).unwrap_or_else(|_| updates_dir.clone());
+                let given =
+                    std::fs::canonicalize(&backup_dir).unwrap_or_else(|_| backup_dir.clone());
+                if !given.starts_with(&allowed) {
+                    return Err(Error::new(
+                        codes::BAD_REQUEST,
+                        "the rollback directory is not one of the panel's own",
+                    ));
+                }
                 if !backup_dir.is_dir() {
                     return Err(Error::new(codes::NOT_FOUND, "the rollback copy is missing"));
                 }
@@ -1823,12 +1894,12 @@ impl IpcServer {
                 crate::update::restart_services().map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "update.rollback",
                     Some(&backup_dir.to_string_lossy()),
                     &json!({}),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(json!({ "rolled_back": true }))
@@ -1882,12 +1953,12 @@ impl IpcServer {
                     .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "alert.channel.create",
                     Some(&channel.name),
                     &json!({ "id": channel.id, "kind": channel.kind }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(channel).map_err(internal)?)
@@ -1924,12 +1995,12 @@ impl IpcServer {
                 .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "alert.rule.create",
                     Some(&rule.name),
                     &json!({ "id": rule.id, "event": rule.event }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(rule).map_err(internal)?)
@@ -1977,12 +2048,12 @@ impl IpcServer {
                 .map_err(|error| Error::new(codes::BAD_REQUEST, error.to_string()))?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "deployment.create",
                     Some(&site.domain),
                     &json!({ "id": deployment.id, "repo": deployment.repo_url }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(deployment).map_err(internal)?)
@@ -2037,12 +2108,12 @@ impl IpcServer {
                         .map_err(internal)?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "deployment.run",
                     Some(&site.domain),
                     &json!({ "id": run.id, "status": run.status }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 if run.status == "failed" {
@@ -2094,12 +2165,12 @@ impl IpcServer {
                     .map_err(|error| Error::new(codes::INTERNAL, error.to_string()))?;
                 let _ = audit::record(
                     &self.pool,
-                    None,
-                    None,
+                    actor_id,
+                    actor_name,
                     "terminal.open",
                     Some(&session.shell),
                     &json!({ "id": session.id }),
-                    None,
+                    actor_ip,
                 )
                 .await;
                 Ok(serde_json::to_value(session).map_err(internal)?)
@@ -2763,6 +2834,72 @@ fn clean_hostname(value: &str) -> Option<String> {
         return None;
     }
     Some(host)
+}
+
+/// The users a scheduled job or a build may run as.
+///
+/// `root` is not on the list: the core runs as root, so a job that runs as
+/// root is a root shell. The site's own pool users (`sp_<id>`) and the
+/// service accounts of the stack are allowed.
+const JOB_SERVICE_USERS: &[&str] = &[
+    "www-data",
+    "nginx",
+    "synthpanel",
+    "mysql",
+    "postgres",
+    "redis",
+];
+
+/// The users a job may run as.
+async fn allowed_job_users(pool: &sqlx::SqlitePool) -> Vec<String> {
+    let mut users: Vec<String> = JOB_SERVICE_USERS
+        .iter()
+        .map(|user| (*user).to_string())
+        .collect();
+    // The pool user of every site.
+    if let Ok(rows) = sqlx::query_scalar::<_, String>("SELECT pool_user FROM sites")
+        .fetch_all(pool)
+        .await
+    {
+        users.extend(rows);
+    }
+    users
+}
+
+/// Check that a job may run as the given user.
+async fn check_job_user(pool: &sqlx::SqlitePool, user: &str) -> Result<(), Error> {
+    let user = user.trim();
+    if user.is_empty() {
+        return Err(Error::new(codes::BAD_REQUEST, "the user is empty"));
+    }
+    if user == "root" {
+        return Err(Error::new(
+            codes::BAD_REQUEST,
+            "a job may not run as root; use the pool user of a site or a service account",
+        ));
+    }
+    let allowed = allowed_job_users(pool).await;
+    if !allowed.iter().any(|value| value == user) {
+        return Err(Error::new(
+            codes::BAD_REQUEST,
+            format!(
+                "the user `{user}` may not run a job; use a service account ({}) or the pool user of a site",
+                JOB_SERVICE_USERS.join(", ")
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Map a file error: a file that is not there is a `404`, everything else a
+/// `400`.
+fn file_error(error: impl std::fmt::Display) -> Error {
+    let message = error.to_string();
+    if message.contains("does not exist") || message.contains("no such file") {
+        Error::new(codes::NOT_FOUND, message)
+    } else {
+        Error::new(codes::BAD_REQUEST, message)
+    }
 }
 
 /// Map an error to a client error: the request was wrong, not the panel.

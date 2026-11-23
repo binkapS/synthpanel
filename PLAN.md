@@ -438,7 +438,7 @@ updates        (id, from_version, to_version, status, backup_dir, error, started
 
 Notes:
 
-- All secrets (db passwords, API keys, session tokens) stored hashed or encrypted; encryption key lives in `/etc/synthpanel/secret.key` (0600 root).
+- All secrets (db passwords, API keys, session tokens) stored hashed or encrypted; encryption key lives in `/var/lib/synthpanel/secret.key` (0600 root).
 - SQLite in WAL mode; single writer = core; backups via `VACUUM INTO` (online-consistent).
 
 ### 5.6 Nginx integration
@@ -693,7 +693,7 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
 ```
 
 - Talks to the core over the Unix socket; reads the shared token from
-  `/etc/synthpanel/ipc-token`, so it needs root.
+  `/run/synthpanel/ipc-token`, so it needs root.
 - `--output json|table|yaml` for scripting.
 - The same operations as the UI, which guarantees the API-first design.
 

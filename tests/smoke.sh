@@ -88,7 +88,7 @@ log "core socket up"
 
 SYNTHPANEL_TLS_DIR="$WORK/tls" \
 SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock" \
-SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token" \
+SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token" \
 SYNTHPANEL_WEB_ADDR="127.0.0.1:$PORT" \
 SYNTHPANEL_SECURE_COOKIES=0 \
 SYNTHPANEL_PANEL_HOSTNAME=panel.local \
@@ -142,7 +142,7 @@ ADMIN_PASSWORD="hunter2password-77"
 
 log "creating the admin user"
 SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock" \
-SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token" \
+SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token" \
   target/release/synthpanel users:create "$ADMIN_EMAIL" \
     --name "Admin" \
     --password "$ADMIN_PASSWORD" \
@@ -175,11 +175,13 @@ auth_get() {
 }
 
 assert_eq "$(code -b "$COOKIES" $BASE/api/v1/auth/me)" "200"
+
 log "auth/me -> 200"
 
 ME="$(auth_get $BASE/api/v1/auth/me)"
 assert_contains "$ME" "$ADMIN_EMAIL"
 assert_contains "$ME" '"role":"admin"'
+ADMIN_ID="$(printf '%s' "$ME" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')" 
 
 SNAPSHOT="$(auth_get $BASE/api/v1/metrics/snapshot)"
 assert_contains "$SNAPSHOT" '"host"'
@@ -261,7 +263,7 @@ log "creating a cron job"
 CRON="$(curl -sSk -b "$COOKIES" -X POST \
   -H 'content-type: application/json' \
   -H "x-csrf-token: $CSRF" \
-  -d '{"expression":"0 3 * * *","command":"echo smoke-cron","user":"nobody"}' \
+  -d '{"expression":"0 3 * * *","command":"echo smoke-cron","user":"www-data"}' \
   $BASE/api/v1/cron)"
 assert_contains "$CRON" '"id"'
 CRON_ID="$(printf '%s' "$CRON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
@@ -444,6 +446,68 @@ CLOSED="$(curl -sSk -b "$COOKIES" -X DELETE \
   "$BASE/api/v1/terminal/$SESSION_ID")"
 assert_contains "$CLOSED" '"closed":true'
 log "the terminal ran a command and was closed"
+
+# ---------------------------------------------------------------------------
+# Regression tests for the security audit
+# ---------------------------------------------------------------------------
+
+log "the file manager does not hand out the IPC token"
+TOKEN_CODE="$(code -b "$COOKIES" "$BASE/api/v1/files/content?scope=etc&path=ipc-token")"
+assert_eq "$TOKEN_CODE" "404"
+TOKEN_LIST="$(auth_get "$BASE/api/v1/files?scope=etc")"
+case "$TOKEN_LIST" in
+  *ipc-token*) fail "the file listing exposes the IPC token" ;;
+esac
+log "the IPC token is not readable through the file API"
+
+# A low privilege account may not touch the privileged endpoints.
+log "creating a low privilege account"
+LOW_USER="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"email":"low@example.com","name":"Low","password":"lowprivilege12345","role":"user"}' \
+  $BASE/api/v1/users)"
+LOW_ID="$(printf '%s' "$LOW_USER" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+
+LOW_COOKIES="$WORK/low-cookies.txt"
+rm -f "$LOW_COOKIES"
+LOW_LOGIN="$(curl -sSk -c "$LOW_COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -d '{"email":"low@example.com","password":"lowprivilege12345"}' \
+  $BASE/api/v1/auth/login)"
+assert_contains "$LOW_LOGIN" '"requires_2fa":false'
+LOW_CSRF="$(awk '$6 == "synthpanel_csrf" { print $7 }' "$LOW_COOKIES")"
+
+low_code() {
+  curl -sSk -o /dev/null -w '%{http_code}' -b "$LOW_COOKIES" -X POST \
+    -H 'content-type: application/json' \
+    -H "x-csrf-token: $LOW_CSRF" \
+    -d "$1" "$2"
+}
+
+log "a low privilege account may not use the privileged endpoints"
+assert_eq "$(low_code '{"expression":"* * * * *","command":"id -un","user":"root"}' "$BASE/api/v1/cron")" "403"
+assert_eq "$(low_code '{"site_id":"'"$SITE_ID"'","repo_url":"https://example.com/app.git"}' "$BASE/api/v1/deployments")" "403"
+assert_eq "$(low_code '{"label":"key","public_key":"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleKeyForTheTestOnly0000000000 test@example.com"}' "$BASE/api/v1/security/ssh-keys")" "403"
+assert_eq "$(low_code '{"rules":[]}' "$BASE/api/v1/security/firewall/rules")" "403"
+assert_eq "$(low_code '{}' "$BASE/api/v1/update/apply")" "403"
+assert_eq "$(low_code '{"id":"none"}' "$BASE/api/v1/update/rollback")" "403"
+assert_eq "$(low_code '{}' "$BASE/api/v1/terminal/open")" "403"
+log "the privileged endpoints answer 403 for a low privilege account"
+
+log "a cron job may not run as root"
+ROOT_JOB="$(curl -sSk -b "$COOKIES" -X POST \
+  -H 'content-type: application/json' \
+  -H "x-csrf-token: $CSRF" \
+  -d '{"expression":"*/5 * * * *","command":"id -un","user":"root"}' \
+  $BASE/api/v1/cron)"
+assert_contains "$ROOT_JOB" 'may not run as root'
+log "the root job was refused"
+
+log "the audit log names the actor"
+AUDIT_ENTRIES="$(auth_get "$BASE/api/v1/audit?limit=50")"
+assert_contains "$AUDIT_ENTRIES" '"actor_id":"'"$ADMIN_ID"'"'
+log "the audit entries carry the actor"
 
 log "deleting the site"
 DELETED="$(curl -sSk -b "$COOKIES" -X DELETE \

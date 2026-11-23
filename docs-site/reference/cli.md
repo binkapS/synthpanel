@@ -1,7 +1,7 @@
 # CLI reference
 
 The `synthpanel` CLI talks to the core over `/run/synthpanel/core.sock` and
-uses the token at `/etc/synthpanel/ipc-token`. Run it with `sudo` on the server.
+uses the token at `/run/synthpanel/ipc-token`. Run it with `sudo` on the server.
 
 ```text
 synthpanel status

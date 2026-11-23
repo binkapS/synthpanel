@@ -24,7 +24,7 @@ pub async fn core_call<T: DeserializeOwned>(
         .await
         .map_err(|error| CoreError::Unavailable(error.to_string()))?;
     client
-        .call::<T>(method, params)
+        .call_as::<T>(method, params, crate::authz::current_actor())
         .await
         .map_err(|error| match error {
             synthpanel_ipc::ClientError::Protocol(error) => CoreError::Remote {

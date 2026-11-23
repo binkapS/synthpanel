@@ -91,7 +91,7 @@ done
 [ -S "$WORK/run/core.sock" ] || fail "the core did not bind its socket"
 
 export SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock"
-export SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token"
+export SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token"
 
 ipc() {
   python3 tests/ipc-call.py "$@"

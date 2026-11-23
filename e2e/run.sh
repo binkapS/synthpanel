@@ -61,14 +61,14 @@ fi
 
 echo "==> creating the admin user"
 SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock" \
-SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token" \
+SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token" \
   target/release/synthpanel users:create "$EMAIL" \
     --name "Admin" --password "$PASSWORD" --role admin > /dev/null
 
 echo "==> starting the web UI"
 SYNTHPANEL_TLS_DIR="$WORK/tls" \
 SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock" \
-SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token" \
+SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token" \
 SYNTHPANEL_WEB_ADDR="127.0.0.1:$PORT" \
 SYNTHPANEL_SECURE_COOKIES="${SYNTHPANEL_E2E_SECURE_COOKIES:-0}" \
 SYNTHPANEL_PANEL_HOSTNAME=panel.local \

@@ -12,10 +12,14 @@ pub struct WebConfig {
     pub tls_dir: PathBuf,
     pub log_dir: PathBuf,
     pub lib_dir: PathBuf,
+    /// The document root of the sites.
+    pub www_dir: PathBuf,
     pub static_dir: PathBuf,
     pub session_ttl_secs: u64,
     pub secure_cookies: bool,
     pub panel_hostname: String,
+    /// Whether the forwarded headers may be trusted.
+    pub trusted_proxies: bool,
 }
 
 fn env_str(key: &str, default: &str) -> String {
@@ -40,12 +44,16 @@ impl WebConfig {
         let tls_dir = env_path("SYNTHPANEL_TLS_DIR", "/etc/synthpanel/tls");
         let log_dir = env_path("SYNTHPANEL_LOG_DIR", "/var/log/synthpanel");
         let lib_dir = env_path("SYNTHPANEL_LIB_DIR", "/var/lib/synthpanel");
+        let www_dir = env_path("SYNTHPANEL_WWW_DIR", "/var/www");
         let static_dir = env_path("SYNTHPANEL_STATIC_DIR", "frontend/dist");
         let session_ttl_secs = env_str("SYNTHPANEL_SESSION_TTL", "86400")
             .parse()
             .unwrap_or(86400);
         let secure_cookies = env_str("SYNTHPANEL_SECURE_COOKIES", "1") != "0";
         let panel_hostname = env_str("SYNTHPANEL_PANEL_HOSTNAME", "localhost");
+        // The forwarded headers are only honoured when the panel is told that
+        // it sits behind a proxy it trusts.
+        let trusted_proxies = !env_str("SYNTHPANEL_TRUSTED_PROXY", "").is_empty();
 
         Self {
             bind_addr,
@@ -55,11 +63,22 @@ impl WebConfig {
             tls_dir,
             log_dir,
             lib_dir,
+            www_dir,
             static_dir,
             session_ttl_secs,
             secure_cookies,
             panel_hostname,
+            trusted_proxies,
         }
+    }
+
+    /// Whether the panel may trust `X-Forwarded-For` and `X-Forwarded-Proto`.
+    ///
+    /// The headers are only honoured when the operator says the panel runs
+    /// behind a proxy; otherwise a client could forge its own address in the
+    /// audit log.
+    pub fn trusts_proxies(&self) -> bool {
+        self.trusted_proxies
     }
 
     /// The directory that holds the ACME challenges for the panel hostname.
@@ -86,5 +105,7 @@ mod tests {
         assert_eq!(config.port, 8443);
         assert_eq!(config.session_ttl_secs, 86400);
         assert!(config.secure_cookies);
+        // The forwarded headers are not trusted unless the panel is told so.
+        assert!(!config.trusts_proxies());
     }
 }

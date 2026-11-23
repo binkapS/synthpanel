@@ -1,6 +1,7 @@
 //! File manager endpoints.
 
 use crate::api::auth::audit;
+use crate::authz::Policy;
 use crate::error::ApiError;
 use crate::extract::{ApiJson, AuthUser};
 use crate::state::AppState;
@@ -10,6 +11,71 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 use synthpanel_ipc::methods;
+
+/// The scope that holds the configuration of the panel.
+const PANEL_SCOPE: &str = "etc";
+
+/// Check that the account may use this scope and path.
+///
+/// - The panel configuration holds the vhosts and the secrets of the panel:
+///   only an administrator may read or write it.
+/// - The web root holds the document roots of the sites: an account without
+///   the operator role may only touch the sites it owns.
+async fn check_scope(
+    state: &AppState,
+    user: &AuthUser,
+    scope: &str,
+    path: Option<&str>,
+) -> Result<(), ApiError> {
+    match scope {
+        PANEL_SCOPE => {
+            if !user.may(Policy::Admin) {
+                return Err(ApiError::forbidden(
+                    "the panel configuration is only available to an administrator",
+                ));
+            }
+        }
+        "www" | "" => {
+            if user.may(Policy::Operator) {
+                return Ok(());
+            }
+            let owned = owned_site_paths(state, &user.user_id).await?;
+            let path = path.unwrap_or("").trim_start_matches('/');
+            if !owned
+                .iter()
+                .any(|root| path == root || path.starts_with(&format!("{root}/")))
+            {
+                return Err(ApiError::forbidden("you may only manage your own sites"));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// The document roots of the sites the account owns, relative to the web root.
+async fn owned_site_paths(state: &AppState, user_id: &str) -> Result<Vec<String>, ApiError> {
+    let sites: Vec<Value> = state.core_call(methods::SITES_LIST, json!({})).await?;
+    let www = state.config.www_dir.to_string_lossy().to_string();
+    let mut paths = Vec::new();
+    for site in sites {
+        if site.get("owner_id").and_then(Value::as_str) != Some(user_id) {
+            continue;
+        }
+        let Some(root) = site.get("document_root").and_then(Value::as_str) else {
+            continue;
+        };
+        let relative = root
+            .strip_prefix(&www)
+            .unwrap_or(root)
+            .trim_start_matches('/')
+            .to_string();
+        if !relative.is_empty() {
+            paths.push(relative);
+        }
+    }
+    Ok(paths)
+}
 
 #[derive(Debug, Deserialize, Default)]
 pub struct PathQuery {
@@ -78,9 +144,11 @@ pub struct ExtractRequest {
 
 pub async fn list(
     State(state): State<Arc<AppState>>,
-    _user: AuthUser,
+    user: AuthUser,
     Query(query): Query<PathQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = query.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, query.path.as_deref()).await?;
     let result: Value = state
         .core_call(
             methods::FILES_LIST,
@@ -95,12 +163,14 @@ pub async fn list(
 
 pub async fn read(
     State(state): State<Arc<AppState>>,
-    _user: AuthUser,
+    user: AuthUser,
     Query(query): Query<PathQuery>,
 ) -> Result<Json<Value>, ApiError> {
     let path = query
         .path
         .ok_or_else(|| ApiError::bad_request("a path is required"))?;
+    let scope = query.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&path)).await?;
     let result: Value = state
         .core_call(
             methods::FILES_READ,
@@ -118,6 +188,8 @@ pub async fn write(
     user: AuthUser,
     ApiJson(body): ApiJson<WriteRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.path.clone())).await?;
     let mut params = json!({
         "scope": body.scope.unwrap_or_else(|| "www".into()),
         "path": body.path,
@@ -146,6 +218,8 @@ pub async fn mkdir(
     user: AuthUser,
     ApiJson(body): ApiJson<MkdirRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.path.clone())).await?;
     let result: Value = state
         .core_call(
             methods::FILES_MKDIR,
@@ -172,6 +246,9 @@ pub async fn rename(
     user: AuthUser,
     ApiJson(body): ApiJson<RenameRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.from)).await?;
+    check_scope(&state, &user, &scope, Some(&body.to)).await?;
     let result: Value = state
         .core_call(
             methods::FILES_RENAME,
@@ -199,6 +276,8 @@ pub async fn delete(
     user: AuthUser,
     Query(query): Query<PathQuery>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = query.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, query.path.as_deref()).await?;
     let path = query
         .path
         .ok_or_else(|| ApiError::bad_request("a path is required"))?;
@@ -220,6 +299,8 @@ pub async fn chmod(
     user: AuthUser,
     ApiJson(body): ApiJson<ChmodRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.path)).await?;
     let mut params = json!({
         "scope": body.scope.unwrap_or_else(|| "www".into()),
         "path": body.path,
@@ -251,6 +332,8 @@ pub async fn archive(
     user: AuthUser,
     ApiJson(body): ApiJson<ArchiveRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.path)).await?;
     let result: Value = state
         .core_call(
             methods::FILES_ARCHIVE,
@@ -278,6 +361,8 @@ pub async fn extract(
     user: AuthUser,
     ApiJson(body): ApiJson<ExtractRequest>,
 ) -> Result<Json<Value>, ApiError> {
+    let scope = body.scope.clone().unwrap_or_else(|| "www".into());
+    check_scope(&state, &user, &scope, Some(&body.path)).await?;
     let result: Value = state
         .core_call(
             methods::FILES_EXTRACT,

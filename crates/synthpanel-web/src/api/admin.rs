@@ -139,11 +139,62 @@ pub async fn users_update(
 ) -> Result<Json<Value>, ApiError> {
     require_admin(&state, &user).await?;
 
+    // The account that is being changed.
+    let current: Option<Value> = state
+        .core_call(methods::USERS_GET, json!({ "id": id }))
+        .await?;
+    let current = current.ok_or_else(|| ApiError::not_found("user not found"))?;
+    let current_role = current
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user")
+        .to_string();
+
     let mut patch = Map::new();
-    for key in ["email", "name", "role", "status"] {
+    for key in ["email", "name"] {
         if let Some(value) = body.get(key).and_then(Value::as_str) {
             patch.insert(key.to_string(), json!(value));
         }
+    }
+    // The role and the status are checked against the same lists as the
+    // creation: a typo must not silently strip the privileges of an account.
+    if let Some(role) = body.get("role").and_then(Value::as_str) {
+        if !matches!(role, "admin" | "operator" | "user") {
+            return Err(ApiError::bad_request(format!("unknown role `{role}`")));
+        }
+        patch.insert("role".to_string(), json!(role));
+    }
+    if let Some(status) = body.get("status").and_then(Value::as_str) {
+        if !matches!(status, "active" | "disabled" | "suspended") {
+            return Err(ApiError::bad_request(format!("unknown status `{status}`")));
+        }
+        patch.insert("status".to_string(), json!(status));
+    }
+
+    // The last administrator may not demote or disable themselves, and nobody
+    // may change their own role or status.
+    let loses_admin = current_role == "admin"
+        && (patch.get("role").and_then(Value::as_str) != Some("admin")
+            || patch.get("status").and_then(Value::as_str) == Some("disabled"));
+    if loses_admin {
+        let accounts: Vec<Value> = state.core_call(methods::USERS_LIST, json!({})).await?;
+        let admins = accounts
+            .iter()
+            .filter(|entry| {
+                entry.get("role").and_then(Value::as_str) == Some("admin")
+                    && entry.get("status").and_then(Value::as_str) == Some("active")
+            })
+            .count();
+        if admins <= 1 {
+            return Err(ApiError::bad_request(
+                "the last administrator may not be demoted or disabled",
+            ));
+        }
+    }
+    if id == user.user_id && (patch.contains_key("role") || patch.contains_key("status")) {
+        return Err(ApiError::bad_request(
+            "you may not change your own role or status",
+        ));
     }
     for key in ["quota_sites", "quota_dbs"] {
         if let Some(value) = body.get(key).and_then(Value::as_i64) {
@@ -165,12 +216,21 @@ pub async fn users_update(
     }
     patch.insert("id".to_string(), json!(id));
 
+    // A session of an account whose password, role or status changed must
+    // not survive the change.
+    let sensitive = patch
+        .keys()
+        .any(|key| matches!(key.as_str(), "password_hash" | "role" | "status"));
+
     let updated: Option<Value> = state
         .core_call(methods::USERS_UPDATE, Value::Object(patch))
         .await?;
     let Some(updated) = updated else {
         return Err(ApiError::not_found("user not found"));
     };
+    if sensitive {
+        state.sessions.revoke_all_for_user(&id);
+    }
     audit(&state, &user.user_id, "", "users.update", &id, &user.ip).await;
     Ok(Json(sanitize_user(&updated)))
 }

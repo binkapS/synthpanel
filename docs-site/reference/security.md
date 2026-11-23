@@ -3,7 +3,7 @@
 ## Trust boundary
 
 Only `synthpanel-core` runs as root. It listens on a Unix socket, not TCP, and
-requires the shared token from `/etc/synthpanel/ipc-token` on every request.
+requires the shared token from `/run/synthpanel/ipc-token` on every request.
 `synthpanel-web` runs as the unprivileged `synthpanel` user and cannot mutate
 system state except through the core's typed API.
 

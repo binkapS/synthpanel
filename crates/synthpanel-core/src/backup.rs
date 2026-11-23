@@ -164,10 +164,56 @@ impl Destination {
                 if access_key.trim().is_empty() || secret_key.trim().is_empty() {
                     bail!("the S3 destination needs an access key and a secret");
                 }
+                check_s3_endpoint(endpoint)?;
             }
         }
         Ok(())
     }
+}
+
+/// Check that an S3 endpoint is one the panel may talk to.
+///
+/// The core runs as root, so an endpoint from a request would turn the panel
+/// into a proxy for every address the server can reach — the cloud metadata
+/// service, an internal service, a host the operator trusts. The endpoint
+/// therefore has to be a public HTTPS host.
+pub fn check_s3_endpoint(endpoint: &str) -> Result<()> {
+    let endpoint = endpoint.trim();
+    if !endpoint.starts_with("https://") {
+        bail!("the S3 endpoint must use https");
+    }
+    let rest = &endpoint["https://".len()..];
+    let host = rest
+        .split('/')
+        .next()
+        .unwrap_or_default()
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if host.is_empty() {
+        bail!("the S3 endpoint needs a host");
+    }
+    // The addresses that must never be reached from a root process.
+    let blocked = [
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "::1",
+        "169.254.169.254",
+        "metadata.google.internal",
+    ];
+    if blocked.contains(&host.as_str()) || host.ends_with(".localhost") {
+        bail!("the S3 endpoint may not point at a local address");
+    }
+    if host.starts_with("10.")
+        || host.starts_with("192.168.")
+        || host.starts_with("127.")
+        || host.starts_with("169.254.")
+    {
+        bail!("the S3 endpoint may not point at a private address");
+    }
+    Ok(())
 }
 
 /// The inputs of a backup run.
@@ -650,7 +696,8 @@ pub async fn upload(destination: &Destination, local: &Path, name: &str) -> Resu
             path,
         } => {
             let target = format!("{}/{name}", path.trim_end_matches('/'));
-            upload_sftp(host, *port, user, key_path.as_deref(), local, &target)?;
+            let key = sftp_key_path(user).or_else(|| key_path.clone());
+            upload_sftp(host, *port, user, key.as_deref(), local, &target)?;
             Ok(format!("sftp://{host}{target}"))
         }
         Destination::S3 {
@@ -695,7 +742,8 @@ pub async fn download(destination: &Destination, remote: &str, local: &Path) -> 
             key_path,
             ..
         } => {
-            download_sftp(host, *port, user, key_path.as_deref(), remote, local)?;
+            let key = sftp_key_path(user).or_else(|| key_path.clone());
+            download_sftp(host, *port, user, key.as_deref(), remote, local)?;
             Ok(())
         }
         Destination::S3 {
@@ -760,6 +808,18 @@ fn download_sftp(
 ) -> Result<()> {
     let batch = format!("get {} {}\n", remote, local.display());
     run_sftp(host, port, user, key_path, &batch)
+}
+
+/// The private key an SFTP destination may use.
+///
+/// The key is never taken from a request: the core would offer an arbitrary
+/// file to the SSH client, and the file manager can write files.
+pub fn sftp_key_path(user: &str) -> Option<PathBuf> {
+    let base = std::env::var_os("SYNTHPANEL_LIB_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/var/lib/synthpanel"));
+    let key = base.join("sftp-keys").join(format!("{user}.key"));
+    key.is_file().then_some(key)
 }
 
 fn run_sftp(host: &str, port: u16, user: &str, key_path: Option<&Path>, batch: &str) -> Result<()> {
@@ -965,6 +1025,21 @@ async fn s3_request(client: &reqwest::Client, request: S3Request<'_>) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_s3_endpoint_may_not_be_a_local_address() {
+        assert!(check_s3_endpoint("https://s3.amazonaws.com").is_ok());
+        assert!(check_s3_endpoint("https://minio.example.com:9000").is_ok());
+        // The cloud metadata service and the loopback must never be reached
+        // from a root process.
+        assert!(check_s3_endpoint("https://169.254.169.254").is_err());
+        assert!(check_s3_endpoint("https://127.0.0.1:9000").is_err());
+        assert!(check_s3_endpoint("https://localhost:9000").is_err());
+        assert!(check_s3_endpoint("https://10.0.0.5").is_err());
+        assert!(check_s3_endpoint("https://192.168.1.10").is_err());
+        // Plain HTTP would send the archive and the credentials in the clear.
+        assert!(check_s3_endpoint("http://s3.amazonaws.com").is_err());
+    }
 
     fn test_plan(dir: &Path) -> BackupPlan {
         BackupPlan {

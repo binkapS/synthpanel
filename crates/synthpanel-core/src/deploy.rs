@@ -96,14 +96,7 @@ pub async fn create(
     if repo_url.trim().is_empty() {
         bail!("the repository url is empty");
     }
-    if !repo_url.starts_with("http://")
-        && !repo_url.starts_with("https://")
-        && !repo_url.starts_with("git@")
-        && !repo_url.starts_with("ssh://")
-        && !repo_url.starts_with("file://")
-    {
-        bail!("the repository url must be http(s), ssh, git@ or file");
-    }
+    check_repo_url(repo_url)?;
     let now = chrono::Utc::now().to_rfc3339();
     let deployment = Deployment {
         id: uuid::Uuid::new_v4().to_string(),
@@ -146,12 +139,29 @@ pub async fn create(
     Ok(deployment)
 }
 
+/// Check that a repository URL is one the panel may use.
+///
+/// The scheme decides how `git` talks to the remote: `ext::` makes it run a
+/// command, so the panel never lets a request choose the transport.
+pub fn check_repo_url(url: &str) -> Result<()> {
+    let url = url.trim();
+    let allowed = ["http://", "https://", "git@", "ssh://", "file://"];
+    if !allowed.iter().any(|prefix| url.starts_with(prefix)) {
+        bail!("the repository url must be http(s), ssh, git@ or file");
+    }
+    if url.chars().any(|c| c.is_whitespace()) {
+        bail!("the repository url contains whitespace");
+    }
+    Ok(())
+}
+
 /// Update a deployment.
 pub async fn update(pool: &SqlitePool, id: &str, patch: DeploymentPatch) -> Result<Deployment> {
     let mut deployment = get(pool, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("the deployment `{id}` does not exist"))?;
     if let Some(value) = patch.repo_url {
+        check_repo_url(&value)?;
         deployment.repo_url = value.trim().to_string();
     }
     if let Some(value) = patch.branch {
@@ -379,6 +389,9 @@ async fn execute(
         bail!("the source directory {} does not exist", source.display());
     }
     if !deployment.build_command.is_empty() {
+        if deployment.deploy_user.trim() == "root" {
+            bail!("the build may not run as root");
+        }
         let result = run_as_user(&deployment.deploy_user, &source, &deployment.build_command).await;
         match result {
             Ok(text) => output.push_str(&text),
@@ -532,6 +545,10 @@ async fn git(dir: Option<&Path>, args: &[&str]) -> Result<String> {
         command.arg("-C").arg(dir);
     }
     command.args(args);
+    // The transports are pinned: the host's git configuration must not be
+    // able to add `ext::` (which would run a command).
+    command.env("GIT_ALLOW_PROTOCOL", "https:ssh:file");
+    command.env("GIT_CONFIG_NOSYSTEM", "1");
     let output = command
         .stdin(std::process::Stdio::null())
         .output()
@@ -609,6 +626,17 @@ mod tests {
 
         assert!(delete(&pool, &deployment.id).await.unwrap());
         assert!(get(&pool, &deployment.id).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn only_known_transports_are_allowed() {
+        assert!(check_repo_url("https://example.com/app.git").is_ok());
+        assert!(check_repo_url("git@example.com:app.git").is_ok());
+        assert!(check_repo_url("file:///srv/repo.git").is_ok());
+        // `ext::` makes git run a command.
+        assert!(check_repo_url("ext::sh -c id").is_err());
+        assert!(check_repo_url("/etc/passwd").is_err());
+        assert!(check_repo_url("https://example.com/ a b").is_err());
     }
 
     #[tokio::test]

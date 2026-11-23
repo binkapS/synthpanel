@@ -70,6 +70,9 @@ pub async fn login(
     ApiJson(request): ApiJson<LoginRequest>,
 ) -> Result<Response, ApiError> {
     let ip = peer.ip().to_string();
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok());
     if !state
         .rate_limiter
         .check(&format!("login:{ip}"), LOGIN_MAX_ATTEMPTS, LOGIN_WINDOW)
@@ -115,7 +118,12 @@ pub async fn login(
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let challenge_id = state.pending_2fa.create(user_id, CHALLENGE_TTL);
+        let challenge_id = state.pending_2fa.create(
+            user_id,
+            ip.to_string(),
+            user_agent.unwrap_or_default().to_string(),
+            CHALLENGE_TTL,
+        );
         return Ok(Json(json!({
             "requires_2fa": true,
             "challenge_id": challenge_id,
@@ -146,6 +154,21 @@ pub async fn totp_verify(
     let Some(challenge) = state.pending_2fa.take(&request.challenge_id) else {
         return Err(ApiError::bad_request("invalid or expired challenge"));
     };
+    // The challenge belongs to the client that started it.
+    let agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    if !challenge.ip.is_empty() && challenge.ip != ip {
+        return Err(ApiError::bad_request(
+            "the challenge belongs to another client",
+        ));
+    }
+    if !challenge.user_agent.is_empty() && challenge.user_agent != agent {
+        return Err(ApiError::bad_request(
+            "the challenge belongs to another client",
+        ));
+    }
 
     let user: Option<Value> = state
         .core_call(methods::USERS_GET, json!({ "id": challenge.user_id }))
@@ -166,6 +189,18 @@ pub async fn totp_verify(
     if secret.is_empty() || !crate::totp::verify(secret, &request.code, &email) {
         return Err(ApiError::unauthorized("invalid verification code"));
     }
+    // A code that was observed once may not be used again.
+    if state
+        .pending_2fa
+        .code_was_used(&challenge.user_id, &request.code)
+    {
+        return Err(ApiError::unauthorized(
+            "the verification code was already used",
+        ));
+    }
+    state
+        .pending_2fa
+        .remember_code(&challenge.user_id, &request.code);
 
     let secure = state.config.secure_cookies && request_is_secure(&headers);
     establish_session(&state, &user, &ip, None, secure).await
@@ -202,6 +237,7 @@ pub async fn me(
 pub async fn totp_setup(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
+    ApiJson(request): ApiJson<PasswordRequest>,
 ) -> Result<Json<Value>, ApiError> {
     let record: Option<Value> = state
         .core_call(methods::USERS_GET, json!({ "id": user.user_id }))
@@ -213,14 +249,33 @@ pub async fn totp_setup(
         .unwrap_or_default()
         .to_string();
 
+    // An account that already has a second factor must confirm its password
+    // before the secret may be replaced: a stolen session must not be able to
+    // downgrade the account to a password-only login.
+    let enabled = record
+        .get("totp_enabled")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if enabled {
+        let hash = record
+            .get("password_hash")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !crate::auth::verify_password(&request.password, hash) {
+            return Err(ApiError::unauthorized("the password is not correct"));
+        }
+    }
+
     let secret = crate::totp::generate_secret();
     let uri = crate::totp::provisioning_uri(&secret, &email)
         .map_err(|error| ApiError::internal(error.to_string()))?;
 
+    // The account stays as it is until the new secret is confirmed with a
+    // valid code (`totp_enable`).
     let _: Value = state
         .core_call(
             methods::USERS_UPDATE,
-            json!({ "id": user.user_id, "totp_secret": secret, "totp_enabled": false }),
+            json!({ "id": user.user_id, "totp_secret": secret }),
         )
         .await?;
 
@@ -340,8 +395,15 @@ async fn establish_session(
 
     let csrf = crate::auth::generate_csrf();
     let ttl = Duration::from_secs(state.config.session_ttl_secs);
+    let role = user
+        .get("role")
+        .and_then(Value::as_str)
+        .unwrap_or("user")
+        .to_string();
     let token = state.sessions.create(
         user_id.clone(),
+        name.clone(),
+        role,
         ip.to_string(),
         user_agent.map(|value| value.to_string()),
         ttl,
@@ -372,6 +434,18 @@ async fn establish_session(
         session_cookie(CSRF_COOKIE, &csrf, ttl.as_secs() as i64, secure, false),
     );
     Ok(response)
+}
+
+/// Record an audit entry for an actor the middleware resolved.
+pub async fn audit_actor(
+    state: &AppState,
+    user_id: &str,
+    name: &str,
+    action: &str,
+    target: &str,
+    ip: &str,
+) {
+    audit(state, user_id, name, action, target, ip).await;
 }
 
 /// Record an audit entry; audit failures never break the request.

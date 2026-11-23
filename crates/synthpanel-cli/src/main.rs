@@ -21,7 +21,7 @@ pub struct Cli {
     #[arg(
         long,
         env = "SYNTHPANEL_IPC_TOKEN_FILE",
-        default_value = "/etc/synthpanel/ipc-token",
+        default_value = "/run/synthpanel/ipc-token",
         global = true
     )]
     pub token_file: PathBuf,
@@ -1251,7 +1251,7 @@ mod tests {
     #[test]
     fn cli_uses_defaults() {
         let cli = Cli::try_parse_from(["synthpanel", "settings"]).unwrap();
-        assert_eq!(cli.token_file, PathBuf::from("/etc/synthpanel/ipc-token"));
+        assert_eq!(cli.token_file, PathBuf::from("/run/synthpanel/ipc-token"));
         assert_eq!(cli.socket, PathBuf::from("/run/synthpanel/core.sock"));
         assert!(matches!(cli.command, Command::Settings));
     }

@@ -76,7 +76,7 @@ done
 
 cli() {
   SYNTHPANEL_CORE_SOCKET="$WORK/run/core.sock" \
-  SYNTHPANEL_IPC_TOKEN_FILE="$WORK/etc/ipc-token" \
+  SYNTHPANEL_IPC_TOKEN_FILE="$WORK/run/ipc-token" \
     target/release/synthpanel "$@"
 }
 

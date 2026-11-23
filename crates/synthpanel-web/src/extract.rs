@@ -10,13 +10,31 @@ pub const SESSION_COOKIE: &str = "synthpanel_session";
 pub const CSRF_COOKIE: &str = "synthpanel_csrf";
 pub const CSRF_HEADER: &str = "x-csrf-token";
 
-/// Authenticated user extracted from the session cookie.
+/// Authenticated user extracted from the session cookie or an API key.
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub user_id: String,
     pub token: String,
     pub csrf: String,
     pub ip: String,
+    /// The role of the account: `admin`, `operator` or `user`.
+    pub role: String,
+    /// The scopes of an API key; empty for a session.
+    pub scopes: Vec<String>,
+    /// Whether the request was authenticated with an API key.
+    pub api_key: bool,
+}
+
+impl AuthUser {
+    /// Whether the account may perform an operation of this policy.
+    pub fn may(&self, policy: crate::authz::Policy) -> bool {
+        if self.api_key {
+            self.scopes.iter().any(|scope| scope == policy.scope())
+                || (policy == crate::authz::Policy::Read && !self.scopes.is_empty())
+        } else {
+            policy.allows(&self.role)
+        }
+    }
 }
 
 /// Parse a `Cookie:` header into `(name, value)` pairs.
@@ -48,13 +66,25 @@ impl FromRequestParts<std::sync::Arc<AppState>> for AuthUser {
         parts: &mut Parts,
         state: &std::sync::Arc<AppState>,
     ) -> Result<Self, Self::Rejection> {
-        let ip = parts
-            .headers
-            .get("x-forwarded-for")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split(',').next())
-            .map(|value| value.trim().to_string())
-            .unwrap_or_default();
+        // The authorization middleware resolves the actor once and puts it
+        // into the extensions; the extractor reuses it.
+        if let Some(context) = parts.extensions.get::<crate::authz::AuthContext>() {
+            return Ok(AuthUser {
+                user_id: context.user_id.clone(),
+                token: context.token.clone(),
+                csrf: context.csrf.clone(),
+                ip: context.ip.clone(),
+                role: context.role.clone(),
+                scopes: context.scopes.clone(),
+                api_key: context.api_key,
+            });
+        }
+
+        let peer = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|connect| connect.0);
+        let ip = crate::authz::client_ip(&parts.headers, peer);
 
         // API keys take precedence: a bearer token is explicit and is never
         // sent automatically by a browser, so CSRF does not apply.
@@ -75,11 +105,28 @@ impl FromRequestParts<std::sync::Arc<AppState>> for AuthUser {
                     .get("user_id")
                     .and_then(serde_json::Value::as_str)
                     .ok_or_else(|| ApiError::unauthorized("invalid API key"))?;
+                let scopes = record
+                    .get("scopes")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|list| {
+                        list.iter()
+                            .filter_map(serde_json::Value::as_str)
+                            .map(str::to_string)
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 return Ok(AuthUser {
                     user_id: user_id.to_string(),
                     token: token.trim().to_string(),
                     csrf: String::new(),
                     ip,
+                    role: record
+                        .get("role")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("user")
+                        .to_string(),
+                    scopes,
+                    api_key: true,
                 });
             }
         }
@@ -114,6 +161,9 @@ impl FromRequestParts<std::sync::Arc<AppState>> for AuthUser {
             token,
             csrf: record.csrf,
             ip: record.ip,
+            role: record.role,
+            scopes: Vec::new(),
+            api_key: false,
         })
     }
 }

@@ -162,7 +162,7 @@ The full reference lives in the [documentation site](./docs-site) and in
 ```
 
 - Only the core runs as root. It listens on a Unix socket — never on TCP —
-  and requires the shared token from `/etc/synthpanel/ipc-token` on every
+  and requires the shared token from `/run/synthpanel/ipc-token` on every
   request.
 - The web process cannot touch the system at all; it can only ask the core to
   do something through its typed API.
@@ -193,7 +193,7 @@ SYNTHPANEL_WWW_DIR=/tmp/sp/www SYNTHPANEL_BACKUP_DIR=/tmp/sp/backups \
 cargo run -p synthpanel-core
 
 SYNTHPANEL_TLS_DIR=/tmp/sp/tls SYNTHPANEL_CORE_SOCKET=/tmp/sp/run/core.sock \
-SYNTHPANEL_IPC_TOKEN_FILE=/tmp/sp/etc/ipc-token SYNTHPANEL_WEB_ADDR=127.0.0.1:8443 \
+SYNTHPANEL_IPC_TOKEN_FILE=/tmp/sp/run/ipc-token SYNTHPANEL_WEB_ADDR=127.0.0.1:8443 \
 SYNTHPANEL_SECURE_COOKIES=0 cargo run -p synthpanel-web
 ```
 
@@ -213,7 +213,7 @@ the systemd units set them explicitly:
 | `SYNTHPANEL_CRON_DIR` | `/etc/cron.d` |
 | `SYNTHPANEL_TLS_DIR` | `/etc/synthpanel/tls` |
 | `SYNTHPANEL_SOCKET_PATH` | `/run/synthpanel/core.sock` |
-| `SYNTHPANEL_IPC_TOKEN_FILE` | `/etc/synthpanel/ipc-token` |
+| `SYNTHPANEL_IPC_TOKEN_FILE` | `/run/synthpanel/ipc-token` |
 | `SYNTHPANEL_WEB_ADDR` | `0.0.0.0:8443` |
 | `SYNTHPANEL_WEB_PORT` | `8443` |
 | `SYNTHPANEL_PANEL_HOSTNAME` | `localhost` |

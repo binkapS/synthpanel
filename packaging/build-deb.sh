@@ -64,6 +64,9 @@ chown -R synthpanel: /var/lib/synthpanel /var/log/synthpanel /var/backups/synthp
 # The web process writes the panel certificate into the TLS directory, so it
 # has to belong to the unprivileged web user.
 install -d -o synthpanel -g synthpanel -m 0750 /etc/synthpanel/tls
+# The IPC token lives in the run directory: it is a tmpfs and not one of the
+# scopes the file manager can reach.
+install -d -o synthpanel -g synthpanel -m 0750 /run/synthpanel
 systemctl daemon-reload || true
 systemctl enable synthpanel-core.service synthpanel-web.service 2>/dev/null || true
 if [ -n "${SYNTHPANEL_RESTART:-}" ]; then

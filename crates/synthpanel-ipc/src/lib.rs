@@ -17,6 +17,34 @@ pub const PROTOCOL_VERSION: u32 = 1;
 /// Maximum size of a single protocol line (1 MiB).
 pub const MAX_LINE: usize = 1024 * 1024;
 
+/// Who is behind a request.
+///
+/// The web process fills this in from the session (or from the API key) so
+/// that the core can attribute its own audit entries to a person instead of
+/// to "the panel".
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Actor {
+    /// The id of the user.
+    #[serde(default)]
+    pub id: String,
+    /// The display name of the user.
+    #[serde(default)]
+    pub name: String,
+    /// The address the request came from.
+    #[serde(default)]
+    pub ip: String,
+    /// The scopes of an API key; empty for a session.
+    #[serde(default)]
+    pub scopes: Vec<String>,
+}
+
+impl Actor {
+    /// Whether the actor carries the given scope.
+    pub fn has_scope(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|value| value == scope)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Envelope {
     pub v: u32,
@@ -25,6 +53,9 @@ pub struct Envelope {
     pub method: String,
     #[serde(default)]
     pub params: Value,
+    /// Who is behind the request, when the caller knows it.
+    #[serde(default)]
+    pub actor: Option<Actor>,
 }
 
 impl Envelope {
@@ -40,7 +71,14 @@ impl Envelope {
             token: token.into(),
             method: method.into(),
             params,
+            actor: None,
         }
+    }
+
+    /// Attach an actor to the envelope.
+    pub fn with_actor(mut self, actor: Actor) -> Self {
+        self.actor = Some(actor);
+        self
     }
 }
 
@@ -263,9 +301,21 @@ impl Client {
         method: &str,
         params: Value,
     ) -> Result<T, ClientError> {
+        self.call_as::<T>(method, params, None).await
+    }
+
+    /// Call a method on behalf of an actor, so that the core can attribute
+    /// its own audit entries to a person.
+    pub async fn call_as<T: DeserializeOwned>(
+        &mut self,
+        method: &str,
+        params: Value,
+        actor: Option<Actor>,
+    ) -> Result<T, ClientError> {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1);
-        let envelope = Envelope::new(id, self.token.clone(), method, params);
+        let mut envelope = Envelope::new(id, self.token.clone(), method, params);
+        envelope.actor = actor;
         self.send(envelope).await?;
         let response = self.recv().await?;
         if response.id != id {

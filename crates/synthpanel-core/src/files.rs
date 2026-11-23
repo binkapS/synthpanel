@@ -28,6 +28,40 @@ pub struct Listing {
     pub entries: Vec<Entry>,
 }
 
+/// The file names the file manager must never hand out.
+///
+/// The IPC token and the secret key authenticate every request to the
+/// privileged core, so reading them through the file API would be a
+/// complete bypass of the panel's authorization. The rule is enforced by
+/// name, so it holds no matter which scope the file lives in.
+const SENSITIVE_NAMES: &[&str] = &[
+    "ipc-token",
+    "ipc_token",
+    "secret.key",
+    "secret_key",
+    "authorized_keys",
+    "shadow",
+    ".env",
+    // The default names of the OpenSSH private keys.
+    "id_rsa",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+];
+
+/// The file extensions the file manager must never hand out.
+const SENSITIVE_EXTENSIONS: &[&str] = &["pem", "key", "p12", "pfx", "jks", "keystore"];
+
+/// Whether a file name is one the file manager refuses to touch.
+pub fn is_sensitive_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    if SENSITIVE_NAMES.contains(&lower.as_str()) {
+        return true;
+    }
+    let extension = lower.rsplit('.').next().unwrap_or_default();
+    SENSITIVE_EXTENSIONS.contains(&extension)
+}
+
 /// A sandbox the panel operates in.
 #[derive(Debug, Clone)]
 pub struct Sandbox {
@@ -77,6 +111,14 @@ impl Sandbox {
         if !resolved.starts_with(&self.root) {
             bail!("the path is outside the allowed area");
         }
+
+        // The secrets of the panel are never readable through the file
+        // manager, whatever the scope is.
+        if let Some(name) = resolved.file_name().and_then(|name| name.to_str()) {
+            if is_sensitive_name(name) {
+                bail!("the file does not exist");
+            }
+        }
         Ok(resolved)
     }
 
@@ -104,6 +146,9 @@ impl Sandbox {
             let metadata = entry.metadata()?;
             let name = entry.file_name().to_string_lossy().to_string();
             if name.starts_with('.') {
+                continue;
+            }
+            if is_sensitive_name(&name) {
                 continue;
             }
             let child = entry.path();
@@ -417,6 +462,17 @@ mod tests {
         let root = std::env::temp_dir().join(format!("sp-files-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&root).unwrap();
         (Sandbox::new(root.clone()), root)
+    }
+
+    #[test]
+    fn refuses_the_secrets_of_the_panel() {
+        assert!(is_sensitive_name("ipc-token"));
+        assert!(is_sensitive_name("secret.key"));
+        assert!(is_sensitive_name("panel-cert.pem"));
+        assert!(is_sensitive_name("id_rsa"));
+        assert!(is_sensitive_name("authorized_keys"));
+        assert!(!is_sensitive_name("index.html"));
+        assert!(!is_sensitive_name("vhost.conf"));
     }
 
     #[test]
