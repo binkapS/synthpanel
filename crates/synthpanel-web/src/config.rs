@@ -38,8 +38,17 @@ impl WebConfig {
         let port = env_str("SYNTHPANEL_WEB_PORT", "8443")
             .parse()
             .unwrap_or(8443);
-        let core_socket = env_path("SYNTHPANEL_CORE_SOCKET", "/run/synthpanel/core.sock");
-        let ipc_token_path = env_path("SYNTHPANEL_IPC_TOKEN_FILE", "/etc/synthpanel/ipc-token");
+        let run_dir = env_path("SYNTHPANEL_RUN_DIR", "/run/synthpanel");
+        let core_socket = env_path(
+            "SYNTHPANEL_CORE_SOCKET",
+            &format!("{}/core.sock", run_dir.display()),
+        );
+        // Must match the core's default (SYNTHPANEL_RUN_DIR/ipc-token). The
+        // run directory is a tmpfs and is not a file-manager scope.
+        let ipc_token_path = env_path(
+            "SYNTHPANEL_IPC_TOKEN_FILE",
+            &format!("{}/ipc-token", run_dir.display()),
+        );
         let tls_dir = env_path("SYNTHPANEL_TLS_DIR", "/etc/synthpanel/tls");
         let log_dir = env_path("SYNTHPANEL_LOG_DIR", "/var/log/synthpanel");
         let lib_dir = env_path("SYNTHPANEL_LIB_DIR", "/var/lib/synthpanel");
@@ -104,5 +113,10 @@ mod tests {
         assert!(config.secure_cookies);
         // The forwarded headers are not trusted unless the panel is told so.
         assert!(!config.trusts_proxies());
+        if std::env::var_os("SYNTHPANEL_IPC_TOKEN_FILE").is_none() {
+            // Must point at the same tmpfs token the core writes.
+            assert_eq!(config.ipc_token_path, PathBuf::from("/run/synthpanel/ipc-token"));
+            assert_eq!(config.core_socket, PathBuf::from("/run/synthpanel/core.sock"));
+        }
     }
 }

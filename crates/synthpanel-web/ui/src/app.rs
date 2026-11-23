@@ -101,7 +101,10 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                         api::storage_set("synthpanel-2fa", challenge);
                         app.set_login_needs_code(true);
                     } else {
-                        finish_login(&b, &body);
+                        // The login endpoint returns `{ requires_2fa, user }`,
+                        // while /auth/me returns the user object directly.
+                        let user = body.get("user").unwrap_or(&body);
+                        finish_login(&b, user);
                     }
                 }
                 Err(message) => {
