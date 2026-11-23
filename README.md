@@ -238,7 +238,7 @@ the systemd units set them explicitly:
 
 The quality gates that run in CI: `cargo fmt --check`, `cargo clippy
 --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
-`cargo audit`, `cargo deny check`, the frontend build, the integration tests
+`cargo audit`, `cargo deny check`, the WASM UI build, the integration tests
 and the docs build. See [`.github/workflows/ci.yml`](./.github/workflows/ci.yml).
 
 ## Repository layout

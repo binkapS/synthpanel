@@ -62,8 +62,7 @@ every IPC request**:
 - `crates/synthpanel-web/src/api/files.rs:96` — the HTTP handler forwards the
   caller-supplied scope and path without a role check.
 
-The UI offers the scope explicitly: `Files → Panel config`
-(`crates/synthpanel-web/frontend/src/routes/Files.svelte:223`).
+The UI offers the scope explicitly: `Files → Panel config` (in the Slint files page).
 
 **Why it matters**
 

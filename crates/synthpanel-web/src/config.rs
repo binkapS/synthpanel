@@ -14,7 +14,6 @@ pub struct WebConfig {
     pub lib_dir: PathBuf,
     /// The document root of the sites.
     pub www_dir: PathBuf,
-    pub static_dir: PathBuf,
     pub session_ttl_secs: u64,
     pub secure_cookies: bool,
     pub panel_hostname: String,
@@ -45,7 +44,6 @@ impl WebConfig {
         let log_dir = env_path("SYNTHPANEL_LOG_DIR", "/var/log/synthpanel");
         let lib_dir = env_path("SYNTHPANEL_LIB_DIR", "/var/lib/synthpanel");
         let www_dir = env_path("SYNTHPANEL_WWW_DIR", "/var/www");
-        let static_dir = env_path("SYNTHPANEL_STATIC_DIR", "frontend/dist");
         let session_ttl_secs = env_str("SYNTHPANEL_SESSION_TTL", "86400")
             .parse()
             .unwrap_or(86400);
@@ -64,7 +62,6 @@ impl WebConfig {
             log_dir,
             lib_dir,
             www_dir,
-            static_dir,
             session_ttl_secs,
             secure_cookies,
             panel_hostname,

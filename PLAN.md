@@ -337,8 +337,6 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 > **Why Slint + WASM:** the panel ships as a single HTTPS process. Compiling the UI to WASM keeps that property while removing Node/npm from the build pipeline and letting the UI share Rust types and tooling with the rest of the workspace. The trade-off is a larger initial payload than the old Svelte bundle; the WASM artifact is built in release mode and embedded in `synthpanel-web`.
 >
 > **Migration note:** the previous Svelte 5 SPA is retained under
-> `crates/synthpanel-web/frontend/` as a deprecated reference until the Slint UI
-> reaches full acceptance parity.
 
 ### 5.4 Repository layout
 
@@ -376,8 +374,7 @@ synthpanel/
 │   │   │   ├── ws.rs            # the dashboard, log and terminal sockets
 │   │   │   ├── tls.rs           # the certificate and the resolver
 │   │   │   └── middleware.rs    # the security headers and the CSRF guard
-│   │   ├── ui/                  # the Slint WASM UI (app.slint, pages/, widgets/, src/)
-│   │   └── frontend/            # deprecated Svelte SPA (reference only)
+│   │   └── ui/                  # the Slint WASM UI (app.slint, pages/, widgets/, src/)
 │   │       ├── public/          # the manifest, the service worker, the icons
 │   │       └── src/
 │   │           ├── lib/         # the API client, the stores, the components
