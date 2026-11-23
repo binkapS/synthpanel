@@ -1,0 +1,29 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// The panel palette. Slint's native widgets follow `Palette.color-scheme`;
+// these properties mirror the current Tailwind slate/blue palette for the
+// custom chrome.
+
+export global Theme {
+    in-out property <bool> dark: false;
+
+    out property <color> bg: dark ? #020617 : #f8fafc;
+    out property <color> surface: dark ? #0f172a : #ffffff;
+    out property <color> surface-muted: dark ? #1e293b : #f1f5f9;
+    out property <color> surface-hover: dark ? #1e293b : #f8fafc;
+    out property <color> text: dark ? #e2e8f0 : #0f172a;
+    out property <color> muted: dark ? #94a3b8 : #64748b;
+    out property <color> border: dark ? #1e293b : #e2e8f0;
+    out property <color> accent: dark ? #60a5fa : #2563eb;
+    out property <color> accent-strong: dark ? #3b82f6 : #1d4ed8;
+    out property <color> accent-soft: dark ? #172554 : #eff6ff;
+    out property <color> success: dark ? #34d399 : #059669;
+    out property <color> success-soft: dark ? #052e2b : #ecfdf5;
+    out property <color> danger: dark ? #fb7185 : #e11d48;
+    out property <color> danger-soft: dark ? #4c0519 : #fff1f2;
+    out property <color> warning: dark ? #fbbf24 : #d97706;
+    out property <color> warning-soft: dark ? #451a03 : #fffbeb;
+    out property <color> terminal-bg: #0b1220;
+    out property <color> terminal-text: #d7dce5;
+}

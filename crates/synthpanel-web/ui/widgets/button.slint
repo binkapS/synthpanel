@@ -1,0 +1,102 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "theme.slint";
+
+export component AppButton inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 34px;
+    width: label.preferred-width + 24px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: root.primary
+        ? (root.enabled ? Theme.accent-strong : Theme.border)
+        : Theme.border;
+    background: !root.enabled
+        ? Theme.surface-muted
+        : (root.danger ? Theme.danger-soft : (root.primary ? Theme.accent-strong : Theme.surface));
+    opacity: root.enabled ? 1 : 0.7;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        label := Text {
+            text: root.text;
+            font-size: 13px;
+            font-weight: 500;
+            color: !root.enabled
+                ? Theme.muted
+                : (root.primary ? #ffffff : (root.danger ? Theme.danger : Theme.text));
+        }
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    accessible-role: button;
+    accessible-label: root.text;
+
+    states [
+        hovered when ta.has-hover && root.enabled && !root.primary: {
+            background: root.danger ? Theme.danger-soft : Theme.surface-muted;
+        }
+        pressed when ta.pressed && root.enabled: {
+            opacity: 0.85;
+        }
+    ]
+}
+
+export component IconButton inherits Rectangle {
+    in property <image> icon;
+    in property <string> tooltip;
+    in property <bool> enabled: true;
+    in property <bool> danger: false;
+    callback clicked();
+
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: root.danger ? Theme.danger-soft : Theme.surface;
+    opacity: root.enabled ? 1 : 0.6;
+
+    Image {
+        source: root.icon;
+        width: 16px;
+        height: 16px;
+        colorize: root.danger ? Theme.danger : Theme.muted;
+    }
+
+    ta := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => {
+            if (root.enabled) {
+                root.clicked();
+            }
+        }
+    }
+
+    accessible-role: button;
+    accessible-label: root.tooltip;
+
+    states [
+        hovered when ta.has-hover && root.enabled: {
+            background: root.danger ? Theme.danger-soft : Theme.surface-muted;
+        }
+    ]
+}

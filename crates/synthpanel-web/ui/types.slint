@@ -1,0 +1,284 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+// Shared value types between the Slint pages and the Rust bridge.
+
+export enum Page {
+    dashboard,
+    sites,
+    site-detail,
+    databases,
+    php,
+    security,
+    backups,
+    cron,
+    logs,
+    files,
+    deployments,
+    alerts,
+    terminal,
+    users,
+    settings,
+}
+
+export struct Session {
+    name: string,
+    email: string,
+    role: string,
+    totp-enabled: bool,
+}
+
+export struct MetricSnapshot {
+    host: string,
+    cpu: float,
+    load1: float,
+    mem-used: float,
+    mem-total: float,
+    disk-used: float,
+    disk-total: float,
+    net-rx: float,
+    net-tx: float,
+}
+
+export struct Service {
+    unit: string,
+    status: string,
+}
+
+export struct AuditEntry {
+    action: string,
+    target: string,
+    actor: string,
+    ip: string,
+    when: string,
+}
+
+export struct SiteRow {
+    id: string,
+    domain: string,
+    template: string,
+    php-version: string,
+    ssl-mode: string,
+    status: string,
+    document-root: string,
+}
+
+export struct SiteDetail {
+    id: string,
+    domain: string,
+    aliases: string,
+    document-root: string,
+    template: string,
+    php-version: string,
+    pool-user: string,
+    status: string,
+    ssl-mode: string,
+    created: string,
+}
+
+export struct SslStatus {
+    domain: string,
+    ssl-mode: string,
+    expires: string,
+    expiring-soon: bool,
+}
+
+export struct UserRow {
+    id: string,
+    email: string,
+    name: string,
+    role: string,
+    status: string,
+    totp: string,
+    last-login: string,
+}
+
+export struct DatabaseRow {
+    id: string,
+    name: string,
+    engine: string,
+}
+
+export struct EngineRow {
+    engine: string,
+    reachable: bool,
+    client: bool,
+}
+
+export struct PhpLink {
+    id: string,
+    domain: string,
+}
+
+export struct PhpVersionRow {
+    version: string,
+    binary: string,
+    pool-dir: string,
+    active: bool,
+    pools: [string],
+    sites: [PhpLink],
+}
+
+export struct FirewallState {
+    available: bool,
+    status: string,
+}
+
+export struct JailRow {
+    name: string,
+    status: string,
+    banned-now: int,
+    banned-total: int,
+}
+
+export struct SshKeyRow {
+    id: string,
+    label: string,
+    fingerprint: string,
+}
+
+export struct BackupRow {
+    id: string,
+    name: string,
+    kind: string,
+    status: string,
+    size: float,
+    created: string,
+    encrypted: bool,
+    error: string,
+}
+
+export struct ScheduleRow {
+    id: string,
+    name: string,
+    cron: string,
+    enabled: bool,
+}
+
+export struct CronRunRow {
+    id: string,
+    started: string,
+    duration: int,
+    exit-code: int,
+    output: string,
+}
+
+export struct CronRow {
+    id: string,
+    expression: string,
+    command: string,
+    user: string,
+    next-run: string,
+    last-run: string,
+    last-status: string,
+    runs: [CronRunRow],
+}
+
+export struct LogSource {
+    id: string,
+    label: string,
+    requires-site: bool,
+    available: bool,
+}
+
+export struct LogLine {
+    text: string,
+    level: string,
+}
+
+export struct FileRow {
+    name: string,
+    path: string,
+    is-directory: bool,
+    size: float,
+    mode: string,
+    owner: string,
+    modified: string,
+}
+
+export struct DeployRunRow {
+    id: string,
+    commit: string,
+    status: string,
+    message: string,
+    output: string,
+    started: string,
+}
+
+export struct DeploymentRow {
+    id: string,
+    repo: string,
+    branch: string,
+    site: string,
+    subdir: string,
+    build: string,
+    enabled: bool,
+    runs: [DeployRunRow],
+}
+
+export struct ChannelRow {
+    id: string,
+    name: string,
+    kind: string,
+    created: string,
+}
+
+export struct AlertRuleRow {
+    id: string,
+    name: string,
+    event: string,
+    severity: string,
+    channel: string,
+    cooldown: int,
+}
+
+export struct AlertRow {
+    id: string,
+    event: string,
+    severity: string,
+    message: string,
+    status: string,
+    created: string,
+    error: string,
+}
+
+export struct UpdateHistoryRow {
+    from: string,
+    to: string,
+    status: string,
+    error: string,
+}
+
+export struct UpdateStatus {
+    current-version: string,
+    channel: string,
+    history: [UpdateHistoryRow],
+}
+
+export struct ApiKeyRow {
+    id: string,
+    name: string,
+    prefix: string,
+    scopes: string,
+}
+
+export struct PanelCertificate {
+    hostname: string,
+    path: string,
+    issuer: string,
+    self-signed: bool,
+    expires: string,
+    days-left: int,
+    acme-installed: bool,
+}
+
+export struct AppSettings {
+    hostname: string,
+    timezone: string,
+    locale: string,
+}
+
+export struct TerminalLine {
+    text: string,
+    kind: string,
+}

@@ -1,0 +1,143 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Palette } from "std-widgets.slint";
+import { Theme } from "widgets/theme.slint";
+import { AppShell } from "widgets/app_shell.slint";
+import { Page, Session } from "types.slint";
+import { LoginPage } from "pages/login.slint";
+import { PlaceholderPage } from "pages/placeholder.slint";
+
+export component AppWindow inherits Window {
+    title: "SynthPanel";
+    width: 1280px;
+    height: 800px;
+    background: Theme.bg;
+
+    in-out property <bool> dark: false;
+    in-out property <bool> loading: true;
+    in-out property <bool> authenticated: false;
+    in-out property <Session> session;
+    in-out property <Page> current-page: Page.dashboard;
+    in-out property <string> site-detail-id;
+
+    // Login form state
+    in-out property <string> login-email;
+    in-out property <string> login-password;
+    in-out property <string> login-code;
+    in-out property <bool> login-needs-code: false;
+    in-out property <bool> login-busy: false;
+    in-out property <string> login-error;
+
+    callback login(string, string);
+    callback verify(string);
+    callback reset-login();
+    callback logout();
+    callback navigate(Page);
+    callback toggle-theme();
+
+    init => {
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    changed dark => {
+        Theme.dark = root.dark;
+        Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
+    }
+
+    if root.loading : Rectangle {
+        background: Theme.bg;
+        VerticalLayout {
+            alignment: center;
+            spacing: 10px;
+            Text {
+                text: "Loading SynthPanel…";
+                font-size: 14px;
+                color: Theme.muted;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    if !root.loading && !root.authenticated : LoginPage {
+        email <=> root.login-email;
+        password <=> root.login-password;
+        code <=> root.login-code;
+        needs-code: root.login-needs-code;
+        busy: root.login-busy;
+        error: root.login-error;
+        login(email, password) => { root.login(email, password); }
+        verify(code) => { root.verify(code); }
+        reset() => { root.reset-login(); }
+    }
+
+    if !root.loading && root.authenticated : AppShell {
+        current-page <=> root.current-page;
+        session: root.session;
+        dark <=> root.dark;
+        navigate(page) => { root.navigate(page); }
+        toggle-theme() => { root.toggle-theme(); }
+        logout() => { root.logout(); }
+
+        if root.current-page == Page.dashboard : PlaceholderPage {
+            title: "Dashboard";
+            description: "Live server overview.";
+        }
+        if root.current-page == Page.sites : PlaceholderPage {
+            title: "Sites";
+            description: "Every domain gets its own Nginx vhost and an isolated PHP-FPM pool.";
+        }
+        if root.current-page == Page.databases : PlaceholderPage {
+            title: "Databases";
+            description: "MariaDB/MySQL, PostgreSQL and Redis, with per-database credentials.";
+        }
+        if root.current-page == Page.php : PlaceholderPage {
+            title: "PHP";
+            description: "Per-site PHP-FPM pools and supported versions.";
+        }
+        if root.current-page == Page.security : PlaceholderPage {
+            title: "Security";
+            description: "Firewall rules, fail2ban jails and managed SSH keys.";
+        }
+        if root.current-page == Page.backups : PlaceholderPage {
+            title: "Backups";
+            description: "Archive, verify and restore server state.";
+        }
+        if root.current-page == Page.cron : PlaceholderPage {
+            title: "Cron";
+            description: "Scheduled shell commands with a run log.";
+        }
+        if root.current-page == Page.logs : PlaceholderPage {
+            title: "Logs";
+            description: "Filter nginx, PHP-FPM, panel and system logs.";
+        }
+        if root.current-page == Page.files : PlaceholderPage {
+            title: "Files";
+            description: "Browse, edit and upload files inside managed directories.";
+        }
+        if root.current-page == Page.deployments : PlaceholderPage {
+            title: "Deployments";
+            description: "Pull, build and publish a Git repository.";
+        }
+        if root.current-page == Page.alerts : PlaceholderPage {
+            title: "Alerts";
+            description: "Notify by email or webhook when something needs attention.";
+        }
+        if root.current-page == Page.terminal : PlaceholderPage {
+            title: "Terminal";
+            description: "A root shell inside the privileged core.";
+        }
+        if root.current-page == Page.users : PlaceholderPage {
+            title: "Users";
+            description: "Panel accounts and their roles.";
+        }
+        if root.current-page == Page.settings : PlaceholderPage {
+            title: "Settings";
+            description: "Panel-wide configuration and certificates.";
+        }
+        if root.current-page == Page.site-detail : PlaceholderPage {
+            title: "Site detail";
+            description: "Overview, SSL and lifecycle actions for a site.";
+        }
+    }
+}

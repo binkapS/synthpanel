@@ -7,6 +7,9 @@ members = [
     "crates/synthpanel-cli",
     "crates/synthpanel-installer",
 ]
+# The Slint UI is a separate wasm32 crate. It is built by
+# `crates/synthpanel-web/ui/build-ui.sh` and embedded through `include_dir!`.
+exclude = ["crates/synthpanel-web/ui"]
 
 [workspace.package]
 version = "0.1.0"
@@ -112,6 +115,13 @@ regex = "1"
 once_cell = "1"
 futures-util = "0.3"
 bytes = "1"
+
+# UI (Slint compiled to WebAssembly)
+slint = "1.19"
+slint-build = "1.19"
+wasm-bindgen = "0.2.130"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
 
 # Internal
 synthpanel-ipc = { path = "crates/synthpanel-ipc", version = "0.1.0" }

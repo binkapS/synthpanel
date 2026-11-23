@@ -1,0 +1,43 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "theme.slint";
+
+export component EmptyState inherits Rectangle {
+    in property <string> title;
+    in property <string> description;
+    in property <image> icon;
+
+    min-height: 150px;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border;
+    background: transparent;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 8px;
+        padding: 20px;
+
+        if root.icon.width > 0px : Image {
+            source: root.icon;
+            width: 28px;
+            height: 28px;
+            colorize: Theme.muted;
+        }
+        Text {
+            text: root.title;
+            font-size: 13px;
+            font-weight: 600;
+            color: Theme.text;
+            horizontal-alignment: center;
+        }
+        if root.description != "" : Text {
+            text: root.description;
+            font-size: 12px;
+            color: Theme.muted;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}

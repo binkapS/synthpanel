@@ -1,0 +1,108 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "theme.slint";
+
+export component Card inherits Rectangle {
+    in property <string> title;
+    in property <string> subtitle;
+    in property <bool> padded: true;
+
+    border-radius: 12px;
+    background: Theme.surface;
+    border-width: 1px;
+    border-color: Theme.border;
+    clip: true;
+
+    VerticalLayout {
+        spacing: 0px;
+
+        if root.title != "" : Rectangle {
+            height: 52px;
+            background: transparent;
+            border-width: 0px;
+            HorizontalLayout {
+                padding-left: 16px;
+                padding-right: 16px;
+                spacing: 12px;
+                VerticalLayout {
+                    alignment: center;
+                    spacing: 1px;
+                    Text {
+                        text: root.title;
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: Theme.text;
+                        overflow: elide;
+                    }
+                    if root.subtitle != "" : Text {
+                        text: root.subtitle;
+                        font-size: 11px;
+                        color: Theme.muted;
+                        overflow: elide;
+                    }
+                }
+            }
+        }
+
+        Rectangle {
+            background: transparent;
+            VerticalLayout {
+                padding: root.padded ? 16px : 0px;
+                spacing: 12px;
+                @children
+            }
+        }
+    }
+}
+
+export component PageHeader inherits HorizontalLayout {
+    in property <string> title;
+    in property <string> subtitle;
+    spacing: 12px;
+    alignment: space-between;
+
+    VerticalLayout {
+        spacing: 2px;
+        Text {
+            text: root.title;
+            font-size: 24px;
+            font-weight: 600;
+            color: Theme.text;
+        }
+        if root.subtitle != "" : Text {
+            text: root.subtitle;
+            font-size: 13px;
+            color: Theme.muted;
+            wrap: word-wrap;
+        }
+    }
+}
+
+export component Notice inherits Rectangle {
+    in property <string> text;
+    in property <string> kind: "error";
+    visible: root.text != "";
+    height: text.preferred-height + 20px;
+    border-radius: 8px;
+    background: root.kind == "success"
+        ? Theme.success-soft
+        : (root.kind == "warning" ? Theme.warning-soft : Theme.danger-soft);
+    border-width: 1px;
+    border-color: root.kind == "success"
+        ? Theme.success
+        : (root.kind == "warning" ? Theme.warning : Theme.danger);
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        alignment: center;
+        text := Text {
+            text: root.text;
+            font-size: 12px;
+            color: root.kind == "success"
+                ? Theme.success
+                : (root.kind == "warning" ? Theme.warning : Theme.danger);
+            wrap: word-wrap;
+        }
+    }
+}

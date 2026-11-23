@@ -1,345 +1,368 @@
-# Migration Plan: Svelte → Slint UI
+# Migration Plan: Svelte → Slint (WebAssembly)
 
-## 1. Overview
+## 1. What changes — and what doesn't
 
-### Current State
-- **18 route `.svelte` files** (~2,900 lines total)
-- **8 shared components** (~400 lines total)
-- Svelte 5 runes (`$state`, `$derived`, `$props`, `onMount`) + writable stores
-- Hand-written router (`lib/router.ts`, ~14 lines), WebSocket client (`lib/socket.ts`), API client (`lib/api.ts`)
-- Tailwind CSS v4 utility classes throughout
-- Lucide icons via `@lucide/svelte`
-- xterm.js loaded dynamically for the terminal page
-- Manual i18n store (`lib/i18n.ts`)
+### Stays the same
+- `synthpanel-core` — no changes
+- `synthpanel-ipc` — protocol unchanged
+- `synthpanel-web/src/api/*` — REST endpoints unchanged
+- `synthpanel-web/src/ws.rs` — WebSocket handlers unchanged
+- TLS, auth, session, CSRF, ratelimit middleware — unchanged
+- Installation, packaging, systemd units — unchanged
 
-### Target State
-- Single Slint source tree (`crates/synthpanel-ui/`) built with the Rust toolchain
-- All UI logic expressed in Slint's native language (`.slint`), compiled to Rust
-- IPC via the existing `synthpanel-ipc` protocol (already Rust-native — no conversion needed)
-- Dark/light theming via Slint's built-in color roles
-- Native icon integration (Lucide rendered at compile time or via Slint's `load-font-family`)
-- Terminal: xterm.js replaced by a native PTY widget (Slint-compatible alternative)
-- i18n handled via Slint's localization system
+### Changes
+| Current | New |
+|---|---|
+| `crates/synthpanel-web/frontend/` — Svelte 5 + TypeScript + Vite | `crates/synthpanel-web/ui/` — Slint `.slint` sources |
+| `npm run build` → Vite emits JS/CSS chunks to `dist/` | `cargo build` → Slint emits `.wasm` + generated Rust glue |
+| `include_dir!("frontend/dist")` embeds static assets | Same `include_dir!`, pointing to a WASM output dir |
+| Browser runs an ES module bootstrapping the Svelte app | Browser loads a tiny `slint-loader.js` that boots the WASM module |
+| SPA router driven by `lib/router.ts` (History API) | Navigation driven by Slint property binding (`current-page` enum) |
+| `$state` / `$derived` / stores in TS | Slint `property<T>` + Rust-side models |
 
----
-
-## 2. Architecture Decision
-
-The migration should produce a **native desktop client**, not a web replacement. Rationale:
-
-| Concern | Web SPA (Svelte) | Native App (Slint) |
-|---|---|---|
-| Distribution | Served inside `synthpanel-web` binary | Bundled with `synthpanel-desktop` binary |
-| Runtime | Browser + Vite build | Direct Rust execution, zero JS |
-| WebSocket/HTTP | In-browser `fetch` + `new WebSocket` | Rust `reqwest` + custom reconnect loop |
-| IPC access | Via REST API on localhost | Via Unix socket through `synthpanel-ipc::Client` |
-| Bundle size | 57 kB gzip (terminal lazy) | ~8–15 MB native binary |
-| Offline UX | Limited | Full (same network state) |
-
-**Two-pronged outcome:**
-1. New `crates/synthpanel-desktop` crate — native Slint app
-2. Existing `crates/synthpanel-web/frontend/` preserved as a read-only reference during transition; removed after migration sign-off
+### Why this makes sense
+The panel ships as a single HTTPS process with zero external deployment targets. Moving to Slint+WASM keeps that property — the WASM blob is embedded in the binary the same way the JS bundle is today — while unifying the frontend into the Rust toolchain, removing Node/npm from the build pipeline entirely, and giving access to native Rust libraries (e.g., a real terminal emulator instead of the ~68 kB xterm.js chunk).
 
 ---
 
-## 3. Crate Layout
+## 2. Architecture
 
 ```
-crates/
-├── synthpanel-ipc/          # unchanged — already shared
-├── synthpanel-core/         # unchanged
-├── synthpanel-web/          # keep serving the SPA until deprecated
-├── synthpanel-cli/          # unchanged
-├── synthpanel-installer/    # updated to bundle desktop binary
-└── synthpanel-desktop/      # NEW
-    ├── Cargo.toml
-    ├── src/
-    │   ├── main.rs                   # entry, app lifecycle
-    │   ├── ipc.rs                    # thin wrapper around synthpanel-ipc::Client
-    │   ├── app_state.rs              # session, theme, locale state
-    │   └── widgets/                  # reusable UI pieces
-    │       ├── card.slint
-    │       ├── stat_card.slint
-    │       ├── status_badge.slint
-    │       ├── empty_state.slint
-    │       ├── sparkline.slint
-    │       ├── service_list.slint
-    │       ├── audit_feed.slint
-    │       └── app_shell.slint       # sidebar + header layout
-    ├── ui/
-    │   ├── app.slint                 # root — routes to pages
-    │   ├── login.slint               # auth screen
-    │   ├── dashboard.slint           # metrics, services, audit
-    │   ├── sites.slint               # site list
-    │   ├── site_detail.slint         # per-site detail tabs
-    │   ├── databases.slint
-    │   ├── php.slint
-    │   ├── security.slint
-    │   ├── backups.slint
-    │   ├── cron.slint
-    │   ├── logs.slint
-    │   ├── files.slint
-    │   ├── deployments.slint
-    │   ├── alerts.slint
-    │   ├── terminal.slint            # PTY-based terminal
-    │   ├── users.slint
-    │   └── settings.slint
-    └── build.rs                    # optional: asset bundling
+Browser (any modern browser)
+  │
+  │  HTTP/S (port 8443)
+  ▼
+synthpanel-web (axum, Rust)
+  ├── /api/v1/*              → existing REST handlers (unchanged)
+  ├── /ws/*                  → existing WebSocket handlers (unchanged)
+  ├── /.well-known/*         → ACME challenge (unchanged)
+  └── /*                     → fallback → serve ui/embedded/index.html
+         │
+         │  <script src="/slint-loader.js"></script>
+         │  Embedded WASM module (~1.5 MB) + tiny bootstrap (~2 kB)
+         ▼
+      slint.wasm
+         ├── app.slint         root — session gate + shell
+         ├── widgets/          shared components
+         │     card.slint
+         │     stat_card.slint
+         │     status_badge.slint
+         │     empty_state.slint
+         │     sparkline.slint
+         │     service_list.slint
+         │     audit_feed.slint
+         │     app_shell.slint
+         └── pages/            route components
+               login.slint
+               dashboard.slint
+               sites.slint
+               site_detail.slint
+               databases.slint
+               php.slint
+               security.slint
+               users.slint
+               backups.slint
+               cron.slint
+               logs.slint
+               files.slint
+               deployments.slint
+               alerts.slint
+               terminal.slint
+               settings.slint
 ```
+
+**Slint loader.js** (~2 kB): bootstraps the WASM module, connects `window.synthpanel_api` (the JS bridge populated by the Rust side) to Slint callback properties, mounts the root component. No framework runtime beyond what Slint produces.
+
+---
+
+## 3. Build Pipeline
+
+### Current
+```
+frontend/package.json
+  → npm ci
+  → vite build       (ESM chunks + CSS extracted)
+  → include_dir!(dist)   baked into synthpanel-web at cargo compile time
+```
+
+### New
+```
+ui/build.rs           (custom, invokes slintbuild + wasm-pack)
+Cargo.toml            ([dependencies] + [build-dependencies])
+  → cargo build -p synthpanel-web    (runs build.rs, emits .wasm)
+  → include_dir!(ui/dist)            baked in at compile time
+```
+
+**Two options for the WASM compilation step:**
+
+| Option | Tooling | Pros | Cons |
+|---|---|---|---|
+| **A — `wasm-pack`** | `wasm-pack build --target web` | Mature, good source maps, familiar ergonomics | Requires Nightly Rust for some features; extra CLI tool |
+| **B — `slint-build` + manual `wasm-bindgen`** | `slint-build --emit rsrc` + standalone wasm-bindgen | Explicit control, no extra tool dependency beyond toolchain | More boilerplate in `build.rs` |
+
+**Recommended: Option A.** `wasm-pack` produces a clean ES-module-compatible WASM with bindings. The output can be dropped straight into the embedding directory.
 
 ---
 
 ## 4. Phase Breakdown
 
-### Phase 0 — Foundation (Week 1)
+### Phase 0 — Scaffold & Hello World (Week 1)
 
-**Goal:** get a compilable skeleton that connects to the live API.
+**Goal:** a compilable binary serving a Slint-rendered page over HTTPS, proving the end-to-end pipeline.
 
-1. Create `crates/synthpanel-desktop/Cargo.toml`:
-   ```toml
-   [package]
-   name = "synthpanel-desktop"
-   version.workspace = true
-   edition.workspace = true
-
-   [dependencies]
-   synthpanel-ipc.workspace = true
-   tokio.workspace = true
-   reqwest = { workspace = true, features = ["json"] }
-   serde.workspace = true
-   serde_json.workspace = true
-   tracing.workspace = true
-   slint = { version = "1.9", default-features = false, features = ["rust-backend"] }
-   anyhow.workspace = true
+1. Add `slint = { version = "1.9", default-features = false }` and `slint-backend-browser` to `synthpanel-web/Cargo.toml`.
+2. Add `wasm-pack` as a dev-dependency (or install globally in CI).
+3. Create `crates/synthpanel-web/ui/` with:
+   - `ui/app.slint` — a single window with "Hello SynthPanel" text
+   - `ui/pkg/` — gitignored, produced by wasm-pack
+   - `ui/build.rs` — script that runs `wasm-pack build --out-dir pkg --target web` before the Rust crate build
+4. Replace `static_files.rs`'s `include_dir!` path to point at `ui/dist` (or the wasm-pack output).
+5. Serve a minimal `index.html`:
+   ```html
+   <!doctype html>
+   <html lang="en"><body class="h-full">
+     <div id="app" class="h-full"></div>
+     <script type="module">
+       import init from './synthpanel_wasm.js';
+       init().then(app => {
+         const instance = app.run();
+         document.getElementById('app').replaceWith(instance.window().dom_element());
+       });
+     </script>
+   </body></html>
    ```
+6. Verify: running `cargo build --release -p synthpanel-web` produces a working binary; accessing `https://localhost:8443/` renders the Slint window.
 
-2. Write `build.rs` that invokes `slint-cargo-loader` to generate Rust structs from `.slint` files.
-
-3. Create minimal `ui/login.slint` with email + password fields and a "Sign in" button.
-
-4. Wire `ipc.rs`: a `DesktopClient` struct that wraps `synthpanel_ipc::Client` and exposes typed methods (`login`, `me`, `logout`).
-
-5. `main.rs`: instantiate the Slint window, connect the login button to the IPC call, display the result.
-
-6. Add `synthpanel-desktop` to the workspace `Cargo.toml` members.
-
-**Exit criterion:** a running binary that authenticates against a live panel instance.
+**Exit criterion:** `cargo build --release -p synthpanel-web` succeeds; the binary serves a Slint UI over HTTPS; no npm/node involved anywhere.
 
 ---
 
-### Phase 1 — Core Shell & Navigation (Week 1–2)
+### Phase 1 — Shell, Session Gate & Theming (Week 1–2)
 
-**Goal:** sidebar layout, dark/light toggle, and working navigation between a couple of pages.
+**Goal:** the skeleton layout the user sees after authentication, matching the current AppShell structure.
 
-1. `app_shell.slint` — sidebar with 15 nav items matching current links, active-state highlighting, top bar with user avatar/name/role, theme toggle, logout button.
+1. Port `AppShell.svelte` → `widgets/app_shell.slint`:
+   - Sidebar with 15 nav items using Slint `ListView` or a `Row` of `Button`s
+   - Active-state highlighting bound to a `current-page` property
+   - Top bar: logo, theme toggle (light/dark), user name+role badge, logout button
+   - Accessible skip-link (`tab-index: -1`)
+2. Port the icon set — 15 Lucide icons used in the nav. Extract the SVGs from `@lucide/svelte` package and inline them as Slint image resources (Slint supports SVG natively).
+3. Implement `app.slint` root:
+   - Enum `Page` with all 15 routes
+   - Property `session: User?` (null = not logged in)
+   - Conditional: show `<LoginPage />` when session is null, else `<AppShell currentPage={...}>`
+4. Wire authentication:
+   - Expose a Slint callback `on-login(email, password, code) -> Result<User, Error>`
+   - In Rust, implement this callback by calling `/api/v1/auth/login` via `reqwest` (cookie jar persists the session)
+   - Store cookies in a `reqwest::CookieStore` kept in the app state
+5. Theme persistence: write to a config file (`~/.config/synthpanel/theme`) instead of `localStorage`; read it during app init and set Slint's `default-color-scheme`.
+6. i18n scaffold: create `locales/en.slint` with all the same message keys from `i18n.ts`. Use Slint's built-in localization via `import "en"` at the top of each `.slint` file.
 
-2. `app.slint` — the root file that holds the shell and swaps the content area based on a `current_page` enum property.
-
-3. Port the router logic from `lib/router.ts` into a Slint enumeration:
-   ```slint
-   enumeration Page { Dashboard, Sites, Databases, PHP, Security, Backups, Cron, Logs, Files, Deployments, Alerts, Terminal, Users, Settings }
-   ```
-
-4. Implement the session-aware gate (Login → AppShell pattern) in `app.slint`.
-
-5. Port `stores.ts` equivalents into `app_state.rs`:
-   - `session: Option<User>`
-   - `theme: Theme` (light/dark) persisted to config file instead of localStorage
-   - `locale: Locale` persisted similarly
-
-6. Port `format.ts` utilities — simple free functions in Rust, called from `.slint` via `callback`s or a shared module.
-
-**Exit criterion:** clicking nav items switches pages; theme toggle works persistently.
+**Exit criterion:** Login form authenticates against the live API, cookie session persists across page reloads; clicking nav items switches the content area; dark/light toggle works and survives restart.
 
 ---
 
 ### Phase 2 — Dashboard (Week 2)
 
-**Goal:** port the most data-rich and interactive page first (highest confidence anchor).
+**Goal:** port the most data-rich page to validate the async/WASM communication pattern.
 
-1. `dashboard.slint` layout:
-   - Four stat cards (CPU, memory, disk, network)
-   - Two sparkline charts (CPU + memory, last 24h)
-   - Service health table
-   - Recent audit feed
-   - Quick-action buttons
+1. Port components:
+   - `widgets/card.slint` — bordered container with optional title/subtitle
+   - `widgets/stat_card.slint` — icon + value + hint (matches current StatCard)
+   - `widgets/sparkline.slint` — uses Slint's canvas to draw an SVG-like polyline from a `property <array<float>> values`
+   - `widgets/service_list.slint` — iterates services with status badges
+   - `widgets/audit_feed.slint` — table of recent audit entries
+2. Implement `pages/dashboard.slint`:
+   - 4 stat cards (CPU, memory, disk, network)
+   - CPU + memory sparklines (last 24 h buffer)
+   - Service list + audit feed side-by-side
+   - Quick-action buttons navigating to sites/backups/terminal
+3. Handle real-time metrics:
+   - On mount: fetch snapshot + range from `/api/v1/metrics/snapshot` and `/api/v1/metrics/range?range=24h`
+   - Maintain a sliding window (`Vec<(u64, f32)>`) in a Rust struct, exposed to Slint via a `#[model]` or a refreshed `property <array<float>>`
+   - Open a persistent WebSocket to `/ws/dashboard` via the same `synthpanel-web/src/ws.rs` handler (no changes needed there)
+   - On each WS message, update the metrics buffer → notify Slint property → sparkline redraws
+   - Fallback to polling every 5 s when the socket is closed (port the existing `connectSocket` logic into Rust)
 
-2. Port components:
-   - `StatCard.slint` — accepts label, value, hint, icon slot
-   - `Sparkline.slint` — takes a slice of f32 values, renders an SVG-like path via Slint's canvas
-   - `ServiceList.slint` — iterates services, shows status badge
-   - `AuditFeed.slint` — table of recent audit entries
-   - `Card.slint` — generic bordered container with title/subtitle
-
-3. Handle real-time updates:
-   - Poll `/api/v1/metrics/snapshot` and `/api/v1/metrics/range?range=24h` every 5 seconds via a Slint timer callback
-   - Maintain a sliding buffer of points in Rust (`Vec<Snapshot>`)
-   - Pass the buffer to the Sparkline component
-
-4. Port `connectSocket` equivalent: a dedicated async task in `ipc.rs` that maintains a WebSocket connection and pushes snapshots into the app state via a Slint `callback`.
-
-**Exit criterion:** the dashboard loads, auto-refreshes, and matches the current SPA visually.
+**Exit criterion:** Dashboard renders identically to the current SPA, auto-refreshes via WebSocket, shows live CPU/memory/network stats.
 
 ---
 
-### Phase 3 — Forms & Data Pages (Week 3–4)
+### Phase 3 — CRUD Pages (Week 3–4)
 
-**Goal:** port the CRUD-heavy pages with form validation and tables.
+**Goal:** port the data-heavy pages with forms, tables, and mutations.
 
-Port in priority order (by interaction complexity):
+Port in order of complexity (simplest first, so the developer establishes a reusable pattern):
 
-| Priority | Page | Key Challenges |
+| Priority | Page | Key Patterns |
 |---|---|---|
-| 1 | Sites (list + detail) | Table with sorting/filtering, tabbed detail view |
-| 2 | Settings | Multiple sections, toggle switches, text inputs |
-| 3 | Users | Table with create/edit modal |
-| 4 | Security | Firewall rules table, fail2ban jail list, SSH key list |
-| 5 | Databases | Create database/user forms, privilege selectors |
-| 6 | Backups | Schedule editor, backup list with verify/restore actions |
-| 7 | Cron | Job list, schedule expression editor |
-| 8 | Deployments | Git repo URL input, run history table |
-| 9 | Alerts | Channel/rule forms, test button |
-| 10 | PHP | Version selector, pool metrics |
+| 1 | Sites list + Site detail | Table view, tabbed sub-view |
+| 2 | Settings | Multiple sections, toggle switches |
+| 3 | Users | List + create/edit modal |
+| 4 | Security | Firewall rules table, fail2ban, SSH keys |
+| 5 | Databases | Create DB/user, privilege selector |
+| 6 | Backups | Schedule editor, restore actions |
+| 7 | Cron | Job list, schedule expression |
+| 8 | Deployments | Git repo input, run history |
+| 9 | Alerts | Channel/rule CRUD |
+| 10 | PHP | Version selector |
 
-**Shared patterns to implement early:**
-- `FormSheet.slint` — a reusable modal/drawer with title, fields, save/cancel buttons
+**Reusable patterns established early:**
+- `FormSheet.slint` — reusable modal/drawer with title, field slots, save/cancel
 - `ConfirmDialog.slint` — destructive action confirmation
-- `StatusBadge.slint` — green/yellow/red dot with label
+- `StatusBadge.slint` — colored dot + label (green/yellow/red)
+- `DataTable.slint` — generic scrollable table with column definitions as a Slint struct
 
-Each page follows the same shape:
-```
-fetch data on load → display in table/cards
-form submit → POST/PATCH via IPC → invalidate cache → refresh display
-error → show inline toast/banner
+Each page follows the template:
+```slint
+// In the page definition
+callback on-save(params) -> Result<Void, Error>;
+callback on-delete(id) -> Result<Void, Error>;
+
+// Called from Rust via #[component] callbacks
+component LoginPage { ... }
+component DashboardPage { ... }
+// etc.
 ```
 
-**Exit criterion:** all 14 data pages render correctly and perform mutations against the live API.
+Rust side provides:
+```rust
+impl MyPageCallbacks for AppState {
+    fn on_save(&self, params: serde_json::Value) -> Result<(), ApiError> {
+        // call core via ipc
+    }
+}
+```
+
+**Exit criterion:** All 14 data pages render and perform mutations against the live API.
 
 ---
 
 ### Phase 4 — Terminal (Week 4)
 
-**Goal:** replace xterm.js with a native PTY-backed terminal widget.
+**Goal:** replace xterm.js (~68 kB gzip) with a native terminal widget.
 
-Options evaluated:
-- **Option A: `tui-rs`/`ratatui` inside Slint** — heavy coupling, not recommended
-- **Option B: embed `alacritty` subprocess** — too heavy
-- **Option C: use Slint's `VideoOutput` + raw canvas — manual cell rendering**
-- **Option D: spawn `synthpanel-core` pseudo-terminal and forward bytes via WebSocket, render in a Slint canvas** ← chosen approach
+The SPA terminal opens a WebSocket to `/ws/terminal/:id` and pipes bytes back and forth. The WebSocket protocol (defined in `ws.rs:terminal_ws`) stays identical — no server changes needed.
 
-Implementation:
-1. Open a terminal session via the existing IPC (`terminal.open`)
-2. Connect to the same WebSocket endpoint (`/ws/terminal/:id`) used by the SPA
-3. Render received ANSI output on a Slint `Canvas` element, maintaining a virtual terminal buffer (scrollback)
-4. Forward keystrokes back through the WebSocket as JSON frames
-5. Handle resize events from Slint's window resize callback
-6. Apply dark theme colors matching the SPA's terminal background (`#0b1220`)
+Implementation approaches, ranked by effort:
 
-This avoids pulling in xterm.js dependencies while reusing the exact same WebSocket protocol.
+| Approach | Effort | Notes |
+|---|---|---|
+| **A: Slint Canvas + ANSI renderer** | Medium | Implement a virtual terminal buffer in Rust, render to Slint's Canvas. Reuses the exact same WS frames. |
+| **B: `tui-rs` rendered to bitmap** | High | Full TUI stack; heavier, harder to integrate with Slint's event loop. |
+| **C: Reuse xterm.js via wasm-bindgen** | Low | Keep xterm as a separate WASM bundle; complex coupling. |
 
-**Exit criterion:** a functional terminal emulator with scrollback, paste, and resize support.
+**Chosen: Approach A.** Slint's Canvas element lets us draw individual cells as rectangles with text. A lightweight VT100-compatible buffer (scrollback, cursor, attributes) maintains the terminal state in Rust and draws on each frame. This replaces xterm.js entirely while preserving the same WebSocket protocol.
 
----
+Features to implement:
+- VT100 escape sequence parsing (basic: color, bold, cursor movement, scroll)
+- Scrollback buffer (fixed size, e.g. 1000 lines)
+- Keyboard input forwarded as-is to the WebSocket
+- Resize events forwarded as `{type: "resize", rows, cols}` frames
+- Dark theme background matching current `#0b1220`
 
-### Phase 5 — Polish & Integration (Week 5)
-
-1. **i18n**: migrate English dictionary from `i18n.ts` into Slint's localization files (`locales/en.slint`). Add the same message keys with `%s`/`%{} ` placeholders.
-
-2. **Icons**: port the 15 Lucide icons used in the nav (LayoutDashboard, Globe, Database, Server, ShieldCheck, Archive, Clock, ScrollText, FolderTree, GitBranch, BellRing, TerminalSquare, Users, Settings, Activity). Options:
-   - Use Slint's built-in `icon` property with SVG assets extracted from the Lucide package
-   - Or use `@lucide/slينت` if an official package exists (check)
-   - Fallback: hand-pick the ~15 SVGs and inline them
-
-3. **Accessibility**: ensure all interactive elements have `focusable: true`, labels map to `accessible-name`, skip-link is present.
-
-4. **Dark mode parity**: verify all color tokens from `app.css` have Slint equivalents. Slint's `default-color-scheme` and color role mapping handles most cases automatically.
-
-5. **E2E verification**: compare behavior side-by-side with the Svelte SPA against a live panel instance.
-
-**Exit criterion:** visual parity with the SPA across all pages in both light and dark modes.
+**Exit criterion:** Functional terminal with scrollback, paste, resize, and correct color rendering.
 
 ---
 
-### Phase 6 — Packaging & Ship (Week 6)
+### Phase 5 — Polish & Parity (Week 5)
 
-1. Add `synthpanel-desktop` to the workspace build:
-   ```toml
-   # crates/synthpanel-desktop/Cargo.toml — release profile matches core
-   [profile.release]
-   opt-level = 2
-   lto = "thin"
-   codegen-units = 16
-   strip = true
-   panic = "abort"
-   ```
+1. **Styling audit**: walk through `app.css` and verify each Tailwind utility used has a Slint equivalent. Slint handles dark-mode colors via `dark:`-style overrides or dual-theme definitions — audit for any missed transitions.
+2. **Accessibility**: ensure all interactive elements declare `accessible-name`, tab navigation order is correct, focus indicators are visible.
+3. **Performance**: target the same <150 kB payload budget. Profile the WASM module size; strip debug symbols in release builds. The current 57 kB gzip benchmark is a floor to beat.
+4. **Service Worker removal**: the current PWA support (`sw.js`, manifest, meta tags) only benefits the Svelte app. Decide whether to drop PWA support or add a minimal SW that caches the WASM blob.
+5. **E2E validation**: compare behavior against the Svelte SPA under the same test scenarios (login, site creation, backup, log tail, terminal session).
 
-2. Update `packaging/build-deb.sh` to also build and bundle the desktop binary.
+---
 
-3. Update `packaging/install.sh` to offer a desktop package install option.
+### Phase 6 — Deprecate & Ship (Week 6)
 
-4. Deprecation flag: mark the web frontend as "legacy" in README and docs; point users to the desktop app.
-
-5. Remove `crates/synthpanel-web/frontend/` after migration acceptance testing passes (or keep as fallback).
+1. Update `Cargo.toml` workspace members to include the new WASM build step.
+2. Update `.github/workflows/ci.yml`:
+   - Remove the `frontend` job (Node/npm install + Vite build)
+   - Add a WASM build step to the main quality job (ensure `wasm-pack` is available in the Rust toolchain image)
+3. Update `packaging/build-deb.sh`: no change needed — the WASM output is still embedded in `synthpanel-web` via `include_dir!`.
+4. Update `PLAN.md`: change the frontend technology row from "Svelte 5 + TypeScript" to "Slint (compiled to WASM)".
+5. Mark `crates/synthpanel-web/frontend/` as deprecated in a comment block at the top of each retained file, and remove it once acceptance testing passes.
 
 ---
 
 ## 5. Component Mapping Reference
 
-| Svelte Component | Slint Equivalent | Notes |
+| Svelte | Slint | File |
 |---|---|---|
-| `App.svelte` | `app.slint` | Root — session check + shell wrapper |
-| `AppShell.svelte` | `widgets/app_shell.slint` | Sidebar + header + `<output>` |
-| `Card.svelte` | `widgets/card.slint` | Generic bordered container |
+| `App.svelte` | `app.slint` | Root — session gate + shell wrapper |
+| `AppShell.svelte` | `widgets/app_shell.slint` | Sidebar + header + content area |
+| `Card.svelte` | `widgets/card.slint` | Bordered container |
 | `StatCard.svelte` | `widgets/stat_card.slint` | Icon + value + hint |
 | `StatusBadge.svelte` | `widgets/status_badge.slint` | Dot + label |
 | `EmptyState.svelte` | `widgets/empty_state.slint` | Title + description + CTA |
-| `Sparkline.svelte` | `widgets/sparkline.slint` | Canvas-based line chart |
-| `ServiceList.svelte` | `widgets/service_list.slint` | Table of unit statuses |
-| `AuditFeed.svelte` | `widgets/audit_feed.slint` | Time-line of audit entries |
-| `routes/Dashboard.svelte` | `ui/dashboard.slint` | Aggregates all dashboard widgets |
-| `routes/Login.svelte` | `ui/login.slint` | Email/password + 2FA |
-| `routes/Sites.svelte` | `ui/sites.slint` | Site list table |
-| `routes/SiteDetail.svelte` | `ui/site_detail.slint` | Tabbed detail view |
-| `routes/SiteDetailRoute.svelte` | *(merged into site_detail)* | Router redirect becomes direct navigation |
-| `routes/Databases.svelte` | `ui/databases.slint` | DB list + create form |
-| `routes/Php.svelte` | `ui/php.slint` | PHP version manager |
-| `routes/Security.svelte` | `ui/security.slint` | Firewall/fail2ban/SSH keys |
-| `routes/Users.svelte` | `ui/users.slint` | User CRUD |
-| `routes/Backups.svelte` | `ui/backups.slint` | Backup list + schedules |
-| `routes/Cron.svelte` | `ui/cron.slint` | Cron job editor |
-| `routes/Logs.svelte` | `ui/logs.slint` | Log viewer with filters |
-| `routes/Files.svelte` | `ui/files.slint` | File manager |
-| `routes/Deployments.svelte` | `ui/deployments.slint` | Deployment list |
-| `routes/Alerts.svelte` | `ui/alerts.slint` | Alert channels/rules |
-| `routes/Terminal.svelte` | `ui/terminal.slint` | PTY terminal widget |
-| `routes/Settings.svelte` | `ui/settings.slint` | Panel settings |
+| `Sparkline.svelte` | `widgets/sparkline.slint` | Canvas line chart |
+| `ServiceList.svelte` | `widgets/service_list.slint` | Service status table |
+| `AuditFeed.svelte` | `widgets/audit_feed.slint` | Audit timeline |
+| `routes/Dashboard.svelte` | `pages/dashboard.slint` | Aggregates dashboard widgets |
+| `routes/Login.svelte` | `pages/login.slint` | Email/password + 2FA |
+| `routes/Sites.svelte` | `pages/sites.slint` | Site list table |
+| `routes/SiteDetail.svelte` | `pages/site_detail.slint` | Tabbed detail view |
+| `routes/SiteDetailRoute.svelte` | *(merged)* | Router redirect → direct Nav action |
+| `routes/Databases.svelte` | `pages/databases.slint` | DB list + create form |
+| `routes/Php.svelte` | `pages/php.slint` | Version manager |
+| `routes/Security.svelte` | `pages/security.slint` | Firewall/fail2ban/SSH keys |
+| `routes/Users.svelte` | `pages/users.slint` | User CRUD |
+| `routes/Backups.svelte` | `pages/backups.slint` | Backup list + schedules |
+| `routes/Cron.svelte` | `pages/cron.slint` | Job editor |
+| `routes/Logs.svelte` | `pages/logs.slint` | Log viewer + filters |
+| `routes/Files.svelte` | `pages/files.slint` | File manager |
+| `routes/Deployments.svelte` | `pages/deployments.slint` | Deployment list |
+| `routes/Alerts.svelte` | `pages/alerts.slint` | Alert channels/rules |
+| `routes/Terminal.svelte` | `pages/terminal.slint` | VT terminal widget |
+| `routes/Settings.svelte` | `pages/settings.slint` | Panel settings |
 
 ---
 
 ## 6. Key Technical Decisions
 
 ### 6.1 State Management
-Svelte runes (`$state`) are replaced by Slint's reactive properties (`property <T>`) plus Rust-side model objects. Complex lists are held in Rust structs implementing `Model` trait for Slint table views.
+Svelte runes (`$state`, `$derived`) map to:
+- `property<T>` inside `.slint` components for per-component local state
+- Rust-side model objects (e.g. `DashboardMetrics`) holding live data, exposed to Slint via `#[model]` or by updating a bound property from Rust callbacks
+- Session state lives in a Rust struct (`AppState`) and is injected into the Slint app via the root component's constructor
 
-### 6.2 Networking
-Instead of `fetch()` + `WebSocket`, the desktop app uses:
-- `reqwest` for REST calls (with session cookie jar)
-- `tokio_tungstenite` or `async-tungstenite` for WebSocket connections
-- A dedicated async task per long-lived connection (dashboard stream, log tail, terminal)
+### 6.2 Networking Bridge
+Instead of in-browser `fetch()` and `new WebSocket()`:
+- REST calls: `reqwest::Client` with a `CookieJar` managed by the Rust app state
+- Callbacks exposed to Slint as `callback` properties that invoke Rust functions
+- WebSocket connections (dashboard stream, log tail, terminal) managed by dedicated Tokio tasks in Rust, pushing updates into Slint properties via the generated bindings
+
+The existing `ws.rs` handlers need **zero changes** — they speak the same wire protocol.
 
 ### 6.3 Routing
-Slint does not have a concept of URLs. Navigation is driven entirely by an `enumeration Page` property on the root component. Deep-linking via command-line argument is supported; browser-style history is not applicable.
+Slint has no URL concept. Navigation is driven by a single `current_page` enum property on the root component. Deep-linking on initial load is supported via a command-line argument or a query string parsed by a tiny JS shim. History-backed back-button is not implemented — acceptable for a control panel where the sidebar is the primary navigation.
 
 ### 6.4 Styling
-Tailwind utility classes map to Slint's layout and style primitives:
-- `flex`, `grid` → Slint layout containers (`Row`, `Column`, `Grid`)
-- `p-*`, `m-*`, `gap-*` → `padding`, `spacing`, `margin` properties
-- `rounded-*`, `border-*`, `shadow-sm` → explicit style declarations
-- `bg-*`, `text-*` → color properties
-- `dark:` variants → conditional style overrides or dual-theme definitions
+Tailwind utilities map to Slint style declarations:
 
-### 6.5 The Terminal
-The SPA's xterm.js dependency (~68 kB gzip) is the heaviest single asset. In Slint, terminal emulation must be implemented manually. The chosen approach—forwarding raw ANSI bytes through the existing WebSocket and rendering them on a Slint Canvas—is the lowest-effort path that preserves feature parity without introducing a new runtime dependency.
+| Tailwind | Slint equivalent |
+|---|---|
+| `flex` / `grid` | `Row { spacing: ... }` / `Grid { rows: N; columns: M; }` |
+| `p-4`, `m-2`, `gap-3` | `padding: 1rem; spacing: 0.75rem;` |
+| `rounded-lg` | `border-radius: 0.5rem;` |
+| `bg-white`, `text-slate-700` | `background: white; color: #334155;` |
+| `dark:bg-slate-900` | `dark-background: #0f172a;` (Slint's built-in dark mode) |
+| `hover:bg-slate-50` | `MouseArea { hovered: true → background: ... }` |
+
+The `@custom-variant dark (&:where(.dark, .dark *))` Tailwind directive maps directly to Slint's `dark:` property namespace — no custom plugin needed.
+
+### 6.5 Icons
+Extract the 15 Lucide SVGs used in the nav:
+```bash
+# From node_modules/@lucide/svelte/dist/icons/*.svg
+for icon in LayoutDashboard Globe Database Server ShieldCheck Archive Clock \
+            ScrollText FolderTree GitBranch BellRing TerminalSquare Users Settings Activity; do
+  cp node_modules/@lucide/svelte/dist/icons/${icon}.svg ui/assets/$icon.svg
+done
+```
+Reference in `.slint` files as `image: url("icons/LayoutDashboard.svg");` — Slint supports inline SVG natively.
 
 ---
 
@@ -347,12 +370,12 @@ The SPA's xterm.js dependency (~68 kB gzip) is the heaviest single asset. In Sli
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Slint Canvas performance with high-frequency terminal output | Medium | High | Profile early; consider buffering and throttling redraws |
-| Lack of `@lucide/sl int` icon package | Low | Low | Extract the 15 needed SVGs manually; maintain as asset files |
-| Slint `ListModel` doesn't match Svelte array reactivity | Medium | Medium | Wrap models in a Rust `ObservableVector<T>` adapter |
-| Desktop app bypasses CSRF protection assumed by the SPA | Low | Medium | Cookie-based auth still applies; API server rejects missing/stale cookies |
-| WebSockets from a non-browser origin trigger CORS issues | Medium | High | The panel WebSocket server must allow the desktop app's origin (or null origin); configure CORS in `synthpanel-web/src/ws.rs` |
-| Binary size bloat from Slint runtime | Low | Medium | Slint's Rust backend is ~2 MB; well within acceptable range |
+| WASM module >150 kB (bundle budget) | Medium | Medium | Profile early; Slint's WASM output is typically ~400–800 kB uncompressed — well above the current 57 kB gzip. May need to negotiate a higher budget given the trade-off (single Rust crate vs. separate Node toolchain). |
+| Slint Canvas performance for terminal | Medium | High | Benchmark the VT renderer before Phase 4; if too slow, fall back to a lightweight external dependency |
+| Cookie-based auth in WASM context | Low | Medium | `reqwest` cookie jar is Rust-side; the browser never touches session cookies directly — this is actually simpler than the Svelte version |
+| Slint version lock-in | Low | Low | Pin to a specific Slint minor version; track upstream releases quarterly |
+| Lost PWA/offline support | Medium | Low | Service worker was minor; document the loss and reassess post-migration |
+| Debugging WASM in production panels | Low | High | Ensure source maps are included in development builds; add a `--debug-ui` flag for verbose WASM logging |
 
 ---
 
@@ -360,11 +383,12 @@ The SPA's xterm.js dependency (~68 kB gzip) is the heaviest single asset. In Sli
 
 The migration is complete when:
 
-1. All 14 functional pages in the Slint app match the SPA in layout and behavior
-2. Every API endpoint used by the SPA is accessible from the desktop app
-3. Real-time updates (dashboard metrics, log tail, terminal) work identically
-4. Dark and light themes are visually consistent
-5. The desktop binary builds via `cargo build --release -p synthpanel-desktop`
-6. The `.deb` package includes the desktop binary and the workspace CI validates it
-7. E2E tests exercise the desktop app against a live panel instance
-8. The Svelte frontend is documented as deprecated in `README.md` and `PLAN.md`
+1. `cargo build --release -p synthpanel-web` compiles without any Node/npm dependencies
+2. All 14 functional pages render correctly with visual parity to the Svelte SPA
+3. Every API endpoint exercised by the SPA is accessible from the Slint UI
+4. Real-time features work: dashboard auto-refresh via WebSocket, log tail, terminal session
+5. Dark and light themes are visually consistent with the current palette
+6. The `.deb` packages contain the Slint-built binary with no leftover frontend artifacts
+7. E2E tests pass against the Slint UI (or a Playwright instance loading the WASM page)
+8. `PLAN.md` §5.3 and §9.3 are updated to reflect the new frontend technology
+9. `crates/synthpanel-web/frontend/` is removed (or marked deprecated and removed after a grace period)

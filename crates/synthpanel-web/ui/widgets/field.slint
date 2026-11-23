@@ -1,0 +1,100 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
+import { Theme } from "theme.slint";
+
+export component TextField inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> text;
+    in property <string> placeholder;
+    in property <bool> password: false;
+    in property <bool> enabled: true;
+    in property <string> hint;
+    callback accepted();
+
+    spacing: 4px;
+
+    if root.label != "" : Text {
+        text: root.label;
+        font-size: 12px;
+        font-weight: 500;
+        color: Theme.muted;
+    }
+
+    LineEdit {
+        text <=> root.text;
+        placeholder-text: root.placeholder;
+        input-type: root.password ? InputType.password : InputType.text;
+        enabled: root.enabled;
+        font-size: 13px;
+        min-height: 32px;
+        accepted => root.accepted();
+    }
+
+    if root.hint != "" : Text {
+        text: root.hint;
+        font-size: 11px;
+        color: Theme.muted;
+        wrap: word-wrap;
+    }
+}
+
+export component TextArea inherits VerticalLayout {
+    in property <string> label;
+    in-out property <string> text;
+    in property <int> lines: 8;
+    in property <bool> monospace: true;
+
+    spacing: 4px;
+
+    if root.label != "" : Text {
+        text: root.label;
+        font-size: 12px;
+        font-weight: 500;
+        color: Theme.muted;
+    }
+
+    TextEdit {
+        text <=> root.text;
+        font-size: 12px;
+        font-family: root.monospace ? "monospace" : "sans-serif";
+        min-height: root.lines * 16px + 16px;
+        wrap: no-wrap;
+    }
+}
+
+export component SelectField inherits VerticalLayout {
+    in property <string> label;
+    in property <[string]> options;
+    in-out property <int> index: 0;
+    in property <bool> enabled: true;
+    callback selected(string);
+
+    spacing: 4px;
+
+    if root.label != "" : Text {
+        text: root.label;
+        font-size: 12px;
+        font-weight: 500;
+        color: Theme.muted;
+    }
+
+    ComboBox {
+        model: root.options;
+        current-index <=> root.index;
+        enabled: root.enabled;
+        selected(value) => { root.selected(value); }
+    }
+}
+
+export component Toggle inherits HorizontalLayout {
+    in property <string> label;
+    in-out property <bool> checked;
+    spacing: 8px;
+
+    CheckBox {
+        text: root.label;
+        checked <=> root.checked;
+    }
+}

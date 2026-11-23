@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>SynthPanel</title>
+    <style>
+      :root { color-scheme: light dark; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0f172a; }
+      #app { position: fixed; inset: 0; }
+      #app canvas { width: 100% !important; height: 100% !important; display: block; }
+      #boot-error {
+        position: fixed; inset: 0; display: none; place-items: center;
+        padding: 2rem; font: 14px/1.5 ui-sans-serif, system-ui, sans-serif;
+        background: #0f172a; color: #f8fafc; text-align: center; white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boot-error"></div>
+    <script type="module" src="./slint-loader.js"></script>
+  </body>
+</html>

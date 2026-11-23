@@ -1,0 +1,37 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "theme.slint";
+
+export component StatusBadge inherits Rectangle {
+    in property <string> status: "unknown";
+
+    property <bool> good: root.status == "active" || root.status == "running"
+        || root.status == "ok" || root.status == "enabled" || root.status == "delivered"
+        || root.status == "succeeded" || root.status == "verified";
+    property <bool> bad: root.status == "failed" || root.status == "error";
+
+    width: label.preferred-width + 26px;
+    height: 20px;
+    border-radius: 999px;
+    background: root.good ? Theme.success-soft : (root.bad ? Theme.danger-soft : Theme.surface-muted);
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 5px;
+        alignment: center;
+        Rectangle {
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: root.good ? Theme.success : (root.bad ? Theme.danger : Theme.warning);
+        }
+        label := Text {
+            text: root.status;
+            font-size: 11px;
+            font-weight: 500;
+            color: root.good ? Theme.success : (root.bad ? Theme.danger : Theme.muted);
+        }
+    }
+}

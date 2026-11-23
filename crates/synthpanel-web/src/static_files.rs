@@ -1,10 +1,10 @@
-//! Static asset serving for the embedded Svelte SPA.
+//! Static asset serving for the embedded Slint WASM UI.
 
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use include_dir::{Dir, include_dir};
 
-static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/frontend/dist");
+static ASSETS: Dir = include_dir!("$CARGO_MANIFEST_DIR/ui/dist");
 
 /// Serve an embedded asset, falling back to `index.html` for SPA routes.
 pub async fn serve(path: &str) -> Response {
@@ -34,7 +34,7 @@ pub async fn serve(path: &str) -> Response {
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("no-cache, must-revalidate"),
             );
-        } else if requested.starts_with("assets/") {
+        } else if requested.starts_with("assets/") || requested.starts_with("pkg/") {
             headers.insert(
                 header::CACHE_CONTROL,
                 HeaderValue::from_static("public, max-age=31536000, immutable"),
@@ -75,6 +75,7 @@ pub async fn serve(path: &str) -> Response {
 fn content_type(path: &str) -> &'static str {
     match path.rsplit('.').next().unwrap_or_default() {
         "webmanifest" => "application/manifest+json",
+        "wasm" => "application/wasm",
         "js" => "text/javascript; charset=utf-8",
         "css" => "text/css; charset=utf-8",
         "html" => "text/html; charset=utf-8",
@@ -110,5 +111,6 @@ mod tests {
             content_type("assets/app.js"),
             "text/javascript; charset=utf-8"
         );
+        assert_eq!(content_type("pkg/synthpanel_ui_bg.wasm"), "application/wasm");
     }
 }
