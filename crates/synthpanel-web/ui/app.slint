@@ -8,6 +8,7 @@ import { Page, Session } from "types.slint";
 import {
     MetricSnapshot,
     Service,
+    VtLine,
     AuditEntry,
     SiteRow,
     SiteDetail,
@@ -32,7 +33,7 @@ import {
     ApiKeyRow,
     PanelCertificate,
     UpdateStatus,
-    TerminalLine,
+
 } from "types.slint";
 import { LoginPage } from "pages/login.slint";
 import { DashboardPage } from "pages/dashboard.slint";
@@ -140,7 +141,7 @@ export component AppWindow inherits Window {
     in-out property <string> terminal-id;
     in-out property <string> terminal-shell;
     in-out property <string> terminal-status;
-    in-out property <[TerminalLine]> terminal-lines;
+    in-out property <[VtLine]> terminal-lines;
 
     // ---- users -------------------------------------------------------------------------------------------
     in-out property <[UserRow]> users;
@@ -216,6 +217,7 @@ export component AppWindow inherits Window {
     callback delete-rule(string);
     callback test-alert(string, string);
 
+    callback terminal-open(string, int, int);
     callback terminal-close();
     callback terminal-input(string);
     callback terminal-resize(int, int);
@@ -396,6 +398,7 @@ export component AppWindow inherits Window {
             shell <=> root.terminal-shell;
             status <=> root.terminal-status;
             lines <=> root.terminal-lines;
+            terminal-open(shell, rows, cols) => { root.terminal-open(shell, rows, cols); }
             terminal-close() => { root.terminal-close(); }
             terminal-input(data) => { root.terminal-input(data); }
             terminal-resize(rows, cols) => { root.terminal-resize(rows, cols); }

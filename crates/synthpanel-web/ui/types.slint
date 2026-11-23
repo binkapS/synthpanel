@@ -294,7 +294,18 @@ export struct AppSettings {
     locale: string,
 }
 
+export struct TerminalCell {
+    text: string,
+    color: brush,
+    bold: bool,
+}
+
 export struct TerminalLine {
     text: string,
+    kind: string,
+}
+
+export struct VtLine {
+    cells: [TerminalCell],
     kind: string,
 }

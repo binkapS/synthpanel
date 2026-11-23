@@ -5,17 +5,18 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton } from "../widgets/button.slint";
-import { TextInput } from "../widgets/field.slint";
-import { TerminalLine } from "../types.slint";
+import { TextInput, SelectField } from "../widgets/field.slint";
+import { VtLine } from "../types.slint";
 
 export component TerminalPage inherits Rectangle {
     in-out property <string> id;
     in-out property <string> shell;
     in-out property <string> status;
-    in-out property <[TerminalLine]> lines;
+    in-out property <[VtLine]> lines;
 
     private property <string> typed: "";
 
+    callback terminal-open(string, int, int);
     callback terminal-close();
     callback terminal-input(string);
     callback terminal-resize(int, int);
@@ -29,11 +30,19 @@ export component TerminalPage inherits Rectangle {
                 title: "Terminal";
                 subtitle: root.shell == "" ? "A root shell inside the privileged core." : root.shell;
             }
-            AppButton {
-                text: "Close session";
-                danger: true;
-                enabled: root.id != "";
-                clicked => { root.terminal-close(); }
+            HorizontalLayout {
+                spacing: 8px;
+                SelectField {
+                    options: ["", "bash", "sh", "zsh"];
+                    selected(value) => { root.terminal-open(value, 24, 80); }
+                    width: 120px;
+                }
+                AppButton {
+                    text: "Close session";
+                    danger: true;
+                    enabled: root.id != "";
+                    clicked => { root.terminal-close(); }
+                }
             }
         }
 
@@ -61,12 +70,16 @@ export component TerminalPage inherits Rectangle {
                             color: Theme.muted;
                         }
 
-                        for line in root.lines : Text {
-                            text: line.text;
-                            font-family: "monospace";
-                            font-size: 12px;
-                            color: line.kind == "error" ? Theme.danger : Theme.terminal-text;
-                            wrap: no-wrap;
+                        for line in root.lines : HorizontalLayout {
+                            spacing: 0;
+                            for cell in line.cells : Text {
+                                text: cell.text;
+                                font-family: "monospace";
+                                font-size: 12px;
+                                font-weight: cell.bold ? 700 : 400;
+                                color: cell.color;
+                                wrap: no-wrap;
+                            }
                         }
                     }
                 }

@@ -7,7 +7,7 @@ use crate::{
     ApiKeyRow, AlertRow, AlertRuleRow, AuditEntry, BackupRow, ChannelRow, CronRow, CronRunRow,
     DatabaseRow, DeployRunRow, DeploymentRow, EngineRow, FileRow, JailRow,
     LogLine, LogSource, MetricSnapshot, PanelCertificate, PhpLink, PhpVersionRow, ScheduleRow,
-    Service, Session, SiteDetail, SiteRow, SshKeyRow, TerminalLine, UserRow,
+    Service, Session, SiteDetail, SiteRow, SshKeyRow, UserRow,
 };
 use serde_json::Value;
 
@@ -549,12 +549,3 @@ pub fn to_panel_certificate(body: &Value) -> PanelCertificate {
     }
 }
 
-pub fn terminal_output_line(output: &str) -> Vec<TerminalLine> {
-    output
-        .lines()
-        .map(|line| TerminalLine {
-            text: line.to_string().into(),
-            kind: "output".into(),
-        })
-        .collect()
-}

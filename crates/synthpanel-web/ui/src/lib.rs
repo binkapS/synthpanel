@@ -15,6 +15,8 @@ mod api;
 #[cfg(target_arch = "wasm32")]
 mod app;
 #[cfg(target_arch = "wasm32")]
+mod terminal;
+#[cfg(target_arch = "wasm32")]
 mod models;
 
 #[cfg(target_arch = "wasm32")]

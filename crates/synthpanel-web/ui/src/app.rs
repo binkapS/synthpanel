@@ -7,7 +7,7 @@
 //! properties and models. The UI is the only consumer; the server-side
 //! `synthpanel-web` process is untouched.
 
-use slint::{ComponentHandle, Model};
+use slint::ComponentHandle;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::JsCast;
@@ -28,6 +28,8 @@ pub struct Bridge {
     /// The last dashboard metrics snapshot, kept so the next one can be
     /// converted into a network *rate* (the core reports byte counters).
     prev_snapshot: RefCell<Option<serde_json::Value>>,
+    /// The virtual terminal that renders the raw PTY stream.
+    vt: RefCell<Option<crate::terminal::Terminal>>,
 }
 
 pub fn install() -> Result<(), JsValue> {
@@ -41,6 +43,7 @@ pub fn install() -> Result<(), JsValue> {
     let bridge = Bridge {
         app: RefCell::new(app.clone()),
         prev_snapshot: RefCell::new(None),
+        vt: RefCell::new(None),
     };
     let bridge = Rc::new(bridge);
 
@@ -888,11 +891,45 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
 
     // --- Terminal --------------------------------------------------------------------------
     let b = Rc::clone(bridge);
+    app.on_terminal_open(move |shell, rows, cols| {
+        let b = Rc::clone(&b);
+        b.app.borrow_mut().set_terminal_status("opening…".into());
+        let shell = shell.as_str().to_string();
+        let _ = slint::spawn_local(async move {
+            match http(
+                "POST",
+                "/api/v1/terminal/open",
+                Some(serde_json::json!({
+                    "shell": shell.is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(shell))),
+                    "rows": rows,
+                    "cols": cols,
+                })),
+            )
+            .await
+            {
+                Ok(session) => {
+                    let id = session.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                    let shell = session.get("shell").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                    b.app.borrow_mut().set_terminal_id(id.clone().into());
+                    b.app.borrow_mut().set_terminal_shell(shell.into());
+                    b.app.borrow_mut().set_terminal_status("".into());
+                    b.vt.borrow_mut().take();
+                    api::socket_open(2, &format!("/ws/terminal/{id}"));
+                }
+                Err(message) => b.app.borrow_mut().set_terminal_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
     app.on_terminal_close(move || {
         let b = Rc::clone(&b);
         let id = b.app.borrow().get_terminal_id().to_string();
         if !id.is_empty() {
             api::socket_close(2);
+            b.vt.borrow_mut().take();
+            b.app.borrow_mut().set_terminal_lines(model(Vec::new()));
+            b.app.borrow_mut().set_terminal_id("".into());
             let _ = slint::spawn_local(async move {
                 let _ = http("DELETE", &format!("/api/v1/terminal/{id}"), None).await;
             });
@@ -901,12 +938,24 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
 
     let b = Rc::clone(bridge);
     app.on_terminal_input(move |data| {
-        let _ = &b;
+        let input = data.as_str().to_string();
+        let mut bridge_vt = b.vt.borrow_mut();
+        let data = match bridge_vt.as_mut() {
+            Some(vt) => vt.take_input(),
+            None => String::new(),
+        };
+        let payload = if !data.is_empty() {
+            data
+        } else {
+            input
+        };
         let frame = format!(
             "{{\"type\":\"input\",\"data\":{}}}",
-            serde_json::to_string(data.as_str()).unwrap_or_default()
+            serde_json::to_string(&payload).unwrap_or_default()
         );
-        api::socket_send(2, &frame);
+        if !payload.is_empty() {
+            api::socket_send(2, &frame);
+        }
     });
 
     let b = Rc::clone(bridge);
@@ -1406,16 +1455,34 @@ fn load_alerts(bridge: &Rc<Bridge>) {
 }
 
 fn load_terminal(bridge: &Rc<Bridge>) {
+    bridge.vt.borrow_mut().take();
+    bridge.app.borrow_mut().set_terminal_lines(model(Vec::new()));
     let app = bridge.app.borrow().clone();
+    let bridge = Rc::clone(bridge);
     let _ = slint::spawn_local(async move {
         app.set_terminal_status("opening…".into());
-        match http("POST", "/api/v1/terminal/open", Some(serde_json::json!({ "rows": 24, "cols": 80 }))).await {
+        match http(
+            "POST",
+            "/api/v1/terminal/open",
+            Some(serde_json::json!({ "rows": 24, "cols": 80 })),
+        )
+        .await
+        {
             Ok(session) => {
-                let id = session.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
-                let shell = session.get("shell").and_then(serde_json::Value::as_str).unwrap_or_default().to_string();
+                let id = session
+                    .get("id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let shell = session
+                    .get("shell")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 app.set_terminal_id(id.clone().into());
                 app.set_terminal_shell(shell.into());
                 app.set_terminal_status("".into());
+                bridge.vt.borrow_mut().replace(crate::terminal::Terminal::new());
                 api::socket_open(2, &format!("/ws/terminal/{id}"));
             }
             Err(message) => app.set_terminal_status(message.into()),
@@ -1514,17 +1581,21 @@ impl Bridge {
             2 => match value.get("type").and_then(serde_json::Value::as_str) {
                 Some("output") => {
                     let output = value.get("data").and_then(serde_json::Value::as_str).unwrap_or_default();
-                    let mut lines: Vec<crate::TerminalLine> =
-                        self.app.borrow().get_terminal_lines().iter().collect();
-                    for line in models::terminal_output_line(output) {
-                        lines.push(line);
+                    let mut vt = self.vt.borrow_mut();
+                    let terminal = vt.get_or_insert_with(crate::terminal::Terminal::new);
+                    terminal.feed_str(output);
+                    drop(vt);
+                    let vt = self.vt.borrow();
+                    if let Some(terminal) = vt.as_ref() {
+                        let render = terminal.render();
+                        let lines: Vec<crate::VtLine> = render.lines;
+                        self.app.borrow_mut().set_terminal_lines(model(lines));
                     }
-                    if lines.len() > 1000 {
-                        lines = lines.split_at(lines.len() - 1000).1.to_vec();
-                    }
-                    self.app.borrow_mut().set_terminal_lines(model(lines));
                 }
-                Some("closed") => self.app.borrow_mut().set_terminal_status("the session ended".into()),
+                Some("closed") => {
+                    self.vt.borrow_mut().take();
+                    self.app.borrow_mut().set_terminal_status("the session ended".into());
+                }
                 Some("error") => {
                     self.app.borrow_mut()
                         .set_terminal_status(
