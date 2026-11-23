@@ -19,6 +19,7 @@ export component LoginPage inherits Rectangle {
 
     background: Theme.bg;
 
+    // Keep the login card centered both vertically and horizontally.
     VerticalLayout {
         alignment: center;
         spacing: 0px;
@@ -34,18 +35,21 @@ export component LoginPage inherits Rectangle {
 
                     VerticalLayout {
                         spacing: 8px;
-                        Rectangle {
-                            width: 46px;
-                            height: 46px;
-                            border-radius: 12px;
-                            background: Theme.accent-strong;
-                            Text {
-                                text: "SP";
-                                font-size: 15px;
-                                font-weight: 700;
-                                color: #ffffff;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                        HorizontalLayout {
+                            alignment: center;
+                            Rectangle {
+                                width: 46px;
+                                height: 46px;
+                                border-radius: 12px;
+                                background: Theme.accent-strong;
+                                Text {
+                                    text: "SP";
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: #ffffff;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
                             }
                         }
                         Text {
@@ -54,6 +58,7 @@ export component LoginPage inherits Rectangle {
                             font-weight: 600;
                             color: Theme.text;
                             horizontal-alignment: center;
+                            wrap: word-wrap;
                         }
                         Text {
                             text: root.needs-code
@@ -96,7 +101,7 @@ export component LoginPage inherits Rectangle {
                                 accepted => root.login(root.email, root.password);
                             }
 
-                            Notice { text: root.error; }
+                            if root.error != "" : Notice { text: root.error; }
 
                             AppButton {
                                 text: root.busy ? "Please wait…" : (root.needs-code ? "Verify" : "Sign in");
@@ -124,6 +129,7 @@ export component LoginPage inherits Rectangle {
                         font-size: 11px;
                         color: Theme.muted;
                         horizontal-alignment: center;
+                        wrap: word-wrap;
                     }
                 }
             }

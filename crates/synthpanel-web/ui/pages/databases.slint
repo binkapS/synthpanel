@@ -28,160 +28,214 @@ export component DatabasesPage inherits Rectangle {
     callback delete-database(string);
     callback add-db-user(string, string, string, string);
 
-    VerticalLayout {
-        spacing: 18px;
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        PageHeader {
-            title: "Databases";
-            subtitle: "MariaDB/MySQL, PostgreSQL and Redis, with per-database credentials.";
-        }
-
-        Notice { text: root.status; }
-
-        Card {
-            title: "Engines";
-            for engine in root.engines : HorizontalLayout {
-                height: 28px;
-                spacing: 8px;
-                Text {
-                    text: engine.engine;
-                    font-size: 12px;
-                    font-weight: 500;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-                StatusBadge {
-                    status: engine.reachable ? "running" : "error";
-                }
-                if !engine.client : Text {
-                    text: "client not installed";
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
+            PageHeader {
+                title: "Databases";
+                subtitle: "MariaDB/MySQL, PostgreSQL and Redis, with per-database credentials.";
             }
-        }
 
-        AppButton {
-            text: root.show-form ? "Hide form" : "New database";
-            primary: true;
-            clicked => { root.show-form = !root.show-form; }
-        }
+            if root.status != "" : Notice { text: root.status; }
 
-        if root.show-form : Card {
-            title: "Create a database";
-            HorizontalLayout {
-                spacing: 12px;
-                TextField {
-                    label: "Name";
-                    text <=> root.new-name;
-                    horizontal-stretch: 1;
-                }
-                TextField {
-                    label: "User";
-                    text <=> root.new-user;
-                    horizontal-stretch: 1;
-                    hint: "Leave empty for a generated name.";
-                }
-                SelectField {
-                    label: "Engine";
-                    options: ["mysql", "postgresql", "redis"];
-                    selected(value) => { root.new-engine = value; }
-                    horizontal-stretch: 1;
-                }
-            }
             HorizontalLayout {
                 spacing: 10px;
+                alignment: end;
                 AppButton {
-                    text: "Create";
+                    text: root.show-form ? "Hide form" : "New database";
                     primary: true;
-                    clicked => {
-                        root.create-database(root.new-name, root.new-user, root.new-engine);
-                        root.show-form = false;
-                    }
-                }
-                AppButton {
-                    text: "Cancel";
-                    clicked => { root.show-form = false; }
+                    clicked => { root.show-form = !root.show-form; }
                 }
             }
-        }
 
-        Card {
-            title: "Managed databases";
-            if root.databases.length == 0 : Text {
-                text: "No databases yet.";
-                font-size: 12px;
-                color: Theme.muted;
-            }
-            for database in root.databases : HorizontalLayout {
-                height: 34px;
-                spacing: 12px;
-                Text {
-                    text: database.name;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: database.engine;
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                AppButton {
-                    text: "User";
-                    clicked => {
-                        root.user-database = database.id;
-                        root.show-user-form = !root.show-user-form;
+            Card {
+                title: "Engines";
+                VerticalLayout {
+                    spacing: 0px;
+                    for engine in root.engines : HorizontalLayout {
+                        min-height: 30px;
+                        spacing: 12px;
+                        Text {
+                            text: engine.engine;
+                            font-size: 12px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                        }
+                        StatusBadge { status: engine.reachable ? "running" : "error"; }
+                        Text {
+                            text: engine.client ? "" : "client not installed";
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 150px;
+                            vertical-alignment: center;
+                        }
                     }
                 }
-                IconButton {
-                    icon: @image-url("../assets/icons/trash.svg");
-                    tooltip: "Delete database";
-                    danger: true;
-                    clicked => { root.delete-database(database.id); }
-                }
             }
-        }
 
-        if root.show-user-form : Card {
-            title: "Grant a database user";
-            HorizontalLayout {
-                spacing: 12px;
-                TextField {
-                    label: "Username";
-                    text <=> root.user-name;
-                    horizontal-stretch: 1;
-                }
-                TextField {
-                    label: "Password";
-                    text <=> root.user-password;
-                    password: true;
-                    horizontal-stretch: 1;
-                }
-                SelectField {
-                    label: "Privileges";
-                    options: ["read-only", "read-write", "ddl"];
-                    selected(value) => { root.user-privileges = value; }
-                    horizontal-stretch: 1;
-                }
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                AppButton {
-                    text: "Grant";
-                    primary: true;
-                    clicked => {
-                        root.add-db-user(root.user-database, root.user-name, root.user-password, root.user-privileges);
-                        root.show-user-form = false;
+            if root.show-form : Card {
+                title: "Create a database";
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: "Name";
+                            text <=> root.new-name;
+                            horizontal-stretch: 1;
+                            min-width: 140px;
+                        }
+                        TextField {
+                            label: "User";
+                            text <=> root.new-user;
+                            horizontal-stretch: 1;
+                            min-width: 140px;
+                            hint: "Leave empty for a generated name.";
+                        }
+                        SelectField {
+                            label: "Engine";
+                            options: ["mysql", "postgresql", "redis"];
+                            selected(value) => { root.new-engine = value; }
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: "Create";
+                            primary: true;
+                            clicked => {
+                                root.create-database(root.new-name, root.new-user, root.new-engine);
+                                root.show-form = false;
+                            }
+                        }
+                        AppButton {
+                            text: "Cancel";
+                            clicked => { root.show-form = false; }
+                        }
                     }
                 }
-                AppButton {
-                    text: "Cancel";
-                    clicked => { root.show-user-form = false; }
+            }
+
+            // Kept next to the create form so the "User" action on a row never
+            // opens a form that is stranded at the bottom of the page.
+            if root.show-user-form : Card {
+                title: "Grant a database user";
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: "Username";
+                            text <=> root.user-name;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                        TextField {
+                            label: "Password";
+                            text <=> root.user-password;
+                            password: true;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                        SelectField {
+                            label: "Privileges";
+                            options: ["read-only", "read-write", "ddl"];
+                            selected(value) => { root.user-privileges = value; }
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: "Grant";
+                            primary: true;
+                            clicked => {
+                                root.add-db-user(root.user-database, root.user-name, root.user-password, root.user-privileges);
+                                root.show-user-form = false;
+                            }
+                        }
+                        AppButton {
+                            text: "Cancel";
+                            clicked => { root.show-user-form = false; }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                title: "Managed databases";
+                VerticalLayout {
+                    spacing: 0px;
+
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text { text: "Name"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 140px; }
+                        Text { text: "Engine"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 120px; }
+                        Rectangle { width: 8px; }
+                        Text { text: "Actions"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 100px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.databases.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: "No databases yet.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for database in root.databases : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: database.name;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 140px;
+                        }
+                        Text {
+                            text: database.engine;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 120px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 100px;
+                            spacing: 6px;
+                            alignment: center;
+                            AppButton {
+                                text: "User";
+                                clicked => {
+                                    root.user-database = database.id;
+                                    root.show-user-form = true;
+                                }
+                            }
+                            IconButton {
+                                icon: @image-url("../assets/icons/trash.svg");
+                                tooltip: "Delete database";
+                                danger: true;
+                                clicked => { root.delete-database(database.id); }
+                            }
+                        }
+                    }
                 }
             }
         }

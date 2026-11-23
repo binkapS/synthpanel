@@ -54,8 +54,15 @@ import { SettingsPage } from "pages/settings.slint";
 
 export component AppWindow inherits Window {
     title: "SynthPanel";
-    width: 1280px;
-    height: 800px;
+    // Do not set a fixed `width`/`height` here. On the web, winit sizes the
+    // <canvas> from the Window's layout constraints: a fixed width/height is a
+    // fixed size constraint, which winit writes back as inline CSS min/max size
+    // on the canvas and clamps it to that many pixels (letterboxing/clipping).
+    // Leaving them unset lets the canvas CSS (100% of the viewport) drive the
+    // window size through winit's ResizeObserver. Keep content minimums at zero
+    // so a narrow viewport can never clamp the canvas larger than the viewport.
+    min-width: 0px;
+    min-height: 0px;
     background: Theme.bg;
 
     // ---- session / shell ------------------------------------------------

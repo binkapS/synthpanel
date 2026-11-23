@@ -27,144 +27,233 @@ export component SecurityPage inherits Rectangle {
     callback add-ssh-key(string, string, string);
     callback remove-ssh-key(string);
 
-    VerticalLayout {
-        spacing: 18px;
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        PageHeader {
-            title: "Security";
-            subtitle: "Firewall rules, fail2ban jails and managed SSH keys.";
-        }
-
-        Notice { text: root.status; }
-
-        Card {
-            title: "Firewall";
-            subtitle: root.firewall.status;
-
-            if !root.firewall.available : Text {
-                text: "No firewall is available on this host.";
-                font-size: 12px;
-                color: Theme.muted;
+            PageHeader {
+                title: "Security";
+                subtitle: "Firewall rules, fail2ban jails and managed SSH keys.";
             }
 
-            if root.firewall.available : HorizontalLayout {
-                spacing: 12px;
-                TextField {
-                    label: "Port";
-                    text <=> root.rule-port;
-                    width: 90px;
-                }
-                TextField {
-                    label: "Proto";
-                    text <=> root.rule-proto;
-                    width: 90px;
-                }
-                TextField {
-                    label: "Source";
-                    text <=> root.rule-source;
-                    width: 180px;
-                }
-                TextField {
-                    label: "Action";
-                    text <=> root.rule-action;
-                    width: 90px;
-                }
-                AppButton {
-                    text: "Apply";
-                    primary: true;
-                    clicked => {
-                        root.firewall-apply(root.rule-port, root.rule-proto, root.rule-source, root.rule-action, root.rule-comment);
+            if root.status != "" : Notice { text: root.status; }
+
+            Card {
+                title: "Firewall";
+                subtitle: root.firewall.status;
+                VerticalLayout {
+                    spacing: 12px;
+
+                    if !root.firewall.available : Text {
+                        text: "No firewall is available on this host.";
+                        font-size: 12px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
                     }
-                }
-            }
-        }
 
-        Card {
-            title: "Fail2ban";
-            if root.jails.length == 0 : Text {
-                text: "No jails reported by fail2ban.";
-                font-size: 12px;
-                color: Theme.muted;
-            }
-            for jail in root.jails : HorizontalLayout {
-                height: 34px;
-                spacing: 12px;
-                Text {
-                    text: jail.name;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: Theme.text;
-                    vertical-alignment: center;
-                }
-                StatusBadge { status: jail.status; }
-                Text {
-                    text: jail.banned-now.to-fixed(0) + " currently · " + jail.banned-total.to-fixed(0) + " total";
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                if jail.banned-now > 0 : AppButton {
-                    text: "Unban 127.0.0.1";
-                    danger: true;
-                    clicked => { root.unban(jail.name, "127.0.0.1"); }
-                }
-            }
-        }
+                    if root.firewall.available : VerticalLayout {
+                        spacing: 12px;
 
-        Card {
-            title: "SSH keys";
-
-            HorizontalLayout {
-                spacing: 12px;
-                TextField {
-                    label: "Label";
-                    text <=> root.key-label;
-                    width: 160px;
-                }
-                TextField {
-                    label: "Public key";
-                    text <=> root.key-value;
-                    horizontal-stretch: 1;
-                    hint: "The full contents of the public key file.";
-                }
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                AppButton {
-                    text: "Add key";
-                    primary: true;
-                    clicked => {
-                        root.add-ssh-key(root.key-label, root.key-value, "synthpanel");
-                        root.key-label = "";
-                        root.key-value = "";
+                        HorizontalLayout {
+                            spacing: 12px;
+                            TextField {
+                                label: "Port";
+                                text <=> root.rule-port;
+                                width: 100px;
+                            }
+                            TextField {
+                                label: "Proto";
+                                text <=> root.rule-proto;
+                                width: 100px;
+                            }
+                            TextField {
+                                label: "Source";
+                                text <=> root.rule-source;
+                                horizontal-stretch: 1;
+                                min-width: 160px;
+                            }
+                            TextField {
+                                label: "Action";
+                                text <=> root.rule-action;
+                                width: 100px;
+                            }
+                        }
+                        TextField {
+                            label: "Comment";
+                            text <=> root.rule-comment;
+                            placeholder: "optional";
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: end;
+                            AppButton {
+                                text: "Apply";
+                                primary: true;
+                                clicked => {
+                                    root.firewall-apply(root.rule-port, root.rule-proto, root.rule-source, root.rule-action, root.rule-comment);
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            for key in root.ssh-keys : HorizontalLayout {
-                height: 34px;
-                spacing: 12px;
-                Text {
-                    text: key.label;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: Theme.text;
-                    vertical-alignment: center;
+            Card {
+                title: "Fail2ban";
+                VerticalLayout {
+                    spacing: 0px;
+
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text { text: "Jail"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 120px; }
+                        Text { text: "Status"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 90px; }
+                        Text { text: "Bans"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 160px; }
+                        Rectangle { width: 8px; }
+                        Text { text: "Actions"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 140px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.jails.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: "No jails reported by fail2ban.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for jail in root.jails : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: jail.name;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 120px;
+                        }
+                        HorizontalLayout {
+                            width: 90px;
+                            alignment: center;
+                            StatusBadge { status: jail.status; }
+                        }
+                        Text {
+                            text: jail.banned-now.to-fixed(0) + " currently · " + jail.banned-total.to-fixed(0) + " total";
+                            font-size: 11px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 160px;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 140px;
+                            alignment: center;
+                            if jail.banned-now > 0 : AppButton {
+                                text: "Unban 127.0.0.1";
+                                danger: true;
+                                clicked => { root.unban(jail.name, "127.0.0.1"); }
+                            }
+                        }
+                    }
                 }
-                Text {
-                    text: key.fingerprint;
-                    font-size: 11px;
-                    font-family: "monospace";
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                IconButton {
-                    icon: @image-url("../assets/icons/trash.svg");
-                    tooltip: "Remove key";
-                    danger: true;
-                    clicked => { root.remove-ssh-key(key.id); }
+            }
+
+            Card {
+                title: "SSH keys";
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: "Label";
+                            text <=> root.key-label;
+                            width: 180px;
+                        }
+                        TextField {
+                            label: "Public key";
+                            text <=> root.key-value;
+                            hint: "The full contents of the public key file.";
+                            horizontal-stretch: 1;
+                            min-width: 200px;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: "Add key";
+                            primary: true;
+                            clicked => {
+                                root.add-ssh-key(root.key-label, root.key-value, "synthpanel");
+                                root.key-label = "";
+                                root.key-value = "";
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-top: 4px;
+                        spacing: 12px;
+                        Text { text: "Label"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 120px; }
+                        Text { text: "Fingerprint"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 2; min-width: 200px; }
+                        Rectangle { width: 8px; }
+                        Text { text: "Actions"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 60px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.ssh-keys.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: "No managed SSH keys.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for key in root.ssh-keys : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: key.label;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 120px;
+                        }
+                        Text {
+                            text: key.fingerprint;
+                            font-size: 11px;
+                            font-family: "monospace";
+                            color: Theme.muted;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 2;
+                            min-width: 200px;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 60px;
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("../assets/icons/trash.svg");
+                                tooltip: "Remove key";
+                                danger: true;
+                                clicked => { root.remove-ssh-key(key.id); }
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -7,7 +7,8 @@ import { Service } from "../types.slint";
 
 export component ServiceList inherits VerticalLayout {
     in property <[Service]> services;
-    spacing: 0px;
+    spacing: 8px;
+    alignment: start;
 
     if root.services.length == 0 : Text {
         text: "No service information available.";
@@ -17,6 +18,8 @@ export component ServiceList inherits VerticalLayout {
 
     for service in root.services : Rectangle {
         height: 32px;
+        // Rows are fixed height even when the card has spare vertical space.
+        vertical-stretch: 0;
         background: transparent;
         HorizontalLayout {
             spacing: 8px;

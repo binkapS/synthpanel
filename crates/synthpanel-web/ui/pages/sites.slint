@@ -23,141 +23,201 @@ export component SitesPage inherits Rectangle {
     callback delete-site(string);
     callback open-site(string);
 
-    VerticalLayout {
-        spacing: 18px;
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        PageHeader {
-            title: "Sites";
-            subtitle: "Every domain gets its own Nginx vhost and an isolated PHP-FPM pool.";
-        }
-
-        Notice { text: root.status; }
-
-        HorizontalLayout {
-            spacing: 10px;
-            AppButton {
-                text: root.show-form ? "Hide form" : "New site";
-                primary: true;
-                clicked => { root.show-form = !root.show-form; }
+            PageHeader {
+                title: "Sites";
+                subtitle: "Every domain gets its own Nginx vhost and an isolated PHP-FPM pool.";
             }
-        }
 
-        if root.show-form : Card {
-            title: "Create a site";
-            VerticalLayout {
-                spacing: 10px;
-                HorizontalLayout {
-                    spacing: 12px;
-                    TextField {
-                        label: "Domain";
-                        text <=> root.new-domain;
-                        horizontal-stretch: 1;
-                    }
-                    TextField {
-                        label: "Aliases";
-                        text <=> root.new-aliases;
-                        hint: "Comma separated extras.";
-                        horizontal-stretch: 1;
-                    }
-                }
-                HorizontalLayout {
-                    spacing: 12px;
-                    SelectField {
-                        label: "Template";
-                        options: ["php", "static", "node"];
-                        selected(value) => { root.new-template = value; }
-                        horizontal-stretch: 1;
-                    }
-                    SelectField {
-                        label: "PHP version";
-                        options: ["8.2", "8.3", "8.4"];
-                        selected(value) => { root.new-php = value; }
-                        horizontal-stretch: 1;
-                    }
-                    SelectField {
-                        label: "SSL";
-                        options: ["none", "letsencrypt"];
-                        selected(value) => { root.new-ssl = value; }
-                        horizontal-stretch: 1;
-                    }
-                }
-                TextField {
-                    label: "Document root";
-                    text <=> root.new-docroot;
-                    hint: "Defaults to the managed webroot for the domain.";
-                }
-            }
+            if root.status != "" : Notice { text: root.status; }
+
+            // Page-level action: kept in one consistent, right-aligned toolbar.
             HorizontalLayout {
                 spacing: 10px;
+                alignment: end;
                 AppButton {
-                    text: "Create";
+                    text: root.show-form ? "Hide form" : "New site";
                     primary: true;
-                    clicked => {
-                        root.create-site(root.new-domain, root.new-aliases, root.new-template, root.new-php, root.new-ssl, root.new-docroot);
-                        root.show-form = false;
+                    clicked => { root.show-form = !root.show-form; }
+                }
+            }
+
+            if root.show-form : Card {
+                title: "Create a site";
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: "Domain";
+                            text <=> root.new-domain;
+                            horizontal-stretch: 2;
+                            min-width: 160px;
+                        }
+                        TextField {
+                            label: "Aliases";
+                            text <=> root.new-aliases;
+                            hint: "Comma separated extras.";
+                            horizontal-stretch: 1;
+                            min-width: 140px;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        SelectField {
+                            label: "Template";
+                            options: ["php", "static", "node"];
+                            selected(value) => { root.new-template = value; }
+                            horizontal-stretch: 1;
+                        }
+                        SelectField {
+                            label: "PHP version";
+                            options: ["8.2", "8.3", "8.4"];
+                            selected(value) => { root.new-php = value; }
+                            horizontal-stretch: 1;
+                        }
+                        SelectField {
+                            label: "SSL";
+                            options: ["none", "letsencrypt"];
+                            selected(value) => { root.new-ssl = value; }
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    TextField {
+                        label: "Document root";
+                        text <=> root.new-docroot;
+                        hint: "Defaults to the managed webroot for the domain.";
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: "Create";
+                            primary: true;
+                            clicked => {
+                                root.create-site(root.new-domain, root.new-aliases, root.new-template, root.new-php, root.new-ssl, root.new-docroot);
+                                root.show-form = false;
+                            }
+                        }
+                        AppButton {
+                            text: "Cancel";
+                            clicked => { root.show-form = false; }
+                        }
                     }
                 }
-                AppButton {
-                    text: "Cancel";
-                    clicked => { root.show-form = false; }
-                }
             }
-        }
 
-        Card {
-            title: "Managed sites";
-            if root.sites.length == 0 : Text {
-                text: "No sites yet. Create the first one above.";
-                font-size: 12px;
-                color: Theme.muted;
-            }
-            for site in root.sites : HorizontalLayout {
-                height: 40px;
-                spacing: 12px;
-                Text {
-                    text: site.domain;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: Theme.text;
-                    overflow: elide;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: site.template;
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                if site.php-version != "" : Text {
-                    text: "PHP " + site.php-version;
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: site.ssl-mode;
-                    font-size: 11px;
-                    color: Theme.muted;
-                    vertical-alignment: center;
-                }
-                Text {
-                    text: site.status;
-                    font-size: 11px;
-                    font-weight: 500;
-                    color: site.status == "active" ? Theme.success : Theme.warning;
-                    vertical-alignment: center;
-                }
-                Rectangle { horizontal-stretch: 1; background: transparent; }
-                IconButton {
-                    icon: @image-url("../assets/icons/globe.svg");
-                    tooltip: "Open the site detail";
-                    clicked => { root.open-site(site.id); }
-                }
-                IconButton {
-                    icon: @image-url("../assets/icons/trash.svg");
-                    tooltip: "Delete the site";
-                    danger: true;
-                    clicked => { root.delete-site(site.id); }
+            Card {
+                title: "Managed sites";
+                VerticalLayout {
+                    spacing: 0px;
+
+                    // Column headers share the exact same column definition as
+                    // the rows below, so every label lines up with its value.
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text {
+                            text: "Domain";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.muted;
+                            horizontal-stretch: 1;
+                            min-width: 160px;
+                            overflow: elide;
+                        }
+                        Text { text: "Template"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 80px; }
+                        Text { text: "PHP"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 70px; }
+                        Text { text: "SSL"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 100px; }
+                        Text { text: "Status"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 80px; }
+                        Rectangle { width: 8px; }
+                        Text {
+                            text: "Actions";
+                            font-size: 11px;
+                            font-weight: 600;
+                            color: Theme.muted;
+                            width: 76px;
+                            horizontal-alignment: center;
+                        }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.sites.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: "No sites yet. Create the first one above.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for site in root.sites : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: site.domain;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 160px;
+                        }
+                        Text {
+                            text: site.template;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 80px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: site.php-version;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 70px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: site.ssl-mode;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 100px;
+                            overflow: elide;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: site.status;
+                            font-size: 11px;
+                            font-weight: 500;
+                            color: site.status == "active" ? Theme.success : Theme.warning;
+                            width: 80px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 76px;
+                            spacing: 6px;
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("../assets/icons/globe.svg");
+                                tooltip: "Open the site detail";
+                                clicked => { root.open-site(site.id); }
+                            }
+                            IconButton {
+                                icon: @image-url("../assets/icons/trash.svg");
+                                tooltip: "Delete the site";
+                                danger: true;
+                                clicked => { root.delete-site(site.id); }
+                            }
+                        }
+                    }
                 }
             }
         }

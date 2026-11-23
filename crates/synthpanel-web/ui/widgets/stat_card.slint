@@ -14,27 +14,42 @@ export component StatCard inherits Rectangle {
     background: Theme.surface;
     border-width: 1px;
     border-color: Theme.border;
+    clip: true;
 
     HorizontalLayout {
         padding: 14px;
+        padding-bottom: 16px;
         spacing: 12px;
 
+        // A fixed-size icon is at the top-left corner unless it is explicitly
+        // centred inside its badge.
         Rectangle {
             width: 38px;
             height: 38px;
+            horizontal-stretch: 0;
+            vertical-stretch: 0;
             border-radius: 10px;
             background: Theme.accent-soft;
-            Image {
-                source: root.icon;
-                width: 20px;
-                height: 20px;
-                colorize: Theme.accent;
+            HorizontalLayout {
+                alignment: center;
+                VerticalLayout {
+                    alignment: center;
+                    Image {
+                        source: root.icon;
+                        width: 20px;
+                        height: 20px;
+                        horizontal-stretch: 0;
+                        vertical-stretch: 0;
+                        colorize: Theme.accent;
+                    }
+                }
             }
         }
 
         VerticalLayout {
             spacing: 2px;
             alignment: center;
+            horizontal-stretch: 1;
             Text {
                 text: root.label;
                 font-size: 11px;

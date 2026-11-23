@@ -9,21 +9,28 @@ export component EmptyState inherits Rectangle {
     in property <image> icon;
 
     min-height: 150px;
+    vertical-stretch: 0;
     border-radius: 10px;
     border-width: 1px;
     border-color: Theme.border;
     background: transparent;
+    clip: true;
 
     VerticalLayout {
         alignment: center;
         spacing: 8px;
         padding: 20px;
 
-        if root.icon.width > 0px : Image {
-            source: root.icon;
-            width: 28px;
-            height: 28px;
-            colorize: Theme.muted;
+        if root.icon.width > 0px : HorizontalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 28px;
+                height: 28px;
+                horizontal-stretch: 0;
+                vertical-stretch: 0;
+                colorize: Theme.muted;
+            }
         }
         Text {
             text: root.title;

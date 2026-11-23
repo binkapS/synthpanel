@@ -13,96 +13,148 @@ export component PhpPage inherits Rectangle {
 
     private property <bool> expanded: false;
 
-    VerticalLayout {
-        spacing: 18px;
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        PageHeader {
-            title: "PHP";
-            subtitle: "Per-site PHP-FPM pools and supported versions.";
-        }
+            PageHeader {
+                title: "PHP";
+                subtitle: "Per-site PHP-FPM pools and supported versions.";
+            }
 
-        Notice { text: root.status; }
+            if root.status != "" : Notice { text: root.status; }
 
-        if !root.installed : Notice {
-            text: "No PHP-FPM binary was found on this server.";
-            kind: "warning";
-        }
+            if !root.installed : Notice {
+                text: "No PHP-FPM binary was found on this server.";
+                kind: "warning";
+            }
 
-        Card {
-            title: "Available versions";
-            for version in root.versions : VerticalLayout {
-                spacing: 4px;
-                HorizontalLayout {
-                    height: 34px;
-                    spacing: 12px;
-                    Text {
-                        text: "PHP " + version.version;
-                        font-size: 13px;
-                        font-weight: 500;
-                        color: Theme.text;
-                        vertical-alignment: center;
+            Card {
+                title: "Available versions";
+                VerticalLayout {
+                    spacing: 4px;
+
+                    if root.versions.length == 0 : HorizontalLayout {
+                        padding-top: 4px;
+                        Text {
+                            text: "No PHP versions configured.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
                     }
-                    StatusBadge {
-                        status: version.active ? "active" : "idle";
-                    }
-                    Text {
-                        text: version.pools.length.to-fixed(0) + " pool(s)";
-                        font-size: 11px;
-                        color: Theme.muted;
-                        vertical-alignment: center;
-                    }
-                    Text {
-                        text: version.sites.length.to-fixed(0) + " site(s)";
-                        font-size: 11px;
-                        color: Theme.muted;
-                        vertical-alignment: center;
-                    }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
-                    Text {
-                        text: version.active ? "php-fpm" + version.version : "stopped";
-                        font-size: 11px;
-                        font-family: "monospace";
-                        color: Theme.muted;
-                        vertical-alignment: center;
+
+                    for version in root.versions : VerticalLayout {
+                        spacing: 3px;
+
+                        HorizontalLayout {
+                            min-height: 34px;
+                            spacing: 12px;
+                            Text {
+                                text: "PHP " + version.version;
+                                font-size: 13px;
+                                font-weight: 500;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 110px;
+                            }
+                            StatusBadge { status: version.active ? "active" : "idle"; }
+                            Text {
+                                text: version.pools.length.to-fixed(0) + " pool(s)";
+                                font-size: 11px;
+                                color: Theme.muted;
+                                width: 80px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: version.sites.length.to-fixed(0) + " site(s)";
+                                font-size: 11px;
+                                color: Theme.muted;
+                                width: 80px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: version.active ? "php-fpm" + version.version : "stopped";
+                                font-size: 11px;
+                                font-family: "monospace";
+                                color: Theme.muted;
+                                width: 120px;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Indentation comes from layout padding, not spaces in
+                        // the string, so every pool lines up under its version.
+                        for pool in version.pools : HorizontalLayout {
+                            padding-left: 20px;
+                            Text {
+                                text: pool;
+                                font-size: 11px;
+                                font-family: "monospace";
+                                color: Theme.muted;
+                                overflow: elide;
+                                vertical-alignment: center;
+                            }
+                        }
                     }
                 }
-                if version.pools.length > 0 : Text {
-                    text: "   " + version.pools[0];
-                    font-size: 11px;
-                    font-family: "monospace";
-                    color: Theme.muted;
-                    horizontal-stretch: 1;
-                    overflow: elide;
-                }
             }
-        }
 
-        Card {
-            title: "Sites by version";
-            if root.versions.length == 0 : Text {
-                text: "No PHP versions configured.";
-                font-size: 12px;
-                color: Theme.muted;
-            }
-            for version in root.versions : VerticalLayout {
-                spacing: 4px;
-                HorizontalLayout {
-                    spacing: 12px;
-                    Text {
-                        text: "PHP " + version.version;
-                        font-size: 12px;
-                        font-weight: 500;
-                        color: Theme.text;
+            Card {
+                title: "Sites by version";
+                VerticalLayout {
+                    spacing: 8px;
+
+                    if root.versions.length == 0 : HorizontalLayout {
+                        padding-top: 4px;
+                        Text {
+                            text: "No PHP versions configured.";
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
                     }
-                    if version.sites.length == 0 : Text {
-                        text: "no sites";
-                        font-size: 11px;
-                        color: Theme.muted;
-                    }
-                    for site in version.sites : Text {
-                        text: site.domain;
-                        font-size: 12px;
-                        color: Theme.muted;
+
+                    for version in root.versions : VerticalLayout {
+                        spacing: 3px;
+
+                        HorizontalLayout {
+                            spacing: 12px;
+                            Text {
+                                text: "PHP " + version.version;
+                                font-size: 13px;
+                                font-weight: 500;
+                                color: Theme.text;
+                                vertical-alignment: center;
+                                horizontal-stretch: 1;
+                                min-width: 110px;
+                            }
+                            Text {
+                                text: version.sites.length == 0 ? "no sites" : version.sites.length.to-fixed(0) + " site(s)";
+                                font-size: 11px;
+                                color: Theme.muted;
+                                width: 90px;
+                                horizontal-alignment: right;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        if version.sites.length > 0 : VerticalLayout {
+                            spacing: 2px;
+                            for site in version.sites : HorizontalLayout {
+                                padding-left: 20px;
+                                Text {
+                                    text: site.domain;
+                                    font-size: 12px;
+                                    color: Theme.muted;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
                     }
                 }
             }

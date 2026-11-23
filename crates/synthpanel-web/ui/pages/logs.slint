@@ -1,7 +1,6 @@
 // Copyright (C) 2026 Binkap S
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton } from "../widgets/button.slint";
@@ -19,7 +18,10 @@ export component LogsPage inherits Rectangle {
     callback source-changed(string);
     callback search-changed(string);
 
+    vertical-stretch: 0;
+
     VerticalLayout {
+        alignment: start;
         spacing: 18px;
 
         PageHeader {
@@ -27,49 +29,61 @@ export component LogsPage inherits Rectangle {
             subtitle: "Filter nginx, PHP-FPM, panel and system logs.";
         }
 
-        Notice { text: root.status; }
+        if root.status != "" : Notice { text: root.status; }
 
         HorizontalLayout {
             spacing: 16px;
+            vertical-stretch: 0;
 
             Card {
                 title: "Sources";
-                width: 220px;
+                width: 240px;
+                vertical-stretch: 0;
                 VerticalLayout {
                     spacing: 6px;
+                    vertical-stretch: 0;
                     for source in root.sources : AppButton {
                         text: source.label;
                         primary: source.id == root.active-source;
-                        width: 100%;
                         enabled: source.available;
                         clicked => { root.source-changed(source.id); }
                     }
-                }
-                TextField {
-                    label: "Search";
-                    text <=> root.search-text;
-                    placeholder: "filter the tail";
+                    TextField {
+                        label: "Search";
+                        text <=> root.search-text;
+                        placeholder: "filter the tail";
+                        accepted => { root.search-changed(root.search-text); }
+                    }
                 }
             }
 
             Card {
                 title: root.active-source == "" ? "Lines" : "Lines · " + root.active-source;
                 horizontal-stretch: 1;
+                vertical-stretch: 0;
+
+                // The log tail is the only genuinely tall block on this page:
+                // keep it inside a bounded, scrollable viewport instead of a
+                // fixed 420px box that pushes the card off screen.
                 Rectangle {
                     background: Theme.terminal-bg;
                     border-radius: 8px;
-                    height: 420px;
                     clip: true;
+                    min-height: 280px;
+                    max-height: 480px;
+                    vertical-stretch: 0;
 
-                    ScrollView {
+                    Flickable {
                         VerticalLayout {
-                            padding: 10px;
-                            spacing: 1px;
+                            alignment: start;
+                            padding: 12px;
+                            spacing: 2px;
+                            vertical-stretch: 0;
 
                             if root.lines.length == 0 : Text {
                                 text: "Select a source to read its tail.";
                                 font-size: 12px;
-                                color: Theme.muted;
+                                color: Theme.terminal-text;
                             }
 
                             for line in root.lines : Text {
@@ -78,6 +92,7 @@ export component LogsPage inherits Rectangle {
                                 font-size: 11px;
                                 color: line.level == "error" ? Theme.danger : Theme.terminal-text;
                                 wrap: no-wrap;
+                                overflow: elide;
                             }
                         }
                     }

@@ -1,11 +1,10 @@
 // Copyright (C) 2026 Binkap S
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import { ScrollView } from "std-widgets.slint";
+import { ScrollView, LineEdit, ComboBox } from "std-widgets.slint";
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton } from "../widgets/button.slint";
-import { TextInput, SelectField } from "../widgets/field.slint";
 import { VtLine } from "../types.slint";
 
 export component TerminalPage inherits Rectangle {
@@ -14,91 +13,234 @@ export component TerminalPage inherits Rectangle {
     in-out property <string> status;
     in-out property <[VtLine]> lines;
 
-    private property <string> typed: "";
+    private property <bool> cursor-on: true;
+    private property <bool> resize-pending: false;
+    private property <int> view-rows: 24;
+    // Keep the column count independent of the page's laid-out width: using
+    // root.width here creates a binding loop through the labels that display
+    // the size. The session still reports a resize when it opens.
+    private property <int> view-cols: 100;
 
     callback terminal-open(string, int, int);
     callback terminal-close();
     callback terminal-input(string);
     callback terminal-resize(int, int);
 
-    VerticalLayout {
-        spacing: 18px;
+    // Translate a Slint key event into the byte sequence a PTY expects. The
+    // shell echoes typed characters back through the output socket, so the
+    // input line itself stays empty and the rendered screen is the source of
+    // truth for what the user has typed.
+    function key-payload(text: string, control: bool, alt: bool) -> string {
+        if (text == Key.Return) { return "\n"; }
+        if (text == Key.Backspace) { return "\u{8}"; }
+        if (text == Key.Backtab) { return "\u{1b}[Z"; }
+        if (text == Key.Delete) { return "\u{1b}[3~"; }
+        if (text == Key.Tab) { return "\u{9}"; }
+        if (text == Key.UpArrow) { return "\u{1b}[A"; }
+        if (text == Key.DownArrow) { return "\u{1b}[B"; }
+        if (text == Key.RightArrow) { return "\u{1b}[C"; }
+        if (text == Key.LeftArrow) { return "\u{1b}[D"; }
+        if (text == Key.Home) { return "\u{1b}[H"; }
+        if (text == Key.End) { return "\u{1b}[F"; }
+        if (text == Key.PageUp) { return "\u{1b}[5~"; }
+        if (text == Key.PageDown) { return "\u{1b}[6~"; }
+        if (text == Key.Escape) { return "\u{1b}"; }
+        if (control) {
+            if (text == "a") { return "\u{1}"; }
+            if (text == "b") { return "\u{2}"; }
+            if (text == "c") { return "\u{3}"; }
+            if (text == "d") { return "\u{4}"; }
+            if (text == "e") { return "\u{5}"; }
+            if (text == "f") { return "\u{6}"; }
+            if (text == "g") { return "\u{7}"; }
+            if (text == "k") { return "\u{b}"; }
+            if (text == "l") { return "\u{c}"; }
+            if (text == "n") { return "\u{e}"; }
+            if (text == "p") { return "\u{10}"; }
+            if (text == "q") { return "\u{11}"; }
+            if (text == "r") { return "\u{12}"; }
+            if (text == "s") { return "\u{13}"; }
+            if (text == "u") { return "\u{15}"; }
+            if (text == "w") { return "\u{17}"; }
+            if (text == "x") { return "\u{18}"; }
+            if (text == "y") { return "\u{19}"; }
+            if (text == "z") { return "\u{1a}"; }
+        }
+        if (alt) { return "\u{1b}" + text; }
+        return text;
+    }
 
-        HorizontalLayout {
-            alignment: space-between;
-            PageHeader {
-                title: "Terminal";
-                subtitle: root.shell == "" ? "A root shell inside the privileged core." : root.shell;
-            }
-            HorizontalLayout {
-                spacing: 8px;
-                SelectField {
-                    options: ["", "bash", "sh", "zsh"];
-                    selected(value) => { root.terminal-open(value, 24, 80); }
-                    width: 120px;
-                }
-                AppButton {
-                    text: "Close session";
-                    danger: true;
-                    enabled: root.id != "";
-                    clicked => { root.terminal-close(); }
-                }
-            }
+    function send-key(event: KeyEvent) {
+        let payload = root.key-payload(event.text, event.modifiers.control, event.modifiers.alt);
+        if (payload != "") {
+            root.terminal-input(payload);
+        }
+    }
+
+    function report-resize() {
+        if (root.id != "") {
+            root.terminal-resize(root.view-rows, root.view-cols);
+        }
+    }
+
+    // A blinking highlight on the cursor line keeps the panel visibly alive
+    // even while the shell is waiting for input.
+    Timer {
+        interval: 530ms;
+        running: root.id != "";
+        triggered => { root.cursor-on = !root.cursor-on; }
+    }
+
+    // `terminal-id` is set just before the socket is opened in the bridge, so
+    // the immediate resize can be lost. Retry once the socket has had time to
+    // connect.
+    Timer {
+        interval: 150ms;
+        running: root.resize-pending;
+        triggered => {
+            root.report-resize();
+            root.resize-pending = false;
+        }
+    }
+
+    changed id => {
+        if (root.id != "") {
+            root.report-resize();
+            root.resize-pending = true;
+        }
+    }
+
+    changed view-cols => { root.report-resize(); }
+
+    init => {
+        keys.focus();
+    }
+
+    // Clicking anywhere in the terminal (not only the small input line) gives
+    // keyboard focus, so typing works immediately after opening a session.
+    keys := FocusScope {
+        width: 100%;
+        height: 100%;
+        key-pressed(event) => {
+            root.send-key(event);
+            EventResult.accept
         }
 
-        Notice { text: root.status; }
+        VerticalLayout {
+            spacing: 18px;
 
-        Card {
-            title: "Session";
-            subtitle: "80 × 24";
+            HorizontalLayout {
+                spacing: 16px;
+                alignment: space-between;
+                PageHeader {
+                    horizontal-stretch: 1;
+                    title: "Terminal";
+                    subtitle: root.shell == "" ? "A root shell inside the privileged core." : root.shell;
+                }
+            }
 
-            Rectangle {
-                background: Theme.terminal-bg;
-                border-radius: 8px;
-                height: 480px;
-                clip: true;
+            Notice { text: root.status; }
 
-                ScrollView {
-                    VerticalLayout {
-                        padding: 12px;
-                        spacing: 2px;
+            Card {
+                title: "Session";
+                subtitle: "Interactive shell";
 
-                        if root.lines.length == 0 : Text {
-                            text: "Waiting for terminal output…";
-                            font-family: "monospace";
-                            font-size: 12px;
-                            color: Theme.muted;
+                HorizontalLayout {
+                    spacing: 8px;
+                    horizontal-stretch: 0;
+                    alignment: end;
+                    Text {
+                        text: "Shell";
+                        font-size: 12px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                        horizontal-stretch: 0;
+                    }
+                    ComboBox {
+                        model: ["bash", "sh", "zsh"];
+                        width: 100px;
+                        horizontal-stretch: 0;
+                        selected(value) => { root.terminal-open(value, root.view-rows, root.view-cols); }
+                    }
+                    AppButton {
+                        text: "Close session";
+                        danger: true;
+                        enabled: root.id != "";
+                        clicked => { root.terminal-close(); }
+                    }
+                }
+
+                Rectangle {
+                    background: Theme.terminal-bg;
+                    border-radius: 8px;
+                    height: 480px;
+                    clip: true;
+
+                    screen := ScrollView {
+                        width: 100%;
+                        height: 100%;
+
+                        // Every rendered row is exactly 16px plus 8px of
+                        // padding, so the bottom offset can be computed from
+                        // the model without waiting for a layout pass.
+                        in-out property <int> line-count: root.lines.length;
+                        changed line-count => {
+                            self.content-y = Math.min(0px, self.visible-height - (root.lines.length * 16px + 16px));
                         }
 
-                        for line in root.lines : HorizontalLayout {
-                            spacing: 0;
-                            for cell in line.cells : Text {
-                                text: cell.text;
+                        VerticalLayout {
+                            padding: 8px;
+                            spacing: 0px;
+
+                            if root.lines.length == 0 : Text {
+                                text: "Waiting for terminal output…";
                                 font-family: "monospace";
                                 font-size: 12px;
-                                font-weight: cell.bold ? 700 : 400;
-                                color: cell.color;
-                                wrap: no-wrap;
+                                color: Theme.muted;
+                            }
+
+                            for line in root.lines : Rectangle {
+                                height: 16px;
+                                horizontal-stretch: 1;
+                                background: line.kind == "cursor" && root.cursor-on ? #16302a : transparent;
+                                HorizontalLayout {
+                                    spacing: 0px;
+                                    alignment: start;
+                                    for cell in line.cells : Text {
+                                        horizontal-stretch: 0;
+                                        vertical-stretch: 0;
+                                        text: cell.text;
+                                        font-family: "monospace";
+                                        font-size: 11px;
+                                        font-weight: cell.bold ? 700 : 400;
+                                        color: cell.color;
+                                        wrap: no-wrap;
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            HorizontalLayout {
-                spacing: 8px;
-                TextInput {
-                    text <=> root.typed;
-                    placeholder-text: "type a command and press Enter";
-                    horizontal-stretch: 1;
-                    accepted => {
-                        root.terminal-input(root.typed + "\n");
-                        root.typed = "";
+                HorizontalLayout {
+                    spacing: 8px;
+                    LineEdit {
+                        text: "";
+                        placeholder-text: "click here, then type · Enter sends a line";
+                        font-family: "monospace";
+                        font-size: 12px;
+                        horizontal-stretch: 1;
+                        enabled: root.id != "";
+                        key-pressed(event) => {
+                            root.send-key(event);
+                            EventResult.accept
+                        }
                     }
-                }
-                AppButton {
-                    text: "Resize 80×24";
-                    clicked => { root.terminal-resize(24, 80); }
+                    AppButton {
+                        text: "Resize terminal";
+                        enabled: root.id != "";
+                        clicked => { root.report-resize(); }
+                    }
                 }
             }
         }

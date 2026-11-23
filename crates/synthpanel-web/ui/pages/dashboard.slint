@@ -54,99 +54,109 @@ export component DashboardPage inherits Rectangle {
             : "—";
     }
 
-    VerticalLayout {
-        spacing: 18px;
+    // The shell supplies the outer scroll area; this Flickable keeps the page
+    // self-contained so content is never clipped when the viewport is short.
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        PageHeader {
-            title: "Dashboard";
-            subtitle: "Live server overview";
-        }
-
-        if root.status != "" : Notice { text: root.status; }
-
-        HorizontalLayout {
-            spacing: 16px;
-            StatCard {
-                label: "CPU";
-                value: root.cpu-text;
-                hint: root.load-text;
-                icon: @image-url("../assets/icons/clock.svg");
-                horizontal-stretch: 1;
+            PageHeader {
+                title: "Dashboard";
+                subtitle: "Live server overview";
             }
-            StatCard {
-                label: "Memory";
-                value: root.mem-text;
-                hint: root.mem-total;
-                icon: @image-url("../assets/icons/server.svg");
-                horizontal-stretch: 1;
-            }
-            StatCard {
-                label: "Disk";
-                value: root.disk-text;
-                hint: root.disk-total;
-                icon: @image-url("../assets/icons/archive.svg");
-                horizontal-stretch: 1;
-            }
-            StatCard {
-                label: "Network";
-                value: root.net-text;
-                hint: "rx · tx";
-                icon: @image-url("../assets/icons/globe.svg");
-                horizontal-stretch: 1;
-            }
-        }
 
-        HorizontalLayout {
-            spacing: 16px;
+            if root.status != "" : Notice { text: root.status; }
 
-            Card {
-                title: "CPU · last 24 hours";
-                horizontal-stretch: 1;
-                Sparkline {
-                    path: root.cpu-spark;
-                    empty-text: "no metric history";
+            HorizontalLayout {
+                spacing: 16px;
+
+                StatCard {
+                    label: "CPU";
+                    value: root.cpu-text;
+                    hint: root.load-text;
+                    icon: @image-url("../assets/icons/clock.svg");
+                    horizontal-stretch: 1;
+                }
+                StatCard {
+                    label: "Memory";
+                    value: root.mem-text;
+                    hint: root.mem-total;
+                    icon: @image-url("../assets/icons/server.svg");
+                    horizontal-stretch: 1;
+                }
+                StatCard {
+                    label: "Disk";
+                    value: root.disk-text;
+                    hint: root.disk-total;
+                    icon: @image-url("../assets/icons/archive.svg");
+                    horizontal-stretch: 1;
+                }
+                StatCard {
+                    label: "Network";
+                    value: root.net-text;
+                    hint: "rx · tx";
+                    icon: @image-url("../assets/icons/globe.svg");
+                    horizontal-stretch: 1;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                Card {
+                    title: "CPU · last 24 hours";
+                    horizontal-stretch: 1;
+                    Sparkline {
+                        path: root.cpu-spark;
+                        empty-text: "no metric history";
+                    }
+                }
+
+                Card {
+                    title: "Memory · last 24 hours";
+                    horizontal-stretch: 1;
+                    Sparkline {
+                        path: root.mem-spark;
+                        empty-text: "no metric history";
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 16px;
+
+                Card {
+                    title: "Services";
+                    horizontal-stretch: 1;
+                    ServiceList { services: root.services; }
+                }
+
+                Card {
+                    title: "Recent activity";
+                    horizontal-stretch: 1;
+                    AuditFeed { entries: root.audit; }
                 }
             }
 
             Card {
-                title: "Memory · last 24 hours";
-                horizontal-stretch: 1;
-                Sparkline {
-                    path: root.mem-spark;
-                    empty-text: "no metric history";
+                title: "Quick actions";
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    AppButton {
+                        text: "Open sites";
+                        clicked => { root.navigate(Page.sites); }
+                    }
+                    AppButton {
+                        text: "Start a terminal";
+                        clicked => { root.navigate(Page.terminal); }
+                    }
+                    AppButton {
+                        text: "Run a backup";
+                        clicked => { root.navigate(Page.backups); }
+                    }
                 }
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 16px;
-
-            Card {
-                title: "Services";
-                horizontal-stretch: 1;
-                ServiceList { services: root.services; }
-            }
-
-            Card {
-                title: "Recent activity";
-                horizontal-stretch: 1;
-                AuditFeed { entries: root.audit; }
-            }
-        }
-
-        HorizontalLayout {
-            spacing: 10px;
-            AppButton {
-                text: "Open sites";
-                clicked => { root.navigate(Page.sites); }
-            }
-            AppButton {
-                text: "Start a terminal";
-                clicked => { root.navigate(Page.terminal); }
-            }
-            AppButton {
-                text: "Run a backup";
-                clicked => { root.navigate(Page.backups); }
             }
         }
     }

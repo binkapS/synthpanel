@@ -22,7 +22,13 @@ export component CronPage inherits Rectangle {
     callback delete-cron(string);
     callback run-cron(string);
 
+    // Size to the content instead of stretching to the viewport: the shell
+    // already owns page-level scrolling. `alignment: start` keeps every block
+    // packed under the header instead of spreading it down the screen.
+    vertical-stretch: 0;
+
     VerticalLayout {
+        alignment: start;
         spacing: 18px;
 
         PageHeader {
@@ -30,16 +36,22 @@ export component CronPage inherits Rectangle {
             subtitle: "Scheduled shell commands with a run log.";
         }
 
-        Notice { text: root.status; }
+        if root.status != "" : Notice { text: root.status; }
 
-        AppButton {
-            text: root.show-form ? "Hide form" : "New job";
-            primary: true;
-            clicked => { root.show-form = !root.show-form; }
+        // Actions live in a single right-aligned toolbar row.
+        HorizontalLayout {
+            alignment: end;
+            spacing: 10px;
+            AppButton {
+                text: root.show-form ? "Hide form" : "New job";
+                primary: true;
+                clicked => { root.show-form = !root.show-form; }
+            }
         }
 
         if root.show-form : Card {
             title: "Create a cron job";
+            vertical-stretch: 0;
             VerticalLayout {
                 spacing: 10px;
                 HorizontalLayout {
@@ -47,7 +59,7 @@ export component CronPage inherits Rectangle {
                     TextField {
                         label: "Expression";
                         text <=> root.new-expression;
-                        horizontal-stretch: 1;
+                        horizontal-stretch: 2;
                     }
                     TextField {
                         label: "User";
@@ -64,34 +76,39 @@ export component CronPage inherits Rectangle {
                     text <=> root.new-site;
                     hint: "Leave empty for a panel job.";
                 }
-            }
-            HorizontalLayout {
-                spacing: 10px;
-                AppButton {
-                    text: "Create";
-                    primary: true;
-                    clicked => {
-                        root.create-cron(root.new-expression, root.new-command, root.new-user, root.new-site, root.new-id);
-                        root.show-form = false;
+                HorizontalLayout {
+                    alignment: end;
+                    spacing: 10px;
+                    AppButton {
+                        text: "Cancel";
+                        clicked => { root.show-form = false; }
                     }
-                }
-                AppButton {
-                    text: "Cancel";
-                    clicked => { root.show-form = false; }
+                    AppButton {
+                        text: "Create";
+                        primary: true;
+                        clicked => {
+                            root.create-cron(root.new-expression, root.new-command, root.new-user, root.new-site, root.new-id);
+                            root.show-form = false;
+                        }
+                    }
                 }
             }
         }
 
         Card {
             title: "Jobs";
+            subtitle: root.jobs.length.to-fixed(0) + " configured";
+            vertical-stretch: 0;
             if root.jobs.length == 0 : Text {
                 text: "No cron jobs yet.";
                 font-size: 12px;
                 color: Theme.muted;
             }
-            for job in root.jobs : VerticalLayout {
-                spacing: 4px;
-                HorizontalLayout {
+            VerticalLayout {
+                spacing: 6px;
+                vertical-stretch: 0;
+                for job in root.jobs : HorizontalLayout {
+                    height: 38px;
                     spacing: 12px;
                     Text {
                         text: job.expression;
@@ -106,6 +123,7 @@ export component CronPage inherits Rectangle {
                         font-size: 12px;
                         color: Theme.muted;
                         overflow: elide;
+                        horizontal-stretch: 1;
                         vertical-alignment: center;
                     }
                     Text {
@@ -127,7 +145,6 @@ export component CronPage inherits Rectangle {
                         color: job.runs[0].exit-code == 0 ? Theme.success : Theme.danger;
                         vertical-alignment: center;
                     }
-                    Rectangle { horizontal-stretch: 1; background: transparent; }
                     IconButton {
                         icon: @image-url("../assets/icons/play.svg");
                         tooltip: "Run now";

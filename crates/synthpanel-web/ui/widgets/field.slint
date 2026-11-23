@@ -4,6 +4,9 @@
 import { CheckBox, ComboBox, LineEdit, TextEdit } from "std-widgets.slint";
 import { Theme } from "theme.slint";
 
+// Shared geometry for the label / control / hint stack. All form controls use
+// the same 32px input height and the same 6px rhythm so labels line up across
+// a row of fields.
 export component TextField inherits VerticalLayout {
     in property <string> label;
     in-out property <string> text;
@@ -13,13 +16,15 @@ export component TextField inherits VerticalLayout {
     in property <string> hint;
     callback accepted();
 
-    spacing: 4px;
+    spacing: 6px;
+    vertical-stretch: 0;
 
     if root.label != "" : Text {
         text: root.label;
         font-size: 12px;
         font-weight: 500;
         color: Theme.muted;
+        vertical-alignment: center;
     }
 
     LineEdit {
@@ -29,6 +34,7 @@ export component TextField inherits VerticalLayout {
         enabled: root.enabled;
         font-size: 13px;
         min-height: 32px;
+        vertical-stretch: 0;
         accepted => root.accepted();
     }
 
@@ -46,13 +52,15 @@ export component TextArea inherits VerticalLayout {
     in property <int> lines: 8;
     in property <bool> monospace: true;
 
-    spacing: 4px;
+    spacing: 6px;
+    vertical-stretch: 0;
 
     if root.label != "" : Text {
         text: root.label;
         font-size: 12px;
         font-weight: 500;
         color: Theme.muted;
+        vertical-alignment: center;
     }
 
     TextEdit {
@@ -60,6 +68,7 @@ export component TextArea inherits VerticalLayout {
         font-size: 12px;
         font-family: root.monospace ? "monospace" : "sans-serif";
         min-height: root.lines * 16px + 16px;
+        vertical-stretch: 0;
         wrap: no-wrap;
     }
 }
@@ -71,19 +80,23 @@ export component SelectField inherits VerticalLayout {
     in property <bool> enabled: true;
     callback selected(string);
 
-    spacing: 4px;
+    spacing: 6px;
+    vertical-stretch: 0;
 
     if root.label != "" : Text {
         text: root.label;
         font-size: 12px;
         font-weight: 500;
         color: Theme.muted;
+        vertical-alignment: center;
     }
 
     ComboBox {
         model: root.options;
         current-index <=> root.index;
         enabled: root.enabled;
+        min-height: 32px;
+        vertical-stretch: 0;
         selected(value) => { root.selected(value); }
     }
 }
@@ -92,6 +105,8 @@ export component Toggle inherits HorizontalLayout {
     in property <string> label;
     in-out property <bool> checked;
     spacing: 8px;
+    alignment: start;
+    vertical-stretch: 0;
 
     CheckBox {
         text: root.label;
@@ -105,12 +120,16 @@ export component TextInput inherits VerticalLayout {
     in property <bool> enabled: true;
     callback accepted();
 
+    alignment: center;
+
     LineEdit {
         text <=> root.text;
         placeholder-text: root.placeholder-text;
         enabled: root.enabled;
         font-family: "monospace";
         font-size: 13px;
+        min-height: 32px;
+        vertical-stretch: 0;
         accepted => root.accepted();
     }
 }

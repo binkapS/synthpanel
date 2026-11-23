@@ -13,6 +13,9 @@ component NavItem inherits Rectangle {
     callback clicked();
 
     height: 34px;
+    // Fixed-height rows must not absorb spare vertical space, otherwise every
+    // navigation item ends up a different height.
+    vertical-stretch: 0;
     border-radius: 8px;
     background: root.active ? Theme.accent-soft : (ta.has-hover ? Theme.surface-muted : transparent);
 
@@ -21,12 +24,23 @@ component NavItem inherits Rectangle {
         padding-right: 10px;
         spacing: 10px;
         alignment: start;
-        Image {
-            source: root.icon;
+
+        // The icon has an intrinsic size, so a nested layout is needed to
+        // centre it vertically inside the 34px row.
+        VerticalLayout {
             width: 16px;
-            height: 16px;
-            colorize: root.active ? Theme.accent : Theme.muted;
+            horizontal-stretch: 0;
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                horizontal-stretch: 0;
+                vertical-stretch: 0;
+                colorize: root.active ? Theme.accent : Theme.muted;
+            }
         }
+
         Text {
             text: root.label;
             font-size: 13px;
@@ -58,35 +72,50 @@ export component AppShell inherits Rectangle {
     HorizontalLayout {
         spacing: 0px;
 
-        // Sidebar
+        // ---- Sidebar ----------------------------------------------------
         Rectangle {
             width: 232px;
+            // Without an explicit stretch the sidebar shares the spare width
+            // with the main column and grows far beyond 232px.
+            horizontal-stretch: 0;
             background: Theme.surface;
-            border-width: 0px;
 
             VerticalLayout {
                 spacing: 0px;
 
                 Rectangle {
                     height: 64px;
+                    vertical-stretch: 0;
                     background: transparent;
                     HorizontalLayout {
                         padding-left: 18px;
+                        padding-right: 12px;
                         spacing: 10px;
-                        Rectangle {
+                        alignment: start;
+
+                        // Centre the logo badge on the header's vertical axis.
+                        VerticalLayout {
                             width: 30px;
-                            height: 30px;
-                            border-radius: 8px;
-                            background: Theme.accent-strong;
-                            Text {
-                                text: "SP";
-                                font-size: 11px;
-                                font-weight: 700;
-                                color: #ffffff;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                            horizontal-stretch: 0;
+                            alignment: center;
+                            Rectangle {
+                                width: 30px;
+                                height: 30px;
+                                border-radius: 8px;
+                                background: Theme.accent-strong;
+                                HorizontalLayout {
+                                    alignment: center;
+                                    Text {
+                                        text: "SP";
+                                        font-size: 11px;
+                                        font-weight: 700;
+                                        color: #ffffff;
+                                        vertical-alignment: center;
+                                    }
+                                }
                             }
                         }
+
                         Text {
                             text: "SynthPanel";
                             font-size: 15px;
@@ -100,6 +129,7 @@ export component AppShell inherits Rectangle {
                 Rectangle {
                     width: 100%;
                     height: 1px;
+                    vertical-stretch: 0;
                     background: Theme.border;
                 }
 
@@ -107,6 +137,7 @@ export component AppShell inherits Rectangle {
                     VerticalLayout {
                         padding: 10px;
                         spacing: 2px;
+                        alignment: start;
 
                         NavItem { label: "Dashboard"; icon: @image-url("../assets/icons/dashboard.svg"); active: root.current-page == Page.dashboard; clicked => root.navigate(Page.dashboard); }
                         NavItem { label: "Sites"; icon: @image-url("../assets/icons/globe.svg"); active: root.current-page == Page.sites || root.current-page == Page.site-detail; clicked => root.navigate(Page.sites); }
@@ -127,7 +158,7 @@ export component AppShell inherits Rectangle {
             }
         }
 
-        // Main column
+        // ---- Main column ------------------------------------------------
         Rectangle {
             background: transparent;
             VerticalLayout {
@@ -135,12 +166,17 @@ export component AppShell inherits Rectangle {
 
                 Rectangle {
                     height: 64px;
+                    // This is the big one: with the default stretch the 64px
+                    // header (and the 1px divider below) grew to fill all the
+                    // spare height, pushing the actual page to the bottom.
+                    vertical-stretch: 0;
                     background: Theme.surface;
-                    border-width: 0px;
                     HorizontalLayout {
                         padding-left: 20px;
                         padding-right: 20px;
                         spacing: 12px;
+                        alignment: stretch;
+
                         Text {
                             text: "Live server overview";
                             font-size: 12px;
@@ -152,6 +188,7 @@ export component AppShell inherits Rectangle {
                             icon: root.dark ? @image-url("../assets/icons/sun.svg") : @image-url("../assets/icons/moon.svg");
                             tooltip: root.dark ? "Switch to light theme" : "Switch to dark theme";
                             clicked => root.toggle-theme();
+                            cross-axis-self-alignment: center;
                         }
                         Text {
                             text: root.session.name;
@@ -159,24 +196,33 @@ export component AppShell inherits Rectangle {
                             color: Theme.muted;
                             vertical-alignment: center;
                         }
-                        Rectangle {
+                        VerticalLayout {
                             width: role.preferred-width + 16px;
-                            height: 20px;
-                            border-radius: 999px;
-                            background: Theme.surface-muted;
-                            role := Text {
-                                text: root.session.role;
-                                font-size: 10px;
-                                font-weight: 500;
-                                color: Theme.muted;
-                                horizontal-alignment: center;
-                                vertical-alignment: center;
+                            horizontal-stretch: 0;
+                            alignment: center;
+                            Rectangle {
+                                height: 20px;
+                                border-radius: 999px;
+                                background: Theme.surface-muted;
+                                HorizontalLayout {
+                                    padding-left: 8px;
+                                    padding-right: 8px;
+                                    alignment: center;
+                                    role := Text {
+                                        text: root.session.role;
+                                        font-size: 10px;
+                                        font-weight: 500;
+                                        color: Theme.muted;
+                                        vertical-alignment: center;
+                                    }
+                                }
                             }
                         }
                         IconButton {
                             icon: @image-url("../assets/icons/logout.svg");
                             tooltip: "Sign out";
                             clicked => root.logout();
+                            cross-axis-self-alignment: center;
                         }
                     }
                 }
@@ -184,13 +230,19 @@ export component AppShell inherits Rectangle {
                 Rectangle {
                     width: 100%;
                     height: 1px;
+                    vertical-stretch: 0;
                     background: Theme.border;
                 }
 
+                // ScrollView is the Flickable-based viewport for all pages.
                 ScrollView {
                     VerticalLayout {
                         padding: 22px;
+                        padding-bottom: 32px;
                         spacing: 18px;
+                        // Keep page content at the top; never distribute the
+                        // spare viewport height between page sections.
+                        alignment: start;
                         @children
                     }
                 }

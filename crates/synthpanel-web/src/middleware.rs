@@ -16,7 +16,7 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; \
      object-src 'none'; \
      frame-ancestors 'none'; \
      form-action 'self'; \
-     img-src 'self' data:; \
+     img-src 'self' data: blob:; \
      font-src 'self' data:; \
      style-src 'self' 'unsafe-inline'; \
      script-src 'self' 'wasm-unsafe-eval'; \

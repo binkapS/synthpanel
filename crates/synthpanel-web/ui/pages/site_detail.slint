@@ -4,6 +4,7 @@
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton } from "../widgets/button.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
 import { SiteDetail, SslStatus } from "../types.slint";
 
 export component SiteDetailPage inherits Rectangle {
@@ -17,74 +18,124 @@ export component SiteDetailPage inherits Rectangle {
     callback site-ssl(string);
     callback back();
 
-    VerticalLayout {
-        spacing: 18px;
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
 
-        HorizontalLayout {
-            alignment: space-between;
-            PageHeader {
-                title: root.detail.domain;
-                subtitle: root.detail.id;
+            HorizontalLayout {
+                spacing: 16px;
+                AppButton {
+                    text: "Back to sites";
+                    clicked => { root.back(); }
+                }
+                PageHeader {
+                    horizontal-stretch: 1;
+                    title: root.detail.domain;
+                    subtitle: root.detail.id;
+                }
             }
-            AppButton {
-                text: "Back to sites";
-                clicked => { root.back(); }
-            }
-        }
 
-        Notice { text: root.error; }
-        Notice { text: root.ssl-message; kind: "success"; }
+            if root.error != "" : Notice { text: root.error; }
+            if root.ssl-message != "" : Notice { text: root.ssl-message; kind: "success"; }
 
-        HorizontalLayout {
-            spacing: 16px;
+            HorizontalLayout {
+                spacing: 16px;
 
-            Card {
-                title: "Overview";
-                horizontal-stretch: 1;
-                VerticalLayout {
-                    spacing: 6px;
-                    Text { text: "Template: " + root.detail.template; font-size: 12px; color: Theme.text; }
-                    Text { text: "PHP: " + (root.detail.php-version == "" ? "—" : root.detail.php-version); font-size: 12px; color: Theme.text; }
-                    Text { text: "Document root: " + root.detail.document-root; font-size: 12px; color: Theme.text; }
-                    Text { text: "Pool user: " + root.detail.pool-user; font-size: 12px; color: Theme.text; }
-                    Text { text: "Aliases: " + (root.detail.aliases == "" ? "—" : root.detail.aliases); font-size: 12px; color: Theme.text; }
-                    Text { text: "Status: " + root.detail.status; font-size: 12px; color: Theme.text; }
+                Card {
+                    title: "Overview";
+                    horizontal-stretch: 1;
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Template"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.template; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "PHP"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.php-version == "" ? "—" : root.detail.php-version; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Document root"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.document-root; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Pool user"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.pool-user; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Aliases"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.aliases == "" ? "—" : root.detail.aliases; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Created"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.detail.created == "" ? "—" : root.detail.created; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Status"; width: 110px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            StatusBadge { status: root.detail.status; }
+                            Rectangle { horizontal-stretch: 1; }
+                        }
+                    }
+                }
+
+                Card {
+                    title: "SSL";
+                    horizontal-stretch: 1;
+                    VerticalLayout {
+                        spacing: 8px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Mode"; width: 90px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.ssl.ssl-mode; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        HorizontalLayout {
+                            spacing: 8px;
+                            Text { text: "Expires"; width: 90px; font-size: 12px; color: Theme.muted; vertical-alignment: center; }
+                            Text { text: root.ssl.expires == "" ? "—" : root.ssl.expires; font-size: 12px; color: Theme.text; horizontal-stretch: 1; overflow: elide; vertical-alignment: center; }
+                        }
+                        if root.ssl.expiring-soon : Text {
+                            text: "This certificate expires soon.";
+                            font-size: 11px;
+                            color: Theme.warning;
+                        }
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: end;
+                            padding-top: 4px;
+                            AppButton {
+                                text: "Issue certificate";
+                                primary: true;
+                                clicked => { root.site-ssl(root.id); }
+                            }
+                        }
+                    }
                 }
             }
 
             Card {
-                title: "SSL";
-                horizontal-stretch: 1;
-                VerticalLayout {
-                    spacing: 6px;
-                    Text { text: "Mode: " + root.ssl.ssl-mode; font-size: 12px; color: Theme.text; }
-                    Text { text: "Expires: " + (root.ssl.expires == "" ? "—" : root.ssl.expires); font-size: 12px; color: Theme.text; }
-                    if root.ssl.expiring-soon : Text {
-                        text: "This certificate expires soon.";
-                        font-size: 11px;
-                        color: Theme.warning;
+                title: "Lifecycle";
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+                    AppButton {
+                        text: root.detail.status == "active" ? "Suspend" : "Unsuspend";
+                        clicked => { root.site-action(root.id, root.detail.status == "active" ? "suspend" : "unsuspend"); }
                     }
                     AppButton {
-                        text: "Issue certificate";
-                        primary: true;
-                        clicked => { root.site-ssl(root.id); }
+                        text: "Delete site";
+                        danger: true;
+                        clicked => { root.site-action(root.id, "delete"); }
                     }
-                }
-            }
-        }
-
-        Card {
-            title: "Lifecycle";
-            HorizontalLayout {
-                spacing: 10px;
-                AppButton {
-                    text: root.detail.status == "active" ? "Suspend" : "Unsuspend";
-                    clicked => { root.site-action(root.id, root.detail.status == "active" ? "suspend" : "unsuspend"); }
-                }
-                AppButton {
-                    text: "Delete site";
-                    danger: true;
-                    clicked => { root.site-action(root.id, "delete"); }
                 }
             }
         }

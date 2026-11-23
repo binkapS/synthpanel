@@ -12,6 +12,11 @@ export component AppButton inherits Rectangle {
 
     height: 34px;
     width: label.preferred-width + 24px;
+    // Buttons are content-sized: without this they inherit the layout's
+    // default stretch, so a row of buttons all become different widths and a
+    // button in a form grows to the full height of the form.
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: 8px;
     border-width: 1px;
     border-color: root.primary
@@ -33,6 +38,8 @@ export component AppButton inherits Rectangle {
             color: !root.enabled
                 ? Theme.muted
                 : (root.primary ? #ffffff : (root.danger ? Theme.danger : Theme.text));
+            horizontal-alignment: center;
+            vertical-alignment: center;
         }
     }
 
@@ -53,6 +60,9 @@ export component AppButton inherits Rectangle {
         hovered when ta.has-hover && root.enabled && !root.primary: {
             background: root.danger ? Theme.danger-soft : Theme.surface-muted;
         }
+        primary-hovered when ta.has-hover && root.enabled && root.primary: {
+            background: Theme.accent;
+        }
         pressed when ta.pressed && root.enabled: {
             opacity: 0.85;
         }
@@ -68,17 +78,31 @@ export component IconButton inherits Rectangle {
 
     width: 34px;
     height: 34px;
+    // Icon buttons are fixed-size; the default stretch made them balloon in
+    // the header and in table rows.
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
     border-radius: 8px;
     border-width: 1px;
     border-color: Theme.border;
     background: root.danger ? Theme.danger-soft : Theme.surface;
     opacity: root.enabled ? 1 : 0.6;
 
-    Image {
-        source: root.icon;
-        width: 16px;
-        height: 16px;
-        colorize: root.danger ? Theme.danger : Theme.muted;
+    // An Image keeps its intrinsic size, so it needs a pair of layouts to be
+    // centred on both axes of the 34x34 button.
+    HorizontalLayout {
+        alignment: center;
+        VerticalLayout {
+            alignment: center;
+            Image {
+                source: root.icon;
+                width: 16px;
+                height: 16px;
+                horizontal-stretch: 0;
+                vertical-stretch: 0;
+                colorize: root.danger ? Theme.danger : Theme.muted;
+            }
+        }
     }
 
     ta := TouchArea {

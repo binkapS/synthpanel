@@ -12,8 +12,17 @@
         display: block !important;
         position: fixed !important;
         inset: 0 !important;
+        /* !important is required: winit writes inline width/height (and
+           min/max) in px onto the canvas when the Slint Window changes size.
+           Keeping the CSS size at 100% makes the canvas always cover the
+           viewport; winit's ResizeObserver then feeds that size back to Slint. */
         width: 100% !important;
         height: 100% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        max-width: none !important;
+        max-height: none !important;
+        box-sizing: border-box !important;
         touch-action: none;
         outline: none;
       }

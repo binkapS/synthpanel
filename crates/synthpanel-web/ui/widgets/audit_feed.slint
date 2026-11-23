@@ -7,6 +7,7 @@ import { AuditEntry } from "../types.slint";
 export component AuditFeed inherits VerticalLayout {
     in property <[AuditEntry]> entries;
     spacing: 10px;
+    alignment: start;
 
     if root.entries.length == 0 : Text {
         text: "No activity recorded yet.";
@@ -16,12 +17,17 @@ export component AuditFeed inherits VerticalLayout {
 
     for entry in root.entries : HorizontalLayout {
         spacing: 8px;
+        vertical-stretch: 0;
         Rectangle {
             width: 6px;
             height: 6px;
+            horizontal-stretch: 0;
+            vertical-stretch: 0;
+            // `y` is ignored on a layout child; centre the dot on the cross
+            // axis instead.
+            cross-axis-self-alignment: center;
             border-radius: 3px;
             background: Theme.accent;
-            y: 7px;
         }
         VerticalLayout {
             spacing: 1px;
