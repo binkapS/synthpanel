@@ -19,7 +19,7 @@ const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; \
      img-src 'self' data:; \
      font-src 'self' data:; \
      style-src 'self' 'unsafe-inline'; \
-     script-src 'self'; \
+     script-src 'self' 'wasm-unsafe-eval'; \
      connect-src 'self' ws: wss:";
 
 /// Endpoints that are reachable without a session (and therefore without a
