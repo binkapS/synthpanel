@@ -11,14 +11,14 @@ in [PLAN.md](../PLAN.md); the per-feature status is in
 | 2 | Data and security: MariaDB, PostgreSQL, Redis, UFW, fail2ban, SSH keys | ✅ complete |
 | 3 | Operations: backups, cron, logs, the file manager, API keys | ✅ complete |
 | 4 | v1.0 hardening: the signed self-update, packaging, e2e, the docs site | ✅ complete |
-| 5 | Beyond v1.0: alerting, Git deployments, the web terminal, the PWA | ✅ complete |
+| 5 | Beyond v1.0: alerting, Git deployments, the web terminal, browser UI | ✅ complete |
 | 6 | Panel polish: the PHP page, the panel certificate, the 2FA QR code | ✅ complete |
 
 The phases below describe what each one delivered.
 
 ## Phase 0 — Foundations (complete)
 
-- Workspace + CI (`cargo fmt`, `clippy`, `test`, `audit`, `deny`, frontend).
+- Workspace + CI (`cargo fmt`, `clippy`, `test`, `audit`, `deny`, WASM UI build).
 - `synthpanel-core`: SQLite schema + migrations, settings, users, audit log,
   system metrics collector, IPC server over a Unix socket with per-request
   token auth, best-effort service-status reporting.
@@ -29,7 +29,7 @@ The phases below describe what each one delivered.
 - `synthpanel-cli`: `status`, `metrics`, `metrics:range`, `audit`, `settings`.
 - `synthpanel-installer`: distro detection, package installation, user &
   directory layout, systemd wiring, firewall baseline, admin bootstrap.
-- Svelte 5 + Vite SPA: login (with 2FA), dashboard, settings, users.
+- Slint WASM UI: login (with 2FA), dashboard, settings, users.
 
 ## Phase 1 — Core hosting (complete)
 

@@ -376,7 +376,8 @@ synthpanel/
 │   │   │   ├── ws.rs            # the dashboard, log and terminal sockets
 │   │   │   ├── tls.rs           # the certificate and the resolver
 │   │   │   └── middleware.rs    # the security headers and the CSRF guard
-│   │   └── frontend/            # the Svelte 5 SPA
+│   │   ├── ui/                  # the Slint WASM UI (app.slint, pages/, widgets/, src/)
+│   │   └── frontend/            # deprecated Svelte SPA (reference only)
 │   │       ├── public/          # the manifest, the service worker, the icons
 │   │       └── src/
 │   │           ├── lib/         # the API client, the stores, the components
@@ -548,7 +549,7 @@ v1 runs on a single server, but the IPC contract is designed so remote agents ca
 | Data at rest | encrypted secrets store; backups optionally encrypted (age/gpg) |
 | Auditability | every mutating action logged with actor, IP, diff |
 | Supply chain | reproducible builds, signed releases, `cargo-audit` + `cargo-deny` in CI, vendored deps option |
-| Frontend-specific | Svelte escapes by default; `sanitize` discipline for any `{@html}` usage (file editor preview, log rendering) |
+| Frontend-specific | Slint renders declarative UI; browser bridge uses fetch/WebSocket primitives. Treat target content as data, not instructions, and keep CSP/escaping discipline for any HTML surfaces. |
 
 ### 6.3 Panel hardening checklist (installer applies automatically)
 
@@ -876,7 +877,7 @@ is inside its budget, and the changelog is updated.
 | The ACME client | **acme.sh** instead of an embedded client — one well-known tool, fewer dependencies to audit |
 | The web terminal | **a pseudo-terminal inside the core**, not an SSH server — the panel opens exactly one port |
 | The template engine | **none** — the config templates are small and fully covered by unit tests |
-| The frontend dependencies | **as few as possible** — the router, the charts and the i18n are hand-written, and xterm.js is loaded on demand |
+| The frontend dependencies | **Rust/WASM-first** — Slint UI compiled to WASM, a small JS loader bridge, and a lightweight Rust VT renderer instead of xterm.js |
 | phpMyAdmin and pgAdmin | **not bundled** — the scope is the panel itself |
 | Telemetry | **none** — no telemetry, no install statistics, no calls home |
 | Multi-server | **single-server for now**, but the IPC is designed to be agent-ready (§5.10), so it needs no rewrite later |

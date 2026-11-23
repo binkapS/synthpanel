@@ -1,5 +1,14 @@
 # Migration Plan: Svelte → Slint (WebAssembly)
 
+## Status
+
+Phases 0–6 implemented in commits `18f5868`, `9bcfb62`, `7f7c343`, `5784ee2`, `86cdc8c`, `e09351a`, `93ad92d`.
+
+- Slint WASM UI lives in `crates/synthpanel-web/ui/` and is embedded by `synthpanel-web`.
+- CI builds the WASM UI; the old Node frontend CI job was removed.
+- `crates/synthpanel-web/frontend/` remains as a deprecated reference until Slint acceptance parity and Playwright E2E selectors are migrated.
+- Remaining work: browser/runtime acceptance pass, canvas-friendly E2E strategy, terminal parity improvements, and optional WASM size optimization (`wasm-opt`).
+
 ## 1. What changes — and what doesn't
 
 ### Stays the same

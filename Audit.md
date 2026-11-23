@@ -6,7 +6,7 @@
 | **Commit** | `33386fe` (`33386fecbbfed90b1850f9673d9650a98776e6a7`) |
 | **Scope** | The panel: `crates/synthpanel-web` (HTTP API, session, CSRF, RBAC), `crates/synthpanel-core` (privileged daemon, IPC dispatch, file manager, cron, deployments, backups, updates), `crates/synthpanel-ipc` (protocol) |
 | **Method** | Manual code review of the whole request path (browser → web → Unix socket → core), plus a live proof of concept against the running panel (core + web started with the documented environment overrides) |
-| **Not covered** | The frontend bundle (Svelte), the installer, the packaging scripts, the documentation site, a live TLS deployment, the SFTP/S3 destinations against a real server, the ACME/Let's Encrypt flow, the SwiftShader/AV/host hardening outside the panel |
+| **Not covered** | The frontend WASM bundle (Slint), the installer, the packaging scripts, the documentation site, a live TLS deployment, the SFTP/S3 destinations against a real server, the ACME/Let's Encrypt flow, the SwiftShader/AV/host hardening outside the panel |
 | **Result** | **2 critical, 2 high, 3 medium, 5 low** findings. The two critical ones give a logged-in, non-admin account remote code execution as root on the host. |
 
 Every finding below was either reproduced against the running panel or traced

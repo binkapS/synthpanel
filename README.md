@@ -6,7 +6,7 @@ SynthPanel installs and manages a complete LEMP stack — Nginx, multi-version
 PHP-FPM, MariaDB/PostgreSQL, Redis — and lets you operate it from a clean web
 UI, a REST API or a CLI.
 
-It is written in **Rust** (backend) with a **Svelte 5** SPA (frontend), and it
+It is written in **Rust** (backend) with a **Slint** WebAssembly UI (frontend), and it
 runs as two processes: a small privileged core that owns the system state, and
 an unprivileged web process that talks to it over a Unix socket.
 
@@ -44,7 +44,7 @@ an unprivileged web process that talks to it over a Unix socket.
 | **Terminal** | A root shell in the browser. It runs in a pseudo-terminal inside the core — the panel deliberately does not open an SSH port. |
 | **Updates** | A signed self-update: download, verify the Ed25519 signature and the SHA-256 checksum, back up the binaries, replace them, health-check, roll back on failure. |
 | **API keys** | `sp_<prefix>_<secret>` bearer tokens with scopes, stored as SHA-256 hashes. |
-| **PWA** | A web application manifest and a service worker, so the panel installs and opens instantly. |
+| **Browser UI** | A Slint WebAssembly interface served by the panel itself — no Node.js runtime in production. |
 
 Everything above is available in the **UI**, the **REST API** and the **CLI**.
 
@@ -82,11 +82,14 @@ VERSION=0.1.0 packaging/build-deb.sh
 sudo dpkg -i target/debian/synthpanel_0.1.0_amd64.deb
 ```
 
-The panel needs a frontend build before the web crate compiles — it embeds
-the SPA:
+The web crate embeds the UI from `crates/synthpanel-web/ui/dist`. `build.rs`
+builds it automatically when the wasm toolchain is available, or you can build
+it explicitly:
 
 ```sh
-cd crates/synthpanel-web/frontend && npm ci && npm run build
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130
+cd crates/synthpanel-web && bash ui/build-ui.sh
 ```
 
 ### Requirements
@@ -150,7 +153,7 @@ The full reference lives in the [documentation site](./docs-site) and in
 ```
                   ┌───────────────────────────────────────┐
    browser ──────▶│ synthpanel-web  (unprivileged user)   │
-                  │  axum + rustls · REST API · SPA        │
+                  │  axum + rustls · REST API · WASM UI    │
                   └───────────────┬───────────────────────┘
                                   │  Unix socket + shared token
                                   │  (typed JSON, one request per line)
@@ -175,8 +178,11 @@ The full reference lives in the [documentation site](./docs-site) and in
 ## Development
 
 ```sh
-# The frontend (the web crate embeds the built SPA)
-cd crates/synthpanel-web/frontend && npm ci && npm run build && cd -
+# The UI (built automatically by cargo build -p synthpanel-web when the
+# wasm32 target and wasm-bindgen-cli are installed)
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130
+cd crates/synthpanel-web && bash ui/build-ui.sh && cd ../..
 
 # The workspace
 cargo build --workspace
@@ -228,7 +234,7 @@ the systemd units set them explicitly:
 | `bash tests/chaos.sh` | The apply pipeline: a failing `nginx -t` must never reach the server |
 | `bash tests/update.sh` | The signed self-update: apply, history, tampered envelope rejection |
 | `bash e2e/run.sh` | Playwright: the user journeys through a real browser |
-| `npm run build` (frontend) | The bundle stays below 150 kB gzip |
+| `bash crates/synthpanel-web/ui/build-ui.sh` | Rebuilds the Slint WASM UI embedded by `synthpanel-web` |
 
 The quality gates that run in CI: `cargo fmt --check`, `cargo clippy
 --workspace --all-targets -- -D warnings`, `cargo test --workspace`,
@@ -241,7 +247,7 @@ and the docs build. See [`.github/workflows/ci.yml`](./.github/workflows/ci.yml)
 crates/
   synthpanel-ipc        the protocol shared by core, web and CLI
   synthpanel-core       the privileged daemon (root, Unix socket only)
-  synthpanel-web        the REST API and the embedded Svelte 5 SPA
+  synthpanel-web        the REST API and the embedded Slint WASM UI
   synthpanel-cli        the `synthpanel` command-line interface
   synthpanel-installer  the one-command bootstrap
 packaging/
