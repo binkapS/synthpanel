@@ -47,7 +47,7 @@ The design is deliberately inspired by **CloudPanel**, which proves that a contr
 - **Simple to install** — one command, clean OS, five minutes
 - **Uncluttered** — a focused UI that does the essentials extremely well
 
-SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Svelte 5** SPA (frontend), targeting a panel that is fast, memory-safe, and pleasant to operate.
+SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAssembly UI (frontend), targeting a panel that is fast, memory-safe, and pleasant to operate.
 
 ### Target outcomes
 
@@ -275,7 +275,7 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Svelte 5** SP
                          ┌────────────────────────────┐
                          │           Browser          │
                          │   https://<host>:8443      │
-                         │    Svelte 5 SPA (TLS)      │
+                         │   Slint WASM UI (TLS)      │
                          └─────────────┬──────────────┘
                                        │
                          ┌─────────────▼──────────────┐
@@ -327,25 +327,18 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Svelte 5** SP
 | Mail | a small SMTP client over tokio-rustls | STARTTLS and AUTH, or a local MTA through `sendmail` |
 | QR codes | qrcodegen | rendered server-side as an SVG, so the bundle stays small |
 | Process control | systemctl (via the core) | systemd is the service manager on all target distros |
-| **Frontend framework** | **Svelte 5 + TypeScript** | compile-time reactivity, tiny runtime, minimal bundle — matches the panel's no-bloat ethos |
-| Build tool | Vite | fast dev server, small optimized production builds |
-| Routing | a small History-API router (`lib/router.ts`) | 40 lines instead of a dependency |
-| State | Svelte 5 runes and stores | built in, no state library needed |
-| Data layer | a typed `fetch` wrapper (`lib/api.ts`) | the API is small; caching would be premature |
-| Charts | hand-written SVG sparklines | no chart library, a few kilobytes instead of tens |
-| Terminal | xterm.js, loaded on demand | the emulator is a separate chunk, the rest of the panel stays at ~57 kB gzip |
-| Styling | Tailwind CSS | utility-first, small production bundle |
-| Icons | lucide-svelte | clean line icons, tree-shaken |
-| i18n | a small store (`lib/i18n.ts`) | English is the reference locale, other locales are a dictionary |
+| **Frontend framework** | **Slint 1.19 (compiled to WASM)** | a Rust-native UI compiled to WebAssembly; the browser loads a small loader + the WASM blob, no Node/npm toolchain in production |
+| WASM build | `cargo build --target wasm32-unknown-unknown` + `wasm-bindgen --target web` | reproducible Rust-only build; the output is embedded with `include_dir!` |
+| Browser bridge | `ui/web/slint-loader.js` | same-origin fetch with cookies/CSRF, WebSocket bridge, localStorage/theme; keeps browser primitives in JS, UI logic in Rust |
+| Routing / state | Slint `Page` enum + Rust `Bridge` state | navigation is a property; async API results are pushed into Slint properties/models from Rust |
+| Charts | SVG sparkline path computed in Rust | no chart library; the path is bound to a Slint `Path` element |
+| Terminal | lightweight VT100 renderer in Rust (`ui/src/terminal.rs`) | renders PTY output as styled terminal cells over the existing `/ws/terminal/{id}` protocol |
 
-> **Why Svelte over Vue:** no virtual DOM, so the compiled bundle is smaller and
-> the runtime overhead is near zero — ideal for a panel that should feel instant
-> while staying invisible on the server. Runes (`$state`, `$derived`, `$effect`)
-> give fine-grained reactivity with far less boilerplate than stores or Pinia.
+> **Why Slint + WASM:** the panel ships as a single HTTPS process. Compiling the UI to WASM keeps that property while removing Node/npm from the build pipeline and letting the UI share Rust types and tooling with the rest of the workspace. The trade-off is a larger initial payload than the old Svelte bundle; the WASM artifact is built in release mode and embedded in `synthpanel-web`.
 >
-> **Why so much hand-written?** The panel ships a fixed set of pages that talk to
-> one API. Every dependency that replaces thirty lines of code also has to be
-> audited, updated and kept inside the bundle budget.
+> **Migration note:** the previous Svelte 5 SPA is retained under
+> `crates/synthpanel-web/frontend/` as a deprecated reference until the Slint UI
+> reaches full acceptance parity.
 
 ### 5.4 Repository layout
 
@@ -739,25 +732,27 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
 - **i18n ready**: the navigation and the login go through the `$t` store, so
   another locale is a dictionary and an entry in the settings.
 
-### 9.3 Frontend architecture (Svelte 5)
+### 9.3 Frontend architecture (Slint WASM)
 
-- **SPA served by axum**: Vite builds the static assets, and the web binary
-  embeds them with `include_dir!`. There is no Node process in production.
-- **Routing**: a small History-API router (`lib/router.ts`). Every path that is
-  not an API route serves `index.html`, so a deep link works on a fresh reload.
-- **State**: Svelte 5 runes (`$state`, `$derived`) for the local state of a
-  component, and a handful of stores for the session, the theme and the
-  locale.
-- **Data layer**: a typed `fetch` wrapper that attaches the CSRF token, parses
-  the error envelope and throws an `ApiError`.
-- **Realtime**: `lib/socket.ts` opens a WebSocket and reconnects on its own;
-  the dashboard and the log viewer use it, everything else polls.
-- **Components**: small, composable primitives in `src/lib/components`
-  (`Card`, `StatCard`, `StatusBadge`, `EmptyState`, `Sparkline`, …).
-- **Charts**: hand-written SVG sparklines — no chart library.
-- **The terminal**: `xterm.js`, imported dynamically, so its ~68 kB gzip only
-  reaches the browser when the terminal page is opened.
-- **i18n**: every string that the navigation and the login use goes through
+- **WASM app served by axum**: `ui/build-ui.sh` compiles the Slint UI for
+  `wasm32-unknown-unknown` and runs `wasm-bindgen --target web`; the web binary
+  embeds `ui/dist` with `include_dir!`. There is no Node process in production.
+- **Routing**: a Slint `Page` enum on `AppWindow`. Navigation is a callback that
+  sets `current-page` and loads the page data through the Rust bridge.
+- **State**: Slint `property` values for view state, Rust `Bridge` for async
+  runtime state. Page loaders call the REST API through `window.synthpanel_api`
+  and push JSON-converted models into Slint properties.
+- **Realtime**: the JS bridge owns WebSocket connections; Rust registers
+  `window.synthpanel_socket_message` / `_close` callbacks and dispatches
+  dashboard snapshots and terminal output into Slint models.
+- **Components**: reusable `.slint` widgets in `ui/widgets/` (`Card`,
+  `StatCard`, `StatusBadge`, `Sparkline`, `AppShell`, form fields, …).
+- **Charts**: SVG sparkline paths computed in Rust and bound to Slint `Path`.
+- **The terminal**: a lightweight VT100 renderer in Rust (`ui/src/terminal.rs`)
+  renders PTY output as styled cells over the existing `/ws/terminal/{id}`
+  WebSocket protocol.
+- **i18n**: page copy is currently English; the Slint layout keeps user-visible
+  strings in `.slint` files so locale extraction can be added as a follow-up.
   the `$t` store. English is the reference locale.
 
 ### 9.4 Key screens
@@ -799,7 +794,7 @@ per-phase detail and the remaining gaps live in
 | Level | Tooling | Focus | Status |
 |---|---|---|---|
 | Backend unit | `cargo test` | config rendering, parsers, crypto, the alerting and deployment engines, the terminal | ✅ |
-| Frontend | `npm run check` | the Svelte and TypeScript types | ✅ |
+| Frontend | `cargo check --target wasm32-unknown-unknown` (ui) | the Slint UI and WASM bridge compile | ✅ |
 | Integration | `tests/smoke.sh` | the whole panel over the real API: login, sites, backups, cron, logs, files, API keys, alerts, deployments, the terminal | ✅ |
 | Chaos | `tests/chaos.sh` | a failing `nginx -t` must never reach the server | ✅ |
 | Upgrade | `tests/update.sh` | a signed release, the apply, the history, a tampered envelope | ✅ |

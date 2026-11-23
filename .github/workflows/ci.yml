@@ -18,10 +18,12 @@ jobs:
         run: |
           rustup toolchain install stable
           rustup default stable
+          rustup target add wasm32-unknown-unknown
           rustup component add clippy rustfmt
 
-      - name: Install audit & deny
+      - name: Install wasm-bindgen & audit/deny
         run: |
+          cargo install -q wasm-bindgen-cli --version 0.2.130
           cargo install -q cargo-audit
           cargo install -q cargo-deny
 
@@ -52,26 +54,6 @@ jobs:
       - name: Chaos test (apply pipeline rollback)
         run: tests/chaos.sh
 
-  frontend:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: crates/synthpanel-web/frontend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: crates/synthpanel-web/frontend
-        run: npm ci
-
-      - name: Type-check & build
-        working-directory: crates/synthpanel-web/frontend
-        run: |
-          npx svelte-check --tsconfig ./tsconfig.json --fail-on-warn
-          npm run build
-
   e2e:
     runs-on: ubuntu-24.04
     steps:
@@ -81,16 +63,18 @@ jobs:
         run: |
           rustup toolchain install stable
           rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen
+        run: cargo install -q wasm-bindgen-cli --version 0.2.130
 
       - uses: actions/setup-node@v4
         with:
           node-version: 24
 
-      - name: Build frontend
-        working-directory: crates/synthpanel-web/frontend
-        run: |
-          npm ci
-          npm run build
+      - name: Build WASM UI
+        working-directory: crates/synthpanel-web
+        run: bash ui/build-ui.sh
 
       - name: Install Playwright
         working-directory: e2e
