@@ -104,6 +104,11 @@ export component SecurityPage inherits Rectangle {
                     vertical-alignment: center;
                 }
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+                if jail.banned-now > 0 : AppButton {
+                    text: "Unban 127.0.0.1";
+                    danger: true;
+                    clicked => { root.unban(jail.name, "127.0.0.1"); }
+                }
             }
         }
 
@@ -130,7 +135,7 @@ export component SecurityPage inherits Rectangle {
                     text: "Add key";
                     primary: true;
                     clicked => {
-                        root.add-ssh-key(root.key-label, root.key-value, "root");
+                        root.add-ssh-key(root.key-label, root.key-value, "synthpanel");
                         root.key-label = "";
                         root.key-value = "";
                     }

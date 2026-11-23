@@ -293,20 +293,40 @@ pub fn to_ssh_keys(body: &Value) -> Vec<SshKeyRow> {
 }
 
 pub fn to_backups(body: &Value) -> Vec<BackupRow> {
-    objects(body, "backups")
+    // /api/v1/backups wraps the rows as {"backups": [...], "schedules": [...]};
+    // the core's raw list is a bare array.
+    let source = if body.get("backups").is_some() {
+        body
+    } else {
+        return objects(body, "backups")
+            .into_iter()
+            .map(backup_row_from)
+            .collect();
+    };
+    objects(source, "backups")
         .into_iter()
-        .map(|item| BackupRow {
-            id: str_(item, "id"),
-            name: str_(item, "name"),
-            kind: str_(item, "kind"),
-            status: str_(item, "status"),
-            size: num(item, "size"),
-            size_label: format_bytes(num(item, "size")).into(),
-            created: opt_str(item, "created_at"),
-            encrypted: bool_(item, "encrypted"),
-            error: opt_str(item, "error"),
-        })
+        .map(backup_row_from)
         .collect()
+}
+
+fn backup_row_from(item: &Value) -> BackupRow {
+    BackupRow {
+        id: str_(item, "id"),
+        // The REST layer does not carry a display name; fall back to the
+        // archive location so the row is not empty.
+        name: if str_(item, "name").is_empty() {
+            str_(item, "location")
+        } else {
+            str_(item, "name")
+        },
+        kind: str_(item, "kind"),
+        status: str_(item, "status"),
+        size: num(item, "size"),
+        size_label: format_bytes(num(item, "size")).into(),
+        created: opt_str(item, "created_at"),
+        encrypted: bool_(item, "encrypted"),
+        error: opt_str(item, "error"),
+    }
 }
 
 pub fn to_schedules(body: &Value) -> Vec<ScheduleRow> {
@@ -421,7 +441,9 @@ pub fn to_file_rows(body: &Value) -> Vec<FileRow> {
 }
 
 pub fn to_deployments(body: &Value) -> Vec<DeploymentRow> {
-    objects(body, "deployments")
+    // /api/v1/deployments wraps the rows; the IPC raw list is a bare array.
+    let source = body.get("deployments").cloned().unwrap_or_else(|| body.clone());
+    objects(&source, "deployments")
         .into_iter()
         .map(|item| DeploymentRow {
             id: str_(item, "id"),

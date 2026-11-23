@@ -66,7 +66,7 @@ export component UsersPage inherits Rectangle {
                 }
                 HorizontalLayout {
                     spacing: 12px;
-                    TextField {
+                    if root.edit-id == "" : TextField {
                         label: "Password";
                         text <=> root.new-password;
                         password: true;

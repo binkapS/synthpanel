@@ -114,6 +114,19 @@ export component CronPage inherits Rectangle {
                         color: Theme.muted;
                         vertical-alignment: center;
                     }
+                    Text {
+                        text: "last " + (job.last-status == "" ? "—" : job.last-status);
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    if job.runs.length > 0 : Text {
+                        text: job.runs[0].exit-code.to-fixed(0) + " · " + job.runs[0].duration.to-fixed(0) + " ms";
+                        font-size: 11px;
+                        font-family: "monospace";
+                        color: job.runs[0].exit-code == 0 ? Theme.success : Theme.danger;
+                        vertical-alignment: center;
+                    }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
                     IconButton {
                         icon: @image-url("../assets/icons/play.svg");

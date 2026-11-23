@@ -129,6 +129,20 @@ export component DeploymentsPage inherits Rectangle {
                     StatusBadge {
                         status: deployment.enabled ? "enabled" : "disabled";
                     }
+                    Text {
+                        text: deployment.runs.length.to-fixed(0) + " run(s)";
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    if deployment.runs.length > 0 : Text {
+                        text: deployment.runs[0].commit;
+                        font-size: 11px;
+                        font-family: "monospace";
+                        color: Theme.muted;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
                     Rectangle { horizontal-stretch: 1; background: transparent; }
                     IconButton {
                         icon: @image-url("../assets/icons/play.svg");

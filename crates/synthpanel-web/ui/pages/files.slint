@@ -14,7 +14,7 @@ export component FilesPage inherits Rectangle {
     in-out property <string> content;
 
     private property <bool> editing: false;
-    private property <string> scope: "site";
+    private property <string> scope: "www";
     private property <string> new-name: "";
 
     callback path-changed(string);
@@ -134,12 +134,18 @@ export component FilesPage inherits Rectangle {
                 }
                 if !entry.is-directory : IconButton {
                     icon: @image-url("../assets/icons/refresh.svg");
-                    tooltip: "Edit";
+                    tooltip: "Open in editor";
                     clicked => { root.file-content(root.scope, entry.path); }
                 }
-                IconButton {
+                if !entry.is-directory : IconButton {
                     icon: @image-url("../assets/icons/trash.svg");
                     tooltip: "Delete";
+                    danger: true;
+                    clicked => { root.file-delete(root.scope, entry.path); }
+                }
+                if entry.is-directory : IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Delete folder";
                     danger: true;
                     clicked => { root.file-delete(root.scope, entry.path); }
                 }

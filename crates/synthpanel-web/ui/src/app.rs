@@ -491,7 +491,12 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_backup_action(move |id, action, passphrase| {
         let b = Rc::clone(&b);
-        let body = serde_json::json!({ "passphrase": passphrase.as_str() });
+        // verify and restore accept an optional passphrase; empty stays null.
+        let body = serde_json::json!({
+            "passphrase": passphrase.as_str().is_empty()
+                .then_some(serde_json::Value::Null)
+                .or_else(|| Some(serde_json::json!(passphrase.as_str()))),
+        });
         let _ = slint::spawn_local(async move {
             match http("POST", &format!("/api/v1/backups/{id}/{action}"), Some(body)).await {
                 Ok(_) => {
