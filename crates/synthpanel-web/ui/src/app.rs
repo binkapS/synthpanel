@@ -25,6 +25,9 @@ fn model<T: Clone + 'static>(items: Vec<T>) -> slint::ModelRc<T> {
 /// Per-window runtime state.
 pub struct Bridge {
     app: RefCell<Rc<AppWindow>>,
+    /// The last dashboard metrics snapshot, kept so the next one can be
+    /// converted into a network *rate* (the core reports byte counters).
+    prev_snapshot: RefCell<Option<serde_json::Value>>,
 }
 
 pub fn install() -> Result<(), JsValue> {
@@ -37,6 +40,7 @@ pub fn install() -> Result<(), JsValue> {
 
     let bridge = Bridge {
         app: RefCell::new(app.clone()),
+        prev_snapshot: RefCell::new(None),
     };
     let bridge = Rc::new(bridge);
 
@@ -1101,10 +1105,10 @@ fn load_dashboard(bridge: &Rc<Bridge>) {
                 let mem: Vec<f32> = points
                     .iter()
                     .filter_map(|point| {
-                        point
-                            .get("mem_used_mb")
-                            .and_then(serde_json::Value::as_f64)
-                            .map(|value| value as f32)
+                        let used = point.get("mem_used")?.as_f64()? as f32;
+                        let total = point.get("mem_total")?.as_f64()? as f32;
+                        let percent = if total > 0.0 { used / total * 100.0 } else { 0.0 };
+                        Some(percent)
                     })
                     .collect();
                 app.set_dash_cpu_spark(models::sparkline_path(&cpu).into());
@@ -1406,12 +1410,44 @@ impl Bridge {
     fn on_socket_message(&self, id: u32, data: &str) {
         let value: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
         match id {
-            1 => {
-                let snapshot = models::metric_snapshot(&value);
-                if !snapshot.host.is_empty() {
-                    self.app.borrow_mut().set_dash_snapshot(snapshot);
+            1 => match value.get("type").and_then(serde_json::Value::as_str) {
+                Some("snapshot") => {
+                    let metrics = value.get("metrics").cloned().unwrap_or_default();
+                    if let Some(previous) = self.prev_snapshot.borrow().clone() {
+                        let (rx, tx) = models::network_rate(&previous, &metrics);
+                        let mut body = metrics.clone();
+                        if let serde_json::Value::Object(map) = &mut body {
+                            map.insert("net_rx".into(), serde_json::json!(rx));
+                            map.insert("net_tx".into(), serde_json::json!(tx));
+                        }
+                        self.prev_snapshot.borrow_mut().replace(metrics.clone());
+                        let snapshot = models::metric_snapshot(&body);
+                        if !snapshot.host.is_empty() {
+                            self.app.borrow_mut().set_dash_snapshot(snapshot);
+                        }
+                    } else {
+                        self.prev_snapshot.borrow_mut().replace(metrics.clone());
+                        let snapshot = models::metric_snapshot(&metrics);
+                        if !snapshot.host.is_empty() {
+                            self.app.borrow_mut().set_dash_snapshot(snapshot);
+                        }
+                    }
+                    if let Some(services) = value.get("services") {
+                        self.app.borrow_mut()
+                            .set_dash_services(model(models::to_services(services)));
+                    }
                 }
-            }
+                Some("error") => {
+                    self.app.borrow_mut().set_dash_status(
+                        value.get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("metrics stream error")
+                            .to_string()
+                            .into(),
+                    );
+                }
+                _ => {}
+            },
             2 => match value.get("type").and_then(serde_json::Value::as_str) {
                 Some("output") => {
                     let output = value.get("data").and_then(serde_json::Value::as_str).unwrap_or_default();

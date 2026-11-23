@@ -113,33 +113,61 @@ pub fn user_session(user: &Value) -> Session {
     }
 }
 
+/// Convert a metrics snapshot (the REST envelope is a bare object; the
+/// WebSocket frame carries it under `"metrics"`).
+///
+/// Units as produced by the core: memory in bytes, disk used as a 0-100
+/// percentage, disk total in bytes, network counters as byte totals.
 pub fn metric_snapshot(body: &Value) -> MetricSnapshot {
     let mut snapshot = MetricSnapshot::default();
-    let source = if body.get("cpu").is_some() {
-        body
-    } else {
+    if body.get("cpu").is_none() {
         return snapshot;
-    };
-    snapshot.host = opt_str(source, "host");
-    snapshot.cpu = num(source, "cpu");
-    snapshot.load1 = num(source, "load1");
-    snapshot.mem_used = num(source, "mem_used_mb");
-    snapshot.mem_total = num(source, "mem_total_mb");
-    snapshot.disk_used = num(source, "disk_used_gb");
-    snapshot.disk_total = num(source, "disk_total_gb");
-    snapshot.net_rx = num(source, "net_rx_mbps");
-    snapshot.net_tx = num(source, "net_tx_mbps");
+    }
+    snapshot.host = opt_str(body, "host");
+    snapshot.cpu = num(body, "cpu");
+    snapshot.load1 = num(body, "load1");
+    snapshot.mem_used = num(body, "mem_used") / 1048576.0; // bytes → MiB
+    snapshot.mem_total = num(body, "mem_total") / 1048576.0;
+    snapshot.disk_used = num(body, "disk_used"); // already a percentage
+    snapshot.disk_total = num(body, "disk_total") / 1073741824.0; // bytes → GiB
+    snapshot.net_rx = num(body, "net_rx"); // byte total, not a rate
+    snapshot.net_tx = num(body, "net_tx");
+    snapshot.ts = int(body, "ts");
     snapshot
 }
 
+/// Network rate in bytes/second between two consecutive snapshots.
+pub fn network_rate(previous: &Value, current: &Value) -> (f32, f32) {
+    let previous_ts = int(previous, "ts") as i64;
+    let current_ts = int(current, "ts") as i64;
+    let seconds = ((current_ts - previous_ts).max(1)) as f32;
+    let rx = (num(current, "net_rx") - num(previous, "net_rx")) / seconds;
+    let tx = (num(current, "net_tx") - num(previous, "net_tx")) / seconds;
+    (rx.max(0.0), tx.max(0.0))
+}
+
 pub fn to_services(body: &Value) -> Vec<Service> {
-    objects(body, "services")
+    service_items(body)
         .into_iter()
         .map(|item| Service {
             unit: str_(item, "unit"),
             status: str_(item, "status"),
         })
         .collect()
+}
+
+/// The REST envelope wraps the array as `{"services": [...]}`; the
+/// WebSocket snapshot carries the bare array.
+fn service_items(body: &Value) -> Vec<&Value> {
+    if body.is_array() {
+        return body
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item.is_object())
+            .collect();
+    }
+    objects(body, "services")
 }
 
 pub fn to_audit(body: &Value) -> Vec<AuditEntry> {
