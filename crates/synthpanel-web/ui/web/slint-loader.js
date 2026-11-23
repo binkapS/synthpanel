@@ -103,7 +103,16 @@ window.synthpanel_api = {
 async function boot() {
   try {
     const module = await import('./pkg/synthpanel_ui.js');
-    await module.default();
+    // Slint's winit backend runs the event loop until the browser unloads the
+    // page. It exits the Rust call stack by throwing a JS exception; that is
+    // expected on the web and must not be reported as a startup failure.
+    try {
+      await module.default();
+    } catch (error) {
+      const message = error && error.message ? error.message : String(error);
+      if (message.includes('Using exceptions for control flow')) return;
+      throw error;
+    }
   } catch (error) {
     console.error('SynthPanel failed to start', error);
     const box = document.getElementById('boot-error');

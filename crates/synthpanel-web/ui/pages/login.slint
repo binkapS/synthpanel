@@ -23,9 +23,12 @@ export component LoginPage inherits Rectangle {
         alignment: center;
         spacing: 0px;
 
-        Rectangle {
-            width: 360px;
-            background: transparent;
+        HorizontalLayout {
+            alignment: center;
+
+            Rectangle {
+                width: 360px;
+                background: transparent;
             VerticalLayout {
                 spacing: 18px;
 
@@ -116,11 +119,12 @@ export component LoginPage inherits Rectangle {
                     }
                 }
 
-                Text {
-                    text: "SynthPanel · self-hosted server control panel";
-                    font-size: 11px;
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                    Text {
+                        text: "SynthPanel · self-hosted server control panel";
+                        font-size: 11px;
+                        color: Theme.muted;
+                        horizontal-alignment: center;
+                    }
                 }
             }
         }
