@@ -23,104 +23,108 @@ export component LoginPage inherits Rectangle {
         alignment: center;
         spacing: 0px;
 
-        Rectangle {
-            width: 360px;
-            background: transparent;
-            VerticalLayout {
-                spacing: 18px;
+        HorizontalLayout {
+            alignment: center;
 
+            Rectangle {
+                width: 360px;
+                background: transparent;
                 VerticalLayout {
-                    spacing: 8px;
-                    Rectangle {
-                        width: 46px;
-                        height: 46px;
-                        border-radius: 12px;
-                        background: Theme.accent-strong;
-                        Text {
-                            text: "SP";
-                            font-size: 15px;
-                            font-weight: 700;
-                            color: #ffffff;
-                            horizontal-alignment: center;
-                            vertical-alignment: center;
-                        }
-                    }
-                    Text {
-                        text: root.needs-code ? "Two-factor verification" : "Sign in to SynthPanel";
-                        font-size: 21px;
-                        font-weight: 600;
-                        color: Theme.text;
-                        horizontal-alignment: center;
-                    }
-                    Text {
-                        text: root.needs-code
-                            ? "Enter the 6-digit code from your authenticator app."
-                            : "Manage your server from a single place.";
-                        font-size: 13px;
-                        color: Theme.muted;
-                        horizontal-alignment: center;
-                        wrap: word-wrap;
-                    }
-                }
+                    spacing: 18px;
 
-                Rectangle {
-                    border-radius: 12px;
-                    background: Theme.surface;
-                    border-width: 1px;
-                    border-color: Theme.border;
                     VerticalLayout {
-                        padding: 20px;
-                        spacing: 12px;
-
-                        if root.needs-code : TextField {
-                            label: "Authentication code";
-                            text <=> root.code;
-                            placeholder: "000000";
-                            hint: "The code changes every 30 seconds.";
-                            accepted => root.verify(root.code);
-                        }
-                        if !root.needs-code : TextField {
-                            label: "Email";
-                            text <=> root.email;
-                            placeholder: "you@example.com";
-                            accepted => root.login(root.email, root.password);
-                        }
-                        if !root.needs-code : TextField {
-                            label: "Password";
-                            text <=> root.password;
-                            placeholder: "••••••••";
-                            password: true;
-                            accepted => root.login(root.email, root.password);
-                        }
-
-                        Notice { text: root.error; }
-
-                        AppButton {
-                            text: root.busy ? "Please wait…" : (root.needs-code ? "Verify" : "Sign in");
-                            primary: true;
-                            enabled: !root.busy;
-                            clicked => {
-                                if (root.needs-code) {
-                                    root.verify(root.code);
-                                } else {
-                                    root.login(root.email, root.password);
-                                }
+                        spacing: 8px;
+                        Rectangle {
+                            width: 46px;
+                            height: 46px;
+                            border-radius: 12px;
+                            background: Theme.accent-strong;
+                            Text {
+                                text: "SP";
+                                font-size: 15px;
+                                font-weight: 700;
+                                color: #ffffff;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
                             }
                         }
-
-                        if root.needs-code : AppButton {
-                            text: "Use a different account";
-                            enabled: !root.busy;
-                            clicked => root.reset();
+                        Text {
+                            text: root.needs-code ? "Two-factor verification" : "Sign in to SynthPanel";
+                            font-size: 21px;
+                            font-weight: 600;
+                            color: Theme.text;
+                            horizontal-alignment: center;
+                        }
+                        Text {
+                            text: root.needs-code
+                                ? "Enter the 6-digit code from your authenticator app."
+                                : "Manage your server from a single place.";
+                            font-size: 13px;
+                            color: Theme.muted;
+                            horizontal-alignment: center;
+                            wrap: word-wrap;
                         }
                     }
-                }
 
-                Text {
-                    text: "SynthPanel · self-hosted server control panel";
-                    font-size: 11px;
-                    color: Theme.muted;
-                    horizontal-alignment: center;
+                    Rectangle {
+                        border-radius: 12px;
+                        background: Theme.surface;
+                        border-width: 1px;
+                        border-color: Theme.border;
+                        VerticalLayout {
+                            padding: 20px;
+                            spacing: 12px;
+
+                            if root.needs-code : TextField {
+                                label: "Authentication code";
+                                text <=> root.code;
+                                placeholder: "000000";
+                                hint: "The code changes every 30 seconds.";
+                                accepted => root.verify(root.code);
+                            }
+                            if !root.needs-code : TextField {
+                                label: "Email";
+                                text <=> root.email;
+                                placeholder: "you@example.com";
+                                accepted => root.login(root.email, root.password);
+                            }
+                            if !root.needs-code : TextField {
+                                label: "Password";
+                                text <=> root.password;
+                                placeholder: "••••••••";
+                                password: true;
+                                accepted => root.login(root.email, root.password);
+                            }
+
+                            Notice { text: root.error; }
+
+                            AppButton {
+                                text: root.busy ? "Please wait…" : (root.needs-code ? "Verify" : "Sign in");
+                                primary: true;
+                                enabled: !root.busy;
+                                clicked => {
+                                    if (root.needs-code) {
+                                        root.verify(root.code);
+                                    } else {
+                                        root.login(root.email, root.password);
+                                    }
+                                }
+                            }
+
+                            if root.needs-code : AppButton {
+                                text: "Use a different account";
+                                enabled: !root.busy;
+                                clicked => root.reset();
+                            }
+                        }
+                    }
+
+                    Text {
+                        text: "SynthPanel · self-hosted server control panel";
+                        font-size: 11px;
+                        color: Theme.muted;
+                        horizontal-alignment: center;
+                    }
                 }
             }
         }

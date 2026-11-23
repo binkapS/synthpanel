@@ -51,9 +51,10 @@ pub fn install() -> Result<(), JsValue> {
     register_socket_callbacks(&bridge);
     load_session(&bridge);
 
-    app.show()
-        .map_err(|error| JsValue::from_str(&error.to_string()))?;
-    Ok(())
+    // On wasm the Slint event loop drives rendering, timers, input and the
+    // callbacks registered above. `run()` shows the window and then enters
+    // that loop (which never returns in the browser).
+    app.run().map_err(|error| JsValue::from_str(&error.to_string()))
 }
 
 // ---------------------------------------------------------------------------
