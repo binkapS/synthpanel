@@ -247,21 +247,24 @@ pub fn to_engines(body: &Value) -> Vec<EngineRow> {
 pub fn to_php_versions(body: &Value) -> Vec<PhpVersionRow> {
     objects(body, "installed")
         .into_iter()
-        .map(|item| PhpVersionRow {
-            version: str_(item, "version"),
-            binary: opt_str(item, "binary"),
-            pool_dir: str_(item, "pool_dir"),
-            active: bool_(item, "active"),
-            pools: model(str_array(item, "pools")),
-            sites: model(
-                objects(body, "sites")
-                    .into_iter()
-                    .map(|site| PhpLink {
-                        id: str_(site, "id"),
-                        domain: str_(site, "domain"),
-                    })
-                    .collect(),
-            ),
+        .map(|item| {
+            let version = str_(item, "version");
+            let sites = objects(body, "sites")
+                .into_iter()
+                .filter(|site| site.get("version").and_then(Value::as_str) == Some(version.as_str()))
+                .map(|site| PhpLink {
+                    id: str_(site, "id"),
+                    domain: str_(site, "domain"),
+                })
+                .collect();
+            PhpVersionRow {
+                version,
+                binary: opt_str(item, "binary"),
+                pool_dir: str_(item, "pool_dir"),
+                active: bool_(item, "active"),
+                pools: model(str_array(item, "pools")),
+                sites: model(sites),
+            }
         })
         .collect()
 }
@@ -362,7 +365,17 @@ pub fn to_deploy_runs(body: &Value) -> Vec<DeployRunRow> {
 }
 
 pub fn to_log_sources(body: &Value) -> Vec<LogSource> {
-    objects(body, "sources")
+    // /api/v1/logs/sources wraps the array as {"sources": [...]}; the IPC
+    // call used by log tailing returns the bare array.
+    let source = if body.is_array() {
+        body.clone()
+    } else {
+        body.get("sources").cloned().unwrap_or(serde_json::Value::Array(Vec::new()))
+    };
+    source
+        .as_array()
+        .map(|items| items.iter().filter(|item| item.is_object()).collect::<Vec<_>>())
+        .unwrap_or_default()
         .into_iter()
         .map(|item| LogSource {
             id: str_(item, "id"),
@@ -389,7 +402,10 @@ pub fn to_log_lines(body: &Value) -> Vec<LogLine> {
 }
 
 pub fn to_file_rows(body: &Value) -> Vec<FileRow> {
-    objects(body, "entries")
+    // The listing endpoint returns a bare `Listing` object whose `entries`
+    // array sits next to `path` and `parent`.
+    let source = body.get("entries").cloned().unwrap_or_else(|| body.clone());
+    objects(&source, "entries")
         .into_iter()
         .map(|item| FileRow {
             name: str_(item, "name"),
@@ -483,7 +499,18 @@ pub fn to_api_keys(body: &Value) -> Vec<ApiKeyRow> {
             id: str_(item, "id"),
             name: str_(item, "name"),
             prefix: opt_str(item, "prefix"),
-            scopes: opt_str(item, "scopes"),
+            // The API returns scopes as a JSON array (or a comma list in the
+            // create request); flatten it for the row display.
+            scopes: match item.get("scopes") {
+                Some(serde_json::Value::Array(list)) => list
+                    .iter()
+                    .filter_map(|entry| entry.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                Some(serde_json::Value::String(text)) => text.to_string(),
+                _ => String::new(),
+            }
+            .into(),
         })
         .collect()
 }
@@ -496,7 +523,7 @@ pub fn to_panel_certificate(body: &Value) -> PanelCertificate {
         self_signed: bool_(body, "self_signed"),
         expires: opt_str(body, "expires_at"),
         days_left: int(body, "days_left"),
-        acme_installed: bool_(body, "acme_installed"),
+        acme_installed: bool_(body, "acme_installed") || bool_(body, "exists"),
     }
 }
 

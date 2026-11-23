@@ -27,7 +27,7 @@ export component AlertsPage inherits Rectangle {
 
     callback create-channel(string, string, string, string, string);
     callback delete-channel(string);
-    callback create-rule(string, string, string, string, string, int);
+    callback create-rule(string, string, string, string, int);
     callback delete-rule(string);
     callback test-alert(string, string);
 
@@ -183,7 +183,7 @@ export component AlertsPage inherits Rectangle {
                 AppButton {
                     text: "Add rule";
                     primary: true;
-                    clicked => { root.create-rule(root.rule-name, root.rule-event, root.rule-severity, root.rule-channel, "true", 300); }
+                    clicked => { root.create-rule(root.rule-name, root.rule-event, root.rule-severity, root.rule-channel, 900); }
                 }
             }
         }

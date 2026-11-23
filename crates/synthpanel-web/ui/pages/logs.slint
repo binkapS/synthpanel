@@ -5,6 +5,7 @@ import { ScrollView } from "std-widgets.slint";
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
 import { LogSource, LogLine } from "../types.slint";
 
 export component LogsPage inherits Rectangle {
@@ -13,7 +14,10 @@ export component LogsPage inherits Rectangle {
     in-out property <string> active-source;
     in-out property <string> status;
 
+    private property <string> search-text: "";
+
     callback source-changed(string);
+    callback search-changed(string);
 
     VerticalLayout {
         spacing: 18px;
@@ -40,6 +44,11 @@ export component LogsPage inherits Rectangle {
                         enabled: source.available;
                         clicked => { root.source-changed(source.id); }
                     }
+                }
+                TextField {
+                    label: "Search";
+                    text <=> root.search-text;
+                    placeholder: "filter the tail";
                 }
             }
 

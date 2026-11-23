@@ -11,6 +11,8 @@ export component PhpPage inherits Rectangle {
     in property <bool> installed;
     in-out property <string> status;
 
+    private property <bool> expanded: false;
+
     VerticalLayout {
         spacing: 18px;
 
@@ -21,29 +23,87 @@ export component PhpPage inherits Rectangle {
 
         Notice { text: root.status; }
 
+        if !root.installed : Notice {
+            text: "No PHP-FPM binary was found on this server.";
+            kind: "warning";
+        }
+
         Card {
             title: "Available versions";
-            for version in root.versions : HorizontalLayout {
-                height: 34px;
-                spacing: 12px;
-                Text {
-                    text: "PHP " + version.version;
-                    font-size: 13px;
-                    font-weight: 500;
-                    color: Theme.text;
+            for version in root.versions : VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    height: 34px;
+                    spacing: 12px;
+                    Text {
+                        text: "PHP " + version.version;
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    StatusBadge {
+                        status: version.active ? "active" : "idle";
+                    }
+                    Text {
+                        text: version.pools.length.to-fixed(0) + " pool(s)";
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: version.sites.length.to-fixed(0) + " site(s)";
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    Text {
+                        text: version.active ? "php-fpm" + version.version : "stopped";
+                        font-size: 11px;
+                        font-family: "monospace";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
                 }
-                StatusBadge {
-                    status: version.active ? "active" : "idle";
-                }
-                Text {
-                    text: version.pools.length.to-fixed(0) + " pool(s)";
+                if version.pools.length > 0 : Text {
+                    text: "   " + version.pools[0];
                     font-size: 11px;
+                    font-family: "monospace";
                     color: Theme.muted;
+                    horizontal-stretch: 1;
+                    overflow: elide;
                 }
-                Text {
-                    text: version.sites.length.to-fixed(0) + " site(s)";
-                    font-size: 11px;
-                    color: Theme.muted;
+            }
+        }
+
+        Card {
+            title: "Sites by version";
+            if root.versions.length == 0 : Text {
+                text: "No PHP versions configured.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for version in root.versions : VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: "PHP " + version.version;
+                        font-size: 12px;
+                        font-weight: 500;
+                        color: Theme.text;
+                    }
+                    if version.sites.length == 0 : Text {
+                        text: "no sites";
+                        font-size: 11px;
+                        color: Theme.muted;
+                    }
+                    for site in version.sites : Text {
+                        text: site.domain;
+                        font-size: 12px;
+                        color: Theme.muted;
+                    }
                 }
             }
         }

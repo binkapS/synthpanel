@@ -302,9 +302,13 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
 
     // --- Databases ----------------------------------------------------------
     let b = Rc::clone(bridge);
-    app.on_create_database(move |name, user| {
+    app.on_create_database(move |name, user, engine| {
         let b = Rc::clone(&b);
-        let body = serde_json::json!({ "name": name.as_str(), "username": user.as_str() });
+        let body = serde_json::json!({
+            "name": name.as_str(),
+            "username": user.as_str().to_string().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(user.as_str()))),
+            "engine": engine.as_str(),
+        });
         let _ = slint::spawn_local(async move {
             match http("POST", "/api/v1/databases", Some(body)).await {
                 Ok(_) => {
@@ -321,6 +325,25 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         let b = Rc::clone(&b);
         let _ = slint::spawn_local(async move {
             match http("DELETE", &format!("/api/v1/databases/{id}"), None).await {
+                Ok(_) => {
+                    load_databases(&b);
+                    b.app.borrow_mut().set_databases_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_databases_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_add_db_user(move |database, user, password, privileges| {
+        let b = Rc::clone(&b);
+        let body = serde_json::json!({
+            "username": user.as_str(),
+            "password": password.as_str().to_string().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(password.as_str()))),
+            "privileges": privileges.as_str().to_string().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(privileges.as_str()))),
+        });
+        let _ = slint::spawn_local(async move {
+            match http("POST", &format!("/api/v1/databases/{database}/users"), Some(body)).await {
                 Ok(_) => {
                     load_databases(&b);
                     b.app.borrow_mut().set_databases_status("".into());
@@ -448,12 +471,11 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
 
     // --- Backups ----------------------------------------------------------------
     let b = Rc::clone(bridge);
-    app.on_run_backup(move |name, kind, site| {
+    app.on_run_backup(move |_name, kind, site| {
         let b = Rc::clone(&b);
         let body = serde_json::json!({
-            "name": name.as_str(),
             "kind": kind.as_str(),
-            "site_id": site.as_str()
+            "site_id": site.as_str().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(site.as_str()))),
         });
         let _ = slint::spawn_local(async move {
             match http("POST", "/api/v1/backups/run", Some(body)).await {
@@ -535,8 +557,8 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         let body = serde_json::json!({
             "expression": expression.as_str(),
             "command": command.as_str(),
-            "user": user.as_str(),
-            "site_id": site.as_str()
+            "user": user.as_str().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(user.as_str()))),
+            "site_id": site.as_str().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(site.as_str()))),
         });
         let _ = slint::spawn_local(async move {
             match http("POST", "/api/v1/cron", Some(body)).await {
@@ -584,10 +606,19 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         let source = source.to_string();
         let _ = slint::spawn_local(async move {
             b.app.borrow_mut().set_active_log_source(source.clone().into());
-            match http("GET", &format!("/api/v1/logs?source={}&lines=200", source), None).await {
-                Ok(body) => b.app.borrow_mut().set_log_lines(model(models::to_log_lines(&body))),
-                Err(message) => b.app.borrow_mut().set_logs_status(message.into()),
-            }
+            load_log_tail(&b, &source, "");
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_log_search(move |search| {
+        let b = Rc::clone(&b);
+        let source = b.app.borrow().get_active_log_source().to_string();
+        if source.is_empty() {
+            return;
+        }
+        let _ = slint::spawn_local(async move {
+            load_log_tail(&b, &source, search.as_str());
         });
     });
 
@@ -708,8 +739,8 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                 "site_id": site.as_str(),
                 "repo_url": repo.as_str(),
                 "branch": branch.as_str(),
-                "target_subdir": subdir.as_str(),
-                "build_command": build.as_str(),
+                "target_subdir": subdir.as_str().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(subdir.as_str()))),
+                "build_command": build.as_str().is_empty().then_some(serde_json::Value::Null).or_else(|| Some(serde_json::json!(build.as_str()))),
                 "deploy_user": user.as_str(),
                 "enabled": enabled.as_str() == "true"
             });
@@ -757,11 +788,16 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_create_channel(move |name, kind, url, to, host| {
         let b = Rc::clone(&b);
+        let host = host.as_str();
         let config = if kind.as_str() == "email" {
-            serde_json::json!({
-                "to": to.as_str(),
-                "smtp": { "host": host.as_str() }
-            })
+            let to_array: Vec<serde_json::Value> = to
+                .as_str()
+                .split(',')
+                .map(|recipient| serde_json::json!(recipient.trim()))
+                .filter(|value| !value.as_str().unwrap_or_default().is_empty())
+                .collect();
+            let smtp = serde_json::json!({ "host": host });
+            serde_json::json!({ "to": to_array, "smtp": smtp })
         } else {
             serde_json::json!({ "url": url.as_str() })
         };
@@ -796,14 +832,13 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     });
 
     let b = Rc::clone(bridge);
-    app.on_create_rule(move |name, event, severity, channel, enabled, cooldown| {
+    app.on_create_rule(move |name, event, severity, channel, cooldown| {
         let b = Rc::clone(&b);
         let body = serde_json::json!({
             "name": name.as_str(),
             "event": event.as_str(),
             "severity": severity.as_str(),
             "channel_id": channel.as_str(),
-            "enabled": enabled.as_str() == "true",
             "cooldown_secs": cooldown
         });
         let _ = slint::spawn_local(async move {
@@ -900,9 +935,17 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_api_key_created(move |name, scopes| {
         let b = Rc::clone(&b);
+        let scope_list: Vec<serde_json::Value> = scopes
+            .as_str()
+            .split(',')
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .into_iter()
+            .map(serde_json::Value::String)
+            .collect();
         let body = serde_json::json!({
             "name": name.as_str(),
-            "scopes": scopes.as_str()
+            "scopes": scope_list
         });
         let _ = slint::spawn_local(async move {
             match http("POST", "/api/v1/api-keys", Some(body)).await {
@@ -1004,6 +1047,26 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                 Err(message) => b.app.borrow_mut().set_settings_status(message.into()),
             }
         });
+    });
+}
+
+fn load_log_tail(bridge: &Rc<Bridge>, source: &str, search: &str) {
+    let app = bridge.app.borrow().clone();
+    let source = source.to_string();
+    let search = search.to_string();
+    let query = if search.is_empty() {
+        format!("/api/v1/logs?type={source}&limit=200")
+    } else {
+        format!(
+            "/api/v1/logs?type={source}&limit=200&search={}",
+            percent_encode(&search)
+        )
+    };
+    let _ = slint::spawn_local(async move {
+        match http("GET", &query, None).await {
+            Ok(body) => app.set_log_lines(model(models::to_log_lines(&body))),
+            Err(message) => app.set_logs_status(message.into()),
+        }
     });
 }
 
@@ -1148,8 +1211,8 @@ fn load_site_detail(bridge: &Rc<Bridge>) {
     let _ = slint::spawn_local(async move {
         match http("GET", &format!("/api/v1/sites/{id}"), None).await {
             Ok(body) => {
-                let site = body.get("site").cloned().unwrap_or_default();
-                app.set_site_detail(models::to_site_detail(&site));
+                // /api/v1/sites/{id} returns the bare site object.
+                app.set_site_detail(models::to_site_detail(&body));
                 app.set_site_error("".into());
                 app.set_site_ssl_message("".into());
                 if let Ok(ssl) = http("GET", &format!("/api/v1/sites/{id}/ssl/status"), None).await {
@@ -1270,16 +1333,11 @@ fn load_files(bridge: &Rc<Bridge>, path: &str) {
     let path = path.to_string();
     let _ = slint::spawn_local(async move {
         let query = if path.is_empty() {
-            String::new()
+            "scope=www".to_string()
         } else {
-            format!("path={}", percent_encode(&path))
+            format!("scope=www&path={}", percent_encode(&path))
         };
-        let endpoint = if query.is_empty() {
-            "/api/v1/files".to_string()
-        } else {
-            format!("/api/v1/files?{query}")
-        };
-        match http("GET", &endpoint, None).await {
+        match http("GET", &format!("/api/v1/files?{query}"), None).await {
             Ok(body) => {
                 app.set_file_rows(model(models::to_file_rows(&body)));
                 app.set_current_file_path(

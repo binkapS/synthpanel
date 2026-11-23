@@ -4,7 +4,7 @@
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton, IconButton } from "../widgets/button.slint";
-import { TextField } from "../widgets/field.slint";
+import { TextField, SelectField } from "../widgets/field.slint";
 import { StatusBadge } from "../widgets/status_badge.slint";
 import { DatabaseRow, EngineRow } from "../types.slint";
 
@@ -14,11 +14,19 @@ export component DatabasesPage inherits Rectangle {
     in-out property <string> status;
 
     private property <bool> show-form: false;
+    private property <string> new-engine: "mysql";
     private property <string> new-name: "";
     private property <string> new-user: "";
 
-    callback create-database(string, string);
+    private property <bool> show-user-form: false;
+    private property <string> user-database: "";
+    private property <string> user-name: "";
+    private property <string> user-password: "";
+    private property <string> user-privileges: "read-write";
+
+    callback create-database(string, string, string);
     callback delete-database(string);
+    callback add-db-user(string, string, string, string);
 
     VerticalLayout {
         spacing: 18px;
@@ -75,6 +83,12 @@ export component DatabasesPage inherits Rectangle {
                     horizontal-stretch: 1;
                     hint: "Leave empty for a generated name.";
                 }
+                SelectField {
+                    label: "Engine";
+                    options: ["mysql", "postgresql", "redis"];
+                    selected(value) => { root.new-engine = value; }
+                    horizontal-stretch: 1;
+                }
             }
             HorizontalLayout {
                 spacing: 10px;
@@ -82,7 +96,7 @@ export component DatabasesPage inherits Rectangle {
                     text: "Create";
                     primary: true;
                     clicked => {
-                        root.create-database(root.new-name, root.new-user);
+                        root.create-database(root.new-name, root.new-user, root.new-engine);
                         root.show-form = false;
                     }
                 }
@@ -117,11 +131,57 @@ export component DatabasesPage inherits Rectangle {
                     vertical-alignment: center;
                 }
                 Rectangle { horizontal-stretch: 1; background: transparent; }
+                AppButton {
+                    text: "User";
+                    clicked => {
+                        root.user-database = database.id;
+                        root.show-user-form = !root.show-user-form;
+                    }
+                }
                 IconButton {
                     icon: @image-url("../assets/icons/trash.svg");
                     tooltip: "Delete database";
                     danger: true;
                     clicked => { root.delete-database(database.id); }
+                }
+            }
+        }
+
+        if root.show-user-form : Card {
+            title: "Grant a database user";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Username";
+                    text <=> root.user-name;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Password";
+                    text <=> root.user-password;
+                    password: true;
+                    horizontal-stretch: 1;
+                }
+                SelectField {
+                    label: "Privileges";
+                    options: ["read-only", "read-write", "ddl"];
+                    selected(value) => { root.user-privileges = value; }
+                    horizontal-stretch: 1;
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                AppButton {
+                    text: "Grant";
+                    primary: true;
+                    clicked => {
+                        root.add-db-user(root.user-database, root.user-name, root.user-password, root.user-privileges);
+                        root.show-user-form = false;
+                    }
+                }
+                AppButton {
+                    text: "Cancel";
+                    clicked => { root.show-user-form = false; }
                 }
             }
         }

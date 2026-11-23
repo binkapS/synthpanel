@@ -173,8 +173,9 @@ export component AppWindow inherits Window {
     callback delete-site(string);
     callback site-action(string, string);
     callback site-ssl(string);
-    callback create-database(string, string);
+    callback create-database(string, string, string);
     callback delete-database(string);
+    callback add-db-user(string, string, string, string);
 
     callback create-user(string, string, string, string, int, int);
     callback update-user(string, string, string, string, string, string, int, int);
@@ -195,6 +196,7 @@ export component AppWindow inherits Window {
     callback run-cron(string);
 
     callback log-source(string);
+    callback log-search(string);
 
     callback file-path(string);
     callback file-write(string, string, string);
@@ -210,7 +212,7 @@ export component AppWindow inherits Window {
 
     callback create-channel(string, string, string, string, string);
     callback delete-channel(string);
-    callback create-rule(string, string, string, string, string, int);
+    callback create-rule(string, string, string, string, int);
     callback delete-rule(string);
     callback test-alert(string, string);
 
@@ -305,7 +307,8 @@ export component AppWindow inherits Window {
             databases <=> root.databases;
             engines <=> root.database-engines;
             status <=> root.databases-status;
-            create-database(name, user) => { root.create-database(name, user); }
+            create-database(name, user, engine) => { root.create-database(name, user, engine); }
+            add-db-user(database, user, password, privileges) => { root.add-db-user(database, user, password, privileges); }
             delete-database(id) => { root.delete-database(id); }
         }
 
@@ -351,6 +354,7 @@ export component AppWindow inherits Window {
             active-source <=> root.active-log-source;
             status <=> root.logs-status;
             source-changed(id) => { root.log-source(id); }
+            search-changed(text) => { root.log-search(text); }
         }
 
         if root.current-page == Page.files : FilesPage {
@@ -382,7 +386,7 @@ export component AppWindow inherits Window {
             status <=> root.alerts-status;
             create-channel(name, kind, url, to, host) => { root.create-channel(name, kind, url, to, host); }
             delete-channel(id) => { root.delete-channel(id); }
-            create-rule(name, event, severity, channel, enabled, cooldown) => { root.create-rule(name, event, severity, channel, enabled, cooldown); }
+            create-rule(name, event, severity, channel, cooldown) => { root.create-rule(name, event, severity, channel, cooldown); }
             delete-rule(id) => { root.delete-rule(id); }
             test-alert(channel, message) => { root.test-alert(channel, message); }
         }
