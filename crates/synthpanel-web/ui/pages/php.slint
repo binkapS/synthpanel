@@ -1,0 +1,51 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { PhpVersionRow } from "../types.slint";
+
+export component PhpPage inherits Rectangle {
+    in-out property <[PhpVersionRow]> versions;
+    in property <bool> installed;
+    in-out property <string> status;
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "PHP";
+            subtitle: "Per-site PHP-FPM pools and supported versions.";
+        }
+
+        Notice { text: root.status; }
+
+        Card {
+            title: "Available versions";
+            for version in root.versions : HorizontalLayout {
+                height: 34px;
+                spacing: 12px;
+                Text {
+                    text: "PHP " + version.version;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                }
+                StatusBadge {
+                    status: version.active ? "active" : "idle";
+                }
+                Text {
+                    text: version.pools.length.to-fixed(0) + " pool(s)";
+                    font-size: 11px;
+                    color: Theme.muted;
+                }
+                Text {
+                    text: version.sites.length.to-fixed(0) + " site(s)";
+                    font-size: 11px;
+                    color: Theme.muted;
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,93 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { ScrollView } from "std-widgets.slint";
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { TextInput } from "../widgets/field.slint";
+import { TerminalLine } from "../types.slint";
+
+export component TerminalPage inherits Rectangle {
+    in-out property <string> id;
+    in-out property <string> shell;
+    in-out property <string> status;
+    in-out property <[TerminalLine]> lines;
+
+    private property <string> typed: "";
+
+    callback terminal-close();
+    callback terminal-input(string);
+    callback terminal-resize(int, int);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        HorizontalLayout {
+            alignment: space-between;
+            PageHeader {
+                title: "Terminal";
+                subtitle: root.shell == "" ? "A root shell inside the privileged core." : root.shell;
+            }
+            AppButton {
+                text: "Close session";
+                danger: true;
+                enabled: root.id != "";
+                clicked => { root.terminal-close(); }
+            }
+        }
+
+        Notice { text: root.status; }
+
+        Card {
+            title: "Session";
+            subtitle: "80 × 24";
+
+            Rectangle {
+                background: Theme.terminal-bg;
+                border-radius: 8px;
+                height: 480px;
+                clip: true;
+
+                ScrollView {
+                    VerticalLayout {
+                        padding: 12px;
+                        spacing: 2px;
+
+                        if root.lines.length == 0 : Text {
+                            text: "Waiting for terminal output…";
+                            font-family: "monospace";
+                            font-size: 12px;
+                            color: Theme.muted;
+                        }
+
+                        for line in root.lines : Text {
+                            text: line.text;
+                            font-family: "monospace";
+                            font-size: 12px;
+                            color: line.kind == "error" ? Theme.danger : Theme.terminal-text;
+                            wrap: no-wrap;
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 8px;
+                TextInput {
+                    text <=> root.typed;
+                    placeholder-text: "type a command and press Enter";
+                    horizontal-stretch: 1;
+                    accepted => {
+                        root.terminal-input(root.typed + "\n");
+                        root.typed = "";
+                    }
+                }
+                AppButton {
+                    text: "Resize 80×24";
+                    clicked => { root.terminal-resize(24, 80); }
+                }
+            }
+        }
+    }
+}

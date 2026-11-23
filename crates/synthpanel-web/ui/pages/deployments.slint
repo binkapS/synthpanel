@@ -1,0 +1,148 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { DeploymentRow } from "../types.slint";
+
+export component DeploymentsPage inherits Rectangle {
+    in-out property <[DeploymentRow]> deployments;
+    in-out property <string> status;
+
+    private property <bool> show-form: false;
+    private property <string> new-site: "";
+    private property <string> new-repo: "";
+    private property <string> new-branch: "main";
+    private property <string> new-subdir: "";
+    private property <string> new-build: "";
+    private property <string> new-user: "www-data";
+    private property <string> new-id: "";
+
+    callback create-deployment(string, string, string, string, string, string, string, string);
+    callback run-deployment(string);
+    callback delete-deployment(string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Deployments";
+            subtitle: "Pull, build and publish a Git repository.";
+        }
+
+        Notice { text: root.status; }
+
+        AppButton {
+            text: root.show-form ? "Hide form" : "New deployment";
+            primary: true;
+            clicked => { root.show-form = !root.show-form; }
+        }
+
+        if root.show-form : Card {
+            title: "Create a deployment";
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: "Site";
+                        text <=> root.new-site;
+                        hint: "The site id to deploy into.";
+                        horizontal-stretch: 1;
+                    }
+                    TextField {
+                        label: "Repository";
+                        text <=> root.new-repo;
+                        horizontal-stretch: 1;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: "Branch";
+                        text <=> root.new-branch;
+                        horizontal-stretch: 1;
+                    }
+                    TextField {
+                        label: "Target subdirectory";
+                        text <=> root.new-subdir;
+                        horizontal-stretch: 1;
+                    }
+                    TextField {
+                        label: "Deploy user";
+                        text <=> root.new-user;
+                        horizontal-stretch: 1;
+                    }
+                }
+                TextField {
+                    label: "Build command";
+                    text <=> root.new-build;
+                    hint: "Run after checkout; leave empty to skip.";
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                AppButton {
+                    text: "Create";
+                    primary: true;
+                    clicked => {
+                        root.create-deployment(root.new-site, root.new-repo, root.new-branch, root.new-subdir, root.new-build, root.new-user, "false", root.new-id);
+                        root.show-form = false;
+                    }
+                }
+                AppButton {
+                    text: "Cancel";
+                    clicked => { root.show-form = false; }
+                }
+            }
+        }
+
+        Card {
+            title: "Deployments";
+            if root.deployments.length == 0 : Text {
+                text: "No deployments yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for deployment in root.deployments : VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: deployment.repo;
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Theme.text;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: deployment.branch;
+                        font-size: 11px;
+                        font-family: "monospace";
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    StatusBadge {
+                        status: deployment.enabled ? "enabled" : "disabled";
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    IconButton {
+                        icon: @image-url("../assets/icons/play.svg");
+                        tooltip: "Deploy now";
+                        clicked => { root.run-deployment(deployment.id); }
+                    }
+                    IconButton {
+                        icon: @image-url("../assets/icons/trash.svg");
+                        tooltip: "Delete";
+                        danger: true;
+                        clicked => { root.delete-deployment(deployment.id); }
+                    }
+                }
+            }
+        }
+    }
+}

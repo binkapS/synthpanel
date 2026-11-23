@@ -3,6 +3,8 @@
 
 import { Theme } from "theme.slint";
 
+// A tiny SVG sparkline. The path is built in Rust (see `sparkline_path`) so
+// the Slint side stays declarative.
 export component Sparkline inherits Rectangle {
     in property <string> path;
     in property <string> empty-text: "not enough data";
@@ -30,7 +32,7 @@ export component Sparkline inherits Rectangle {
         viewbox-height: 100;
         commands: root.path;
         stroke: Theme.accent;
-        stroke-width: 2;
+        stroke-width: 2px;
         fill: transparent;
     }
 }

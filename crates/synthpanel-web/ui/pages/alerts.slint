@@ -1,0 +1,219 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { ChannelRow, AlertRuleRow, AlertRow } from "../types.slint";
+
+export component AlertsPage inherits Rectangle {
+    in-out property <[ChannelRow]> channels;
+    in-out property <[AlertRuleRow]> rules;
+    in-out property <[AlertRow]> alerts;
+    in-out property <string> status;
+
+    private property <string> channel-name: "";
+    private property <string> channel-kind: "webhook";
+    private property <string> channel-url: "";
+    private property <string> channel-to: "";
+    private property <string> channel-host: "";
+
+    private property <string> rule-name: "";
+    private property <string> rule-event: "service.down";
+    private property <string> rule-severity: "warning";
+    private property <string> rule-channel: "";
+
+    callback create-channel(string, string, string, string, string);
+    callback delete-channel(string);
+    callback create-rule(string, string, string, string, string, int);
+    callback delete-rule(string);
+    callback test-alert(string, string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Alerts";
+            subtitle: "Notify by email or webhook when something needs attention.";
+        }
+
+        Notice { text: root.status; }
+
+        Card {
+            title: "New channel";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Name";
+                    text <=> root.channel-name;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Kind";
+                    text <=> root.channel-kind;
+                    hint: "webhook or email";
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "URL / To";
+                    text <=> root.channel-url;
+                    hint: "Webhook URL or recipient address.";
+                    horizontal-stretch: 2;
+                }
+            }
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "SMTP host";
+                    text <=> root.channel-host;
+                    horizontal-stretch: 1;
+                }
+                AppButton {
+                    text: "Add channel";
+                    primary: true;
+                    clicked => { root.create-channel(root.channel-name, root.channel-kind, root.channel-url, root.channel-to, root.channel-host); }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 16px;
+
+            Card {
+                title: "Channels";
+                horizontal-stretch: 1;
+                if root.channels.length == 0 : Text {
+                    text: "No channels configured.";
+                    font-size: 12px;
+                    color: Theme.muted;
+                }
+                for channel in root.channels : HorizontalLayout {
+                    height: 32px;
+                    spacing: 12px;
+                    Text {
+                        text: channel.name;
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: channel.kind;
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    IconButton {
+                        icon: @image-url("../assets/icons/play.svg");
+                        tooltip: "Send test";
+                        clicked => { root.test-alert(channel.id, "SynthPanel test alert"); }
+                    }
+                    IconButton {
+                        icon: @image-url("../assets/icons/trash.svg");
+                        tooltip: "Delete";
+                        danger: true;
+                        clicked => { root.delete-channel(channel.id); }
+                    }
+                }
+            }
+
+            Card {
+                title: "Rules";
+                horizontal-stretch: 1;
+                if root.rules.length == 0 : Text {
+                    text: "No rules configured.";
+                    font-size: 12px;
+                    color: Theme.muted;
+                }
+                for rule in root.rules : HorizontalLayout {
+                    height: 32px;
+                    spacing: 12px;
+                    Text {
+                        text: rule.name;
+                        font-size: 13px;
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: rule.event;
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    StatusBadge { status: rule.severity; }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    IconButton {
+                        icon: @image-url("../assets/icons/trash.svg");
+                        tooltip: "Delete rule";
+                        danger: true;
+                        clicked => { root.delete-rule(rule.id); }
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: "New rule";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Name";
+                    text <=> root.rule-name;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Event";
+                    text <=> root.rule-event;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Severity";
+                    text <=> root.rule-severity;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Channel id";
+                    text <=> root.rule-channel;
+                    horizontal-stretch: 1;
+                }
+                AppButton {
+                    text: "Add rule";
+                    primary: true;
+                    clicked => { root.create-rule(root.rule-name, root.rule-event, root.rule-severity, root.rule-channel, "true", 300); }
+                }
+            }
+        }
+
+        Card {
+            title: "Fired alerts";
+            if root.alerts.length == 0 : Text {
+                text: "Nothing has fired yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for alert in root.alerts : HorizontalLayout {
+                height: 32px;
+                spacing: 12px;
+                Text {
+                    text: alert.event;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                StatusBadge { status: alert.status; }
+                Text {
+                    text: alert.message;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

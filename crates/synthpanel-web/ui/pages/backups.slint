@@ -1,0 +1,205 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { BackupRow, ScheduleRow } from "../types.slint";
+
+export component BackupsPage inherits Rectangle {
+    in-out property <[BackupRow]> backups;
+    in-out property <[ScheduleRow]> schedules;
+    in-out property <string> status;
+
+    private property <string> run-name: "";
+    private property <string> run-kind: "full";
+    private property <string> run-site: "";
+
+    private property <string> sched-name: "";
+    private property <string> sched-cron: "0 3 * * *";
+    private property <string> sched-type: "local";
+    private property <string> sched-path: "";
+    private property <string> sched-site: "";
+
+    callback run-backup(string, string, string);
+    callback backup-action(string, string, string);
+    callback delete-backup(string);
+    callback create-schedule(string, string, string, string, string);
+    callback delete-schedule(string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Backups";
+            subtitle: "Archive, verify and restore server state.";
+        }
+
+        Notice { text: root.status; }
+
+        HorizontalLayout {
+            spacing: 16px;
+
+            Card {
+                title: "Run a backup";
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 10px;
+                    TextField {
+                        label: "Name";
+                        text <=> root.run-name;
+                        placeholder: "nightly";
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        TextField {
+                            label: "Kind";
+                            text <=> root.run-kind;
+                            hint: "full or site";
+                            horizontal-stretch: 1;
+                        }
+                        TextField {
+                            label: "Site id";
+                            text <=> root.run-site;
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    AppButton {
+                        text: "Run";
+                        primary: true;
+                        clicked => { root.run-backup(root.run-name, root.run-kind, root.run-site); }
+                    }
+                }
+            }
+
+            Card {
+                title: "New schedule";
+                horizontal-stretch: 1;
+                VerticalLayout {
+                    spacing: 10px;
+                    TextField {
+                        label: "Name";
+                        text <=> root.sched-name;
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        TextField {
+                            label: "Cron";
+                            text <=> root.sched-cron;
+                            horizontal-stretch: 1;
+                        }
+                        TextField {
+                            label: "Destination";
+                            text <=> root.sched-type;
+                            hint: "local or s3";
+                            horizontal-stretch: 1;
+                        }
+                    }
+                    TextField {
+                        label: "Path";
+                        text <=> root.sched-path;
+                    }
+                    AppButton {
+                        text: "Schedule";
+                        primary: true;
+                        clicked => { root.create-schedule(root.sched-name, root.sched-cron, root.sched-type, root.sched-path, root.sched-site); }
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: "Backups";
+            if root.backups.length == 0 : Text {
+                text: "No backups yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for backup in root.backups : HorizontalLayout {
+                height: 40px;
+                spacing: 12px;
+                Text {
+                    text: backup.name;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: backup.kind;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                StatusBadge { status: backup.status; }
+                Text {
+                    text: backup.size-label;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                if backup.encrypted : Text {
+                    text: "encrypted";
+                    font-size: 10px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                IconButton {
+                    icon: @image-url("../assets/icons/refresh.svg");
+                    tooltip: "Verify";
+                    clicked => { root.backup-action(backup.id, "verify", ""); }
+                }
+                IconButton {
+                    icon: @image-url("../assets/icons/play.svg");
+                    tooltip: "Restore";
+                    clicked => { root.backup-action(backup.id, "restore", ""); }
+                }
+                IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Delete";
+                    danger: true;
+                    clicked => { root.delete-backup(backup.id); }
+                }
+            }
+        }
+
+        Card {
+            title: "Schedules";
+            if root.schedules.length == 0 : Text {
+                text: "No schedules yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for schedule in root.schedules : HorizontalLayout {
+                height: 34px;
+                spacing: 12px;
+                Text {
+                    text: schedule.name;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: schedule.cron;
+                    font-size: 11px;
+                    font-family: "monospace";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                StatusBadge { status: schedule.enabled ? "enabled" : "disabled"; }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Delete schedule";
+                    danger: true;
+                    clicked => { root.delete-schedule(schedule.id); }
+                }
+            }
+        }
+    }
+}

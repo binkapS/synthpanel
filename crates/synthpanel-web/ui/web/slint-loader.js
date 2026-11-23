@@ -60,7 +60,7 @@ function socketOpen(id, path) {
   sockets.set(id, socket);
   socket.onmessage = (event) => {
     if (typeof window.synthpanel_socket_message === 'function') {
-      window.synthpanel_socket_message(id, String(event.data));
+      window.synthpanel_socket_message([id, String(event.data)]);
     }
   };
   socket.onclose = () => {

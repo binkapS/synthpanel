@@ -1,0 +1,129 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { DatabaseRow, EngineRow } from "../types.slint";
+
+export component DatabasesPage inherits Rectangle {
+    in-out property <[DatabaseRow]> databases;
+    in-out property <[EngineRow]> engines;
+    in-out property <string> status;
+
+    private property <bool> show-form: false;
+    private property <string> new-name: "";
+    private property <string> new-user: "";
+
+    callback create-database(string, string);
+    callback delete-database(string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Databases";
+            subtitle: "MariaDB/MySQL, PostgreSQL and Redis, with per-database credentials.";
+        }
+
+        Notice { text: root.status; }
+
+        Card {
+            title: "Engines";
+            for engine in root.engines : HorizontalLayout {
+                height: 28px;
+                spacing: 8px;
+                Text {
+                    text: engine.engine;
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                StatusBadge {
+                    status: engine.reachable ? "running" : "error";
+                }
+                if !engine.client : Text {
+                    text: "client not installed";
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        AppButton {
+            text: root.show-form ? "Hide form" : "New database";
+            primary: true;
+            clicked => { root.show-form = !root.show-form; }
+        }
+
+        if root.show-form : Card {
+            title: "Create a database";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Name";
+                    text <=> root.new-name;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "User";
+                    text <=> root.new-user;
+                    horizontal-stretch: 1;
+                    hint: "Leave empty for a generated name.";
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                AppButton {
+                    text: "Create";
+                    primary: true;
+                    clicked => {
+                        root.create-database(root.new-name, root.new-user);
+                        root.show-form = false;
+                    }
+                }
+                AppButton {
+                    text: "Cancel";
+                    clicked => { root.show-form = false; }
+                }
+            }
+        }
+
+        Card {
+            title: "Managed databases";
+            if root.databases.length == 0 : Text {
+                text: "No databases yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for database in root.databases : HorizontalLayout {
+                height: 34px;
+                spacing: 12px;
+                Text {
+                    text: database.name;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: database.engine;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Delete database";
+                    danger: true;
+                    clicked => { root.delete-database(database.id); }
+                }
+            }
+        }
+    }
+}

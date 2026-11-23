@@ -1,0 +1,160 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField, SelectField } from "../widgets/field.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { UserRow } from "../types.slint";
+
+export component UsersPage inherits Rectangle {
+    in-out property <[UserRow]> users;
+    in-out property <string> status;
+
+    private property <bool> show-form: false;
+    private property <string> edit-id: "";
+    private property <string> new-email: "";
+    private property <string> new-name: "";
+    private property <string> new-password: "";
+    private property <string> new-role: "operator";
+    private property <string> new-status: "active";
+    private property <string> new-totp: "off";
+
+    callback create-user(string, string, string, string, int, int);
+    callback update-user(string, string, string, string, string, string, int, int);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Users";
+            subtitle: "Panel accounts and their roles.";
+        }
+
+        Notice { text: root.status; }
+
+        AppButton {
+            text: root.show-form ? "Hide form" : "New user";
+            primary: true;
+            clicked => {
+                root.edit-id = "";
+                root.new-email = "";
+                root.new-name = "";
+                root.new-password = "";
+                root.new-role = "operator";
+                root.show-form = !root.show-form;
+            }
+        }
+
+        if root.show-form : Card {
+            title: root.edit-id == "" ? "Create a user" : "Edit user";
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: "Email";
+                        text <=> root.new-email;
+                        horizontal-stretch: 1;
+                    }
+                    TextField {
+                        label: "Name";
+                        text <=> root.new-name;
+                        horizontal-stretch: 1;
+                    }
+                }
+                HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: "Password";
+                        text <=> root.new-password;
+                        password: true;
+                        hint: "At least 12 characters.";
+                        horizontal-stretch: 1;
+                    }
+                    SelectField {
+                        label: "Role";
+                        options: ["admin", "operator", "user"];
+                        selected(value) => { root.new-role = value; }
+                        horizontal-stretch: 1;
+                    }
+                    SelectField {
+                        label: "Status";
+                        options: ["active", "suspended"];
+                        selected(value) => { root.new-status = value; }
+                        horizontal-stretch: 1;
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                if root.edit-id == "" : AppButton {
+                    text: "Create";
+                    primary: true;
+                    clicked => {
+                        root.create-user(root.new-email, root.new-name, root.new-password, root.new-role, 10, 10);
+                        root.show-form = false;
+                    }
+                }
+                if root.edit-id != "" : AppButton {
+                    text: "Save";
+                    primary: true;
+                    clicked => {
+                        root.update-user(root.edit-id, root.new-email, root.new-name, root.new-role, root.new-status, root.new-totp, 10, 10);
+                        root.show-form = false;
+                    }
+                }
+                AppButton {
+                    text: "Cancel";
+                    clicked => { root.show-form = false; }
+                }
+            }
+        }
+
+        Card {
+            title: "Accounts";
+            if root.users.length == 0 : Text {
+                text: "No users yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for user in root.users : HorizontalLayout {
+                height: 40px;
+                spacing: 12px;
+                Text {
+                    text: user.name;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: user.email;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                StatusBadge { status: user.role; }
+                StatusBadge { status: user.status; }
+                if user.totp == "on" : StatusBadge { status: "verified"; }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                AppButton {
+                    text: "Edit";
+                    clicked => {
+                        root.edit-id = user.id;
+                        root.new-email = user.email;
+                        root.new-name = user.name;
+                        root.new-password = "";
+                        root.new-role = user.role;
+                        root.new-status = user.status;
+                        root.new-totp = user.totp;
+                        root.show-form = true;
+                    }
+                }
+            }
+        }
+    }
+}

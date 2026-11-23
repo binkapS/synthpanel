@@ -98,3 +98,19 @@ export component Toggle inherits HorizontalLayout {
         checked <=> root.checked;
     }
 }
+
+export component TextInput inherits VerticalLayout {
+    in-out property <string> text;
+    in property <string> placeholder-text;
+    in property <bool> enabled: true;
+    callback accepted();
+
+    LineEdit {
+        text <=> root.text;
+        placeholder-text: root.placeholder-text;
+        enabled: root.enabled;
+        font-family: "monospace";
+        font-size: 13px;
+        accepted => root.accepted();
+    }
+}

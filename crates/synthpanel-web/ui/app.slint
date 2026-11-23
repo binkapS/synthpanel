@@ -5,8 +5,51 @@ import { Palette } from "std-widgets.slint";
 import { Theme } from "widgets/theme.slint";
 import { AppShell } from "widgets/app_shell.slint";
 import { Page, Session } from "types.slint";
+import {
+    MetricSnapshot,
+    Service,
+    AuditEntry,
+    SiteRow,
+    SiteDetail,
+    SslStatus,
+    DatabaseRow,
+    EngineRow,
+    PhpVersionRow,
+    FirewallState,
+    JailRow,
+    SshKeyRow,
+    BackupRow,
+    ScheduleRow,
+    CronRow,
+    LogSource,
+    LogLine,
+    FileRow,
+    DeploymentRow,
+    ChannelRow,
+    AlertRuleRow,
+    AlertRow,
+    UserRow,
+    ApiKeyRow,
+    PanelCertificate,
+    UpdateStatus,
+    TerminalLine,
+} from "types.slint";
 import { LoginPage } from "pages/login.slint";
-import { PlaceholderPage } from "pages/placeholder.slint";
+import { DashboardPage } from "pages/dashboard.slint";
+import { SitesPage } from "pages/sites.slint";
+import { SiteDetailPage } from "pages/site_detail.slint";
+import { DatabasesPage } from "pages/databases.slint";
+import { PhpPage } from "pages/php.slint";
+import { SecurityPage } from "pages/security.slint";
+import { BackupsPage } from "pages/backups.slint";
+import { CronPage } from "pages/cron.slint";
+import { LogsPage } from "pages/logs.slint";
+import { FilesPage } from "pages/files.slint";
+import { DeploymentsPage } from "pages/deployments.slint";
+import { AlertsPage } from "pages/alerts.slint";
+import { TerminalPage } from "pages/terminal.slint";
+import { UsersPage } from "pages/users.slint";
+import { SettingsPage } from "pages/settings.slint";
 
 export component AppWindow inherits Window {
     title: "SynthPanel";
@@ -14,6 +57,7 @@ export component AppWindow inherits Window {
     height: 800px;
     background: Theme.bg;
 
+    // ---- session / shell ------------------------------------------------
     in-out property <bool> dark: false;
     in-out property <bool> loading: true;
     in-out property <bool> authenticated: false;
@@ -21,7 +65,7 @@ export component AppWindow inherits Window {
     in-out property <Page> current-page: Page.dashboard;
     in-out property <string> site-detail-id;
 
-    // Login form state
+    // ---- login ------------------------------------------------------------
     in-out property <string> login-email;
     in-out property <string> login-password;
     in-out property <string> login-code;
@@ -29,12 +73,160 @@ export component AppWindow inherits Window {
     in-out property <bool> login-busy: false;
     in-out property <string> login-error;
 
+    // ---- dashboard ----------------------------------------------------------
+    in-out property <MetricSnapshot> dash-snapshot;
+    in-out property <string> dash-cpu-spark;
+    in-out property <string> dash-mem-spark;
+    in-out property <[Service]> dash-services;
+    in-out property <[AuditEntry]> dash-audit;
+    in-out property <string> dash-status;
+
+    // ---- sites ---------------------------------------------------------------
+    in-out property <[SiteRow]> sites;
+    in-out property <string> sites-status;
+    in-out property <SiteDetail> site-detail;
+    in-out property <SslStatus> site-ssl-status;
+    in-out property <string> site-error;
+    in-out property <string> site-ssl-message;
+
+    // ---- databases ------------------------------------------------------------
+    in-out property <[DatabaseRow]> databases;
+    in-out property <[EngineRow]> database-engines;
+    in-out property <string> databases-status;
+
+    // ---- php --------------------------------------------------------------------
+    in-out property <[PhpVersionRow]> php-versions;
+    in-out property <bool> php-installed: false;
+    in-out property <string> php-status;
+
+    // ---- security -------------------------------------------------------------------
+    in-out property <FirewallState> firewall;
+    in-out property <[JailRow]> jails;
+    in-out property <[SshKeyRow]> ssh-keys;
+    in-out property <string> security-status;
+
+    // ---- backups -----------------------------------------------------------------------
+    in-out property <[BackupRow]> backups;
+    in-out property <[ScheduleRow]> backup-schedules;
+    in-out property <string> backups-status;
+
+    // ---- cron ----------------------------------------------------------------------------
+    in-out property <[CronRow]> cron-jobs;
+    in-out property <string> cron-status;
+
+    // ---- logs ------------------------------------------------------------------------------
+    in-out property <[LogSource]> log-sources;
+    in-out property <[LogLine]> log-lines;
+    in-out property <string> active-log-source;
+    in-out property <string> logs-status;
+
+    // ---- files --------------------------------------------------------------------------------
+    in-out property <[FileRow]> file-rows;
+    in-out property <string> current-file-path;
+    in-out property <string> files-status;
+    in-out property <string> file-editor-content;
+
+    // ---- deployments ------------------------------------------------------------------------------
+    in-out property <[DeploymentRow]> deployments;
+    in-out property <string> deployments-status;
+
+    // ---- alerts ------------------------------------------------------------------------------------
+    in-out property <[ChannelRow]> alert-channels;
+    in-out property <[AlertRuleRow]> alert-rules;
+    in-out property <[AlertRow]> alerts;
+    in-out property <string> alerts-status;
+
+    // ---- terminal --------------------------------------------------------------------------------------
+    in-out property <string> terminal-id;
+    in-out property <string> terminal-shell;
+    in-out property <string> terminal-status;
+    in-out property <[TerminalLine]> terminal-lines;
+
+    // ---- users -------------------------------------------------------------------------------------------
+    in-out property <[UserRow]> users;
+    in-out property <string> users-status;
+
+    // ---- settings ------------------------------------------------------------------------------------------------
+    in-out property <string> settings-json;
+    in-out property <string> hostname;
+    in-out property <string> timezone;
+    in-out property <string> locale;
+    in-out property <[ApiKeyRow]> api-keys;
+    in-out property <string> update-json;
+    in-out property <PanelCertificate> panel-certificate;
+    in-out property <string> settings-status;
+    in-out property <string> api-key-reveal;
+    in-out property <string> twofa-secret;
+    in-out property <string> twofa-uri;
+    in-out property <string> twofa-qr;
+
+    // ---- callbacks (registered in Rust) ------------------------------------------------------------------------------------------
     callback login(string, string);
     callback verify(string);
     callback reset-login();
     callback logout();
     callback navigate(Page);
     callback toggle-theme();
+
+    callback open-site(string);
+    callback create-site(string, string, string, string, string, string);
+    callback delete-site(string);
+    callback site-action(string, string);
+    callback site-ssl(string);
+    callback create-database(string, string);
+    callback delete-database(string);
+
+    callback create-user(string, string, string, string, int, int);
+    callback update-user(string, string, string, string, string, string, int, int);
+
+    callback firewall-apply(string, string, string, string, string);
+    callback unban(string, string);
+    callback add-ssh-key(string, string, string);
+    callback remove-ssh-key(string);
+
+    callback run-backup(string, string, string);
+    callback backup-action(string, string, string);
+    callback delete-backup(string);
+    callback create-schedule(string, string, string, string, string);
+    callback delete-schedule(string);
+
+    callback create-cron(string, string, string, string, string);
+    callback delete-cron(string);
+    callback run-cron(string);
+
+    callback log-source(string);
+
+    callback file-path(string);
+    callback file-write(string, string, string);
+    callback file-mkdir(string, string);
+    callback file-delete(string, string);
+    callback file-renamed(string, string, string);
+    callback file-chmod(string, string, string);
+    callback file-content(string, string);
+
+    callback create-deployment(string, string, string, string, string, string, string, string);
+    callback run-deployment(string);
+    callback delete-deployment(string);
+
+    callback create-channel(string, string, string, string, string);
+    callback delete-channel(string);
+    callback create-rule(string, string, string, string, string, int);
+    callback delete-rule(string);
+    callback test-alert(string, string);
+
+    callback terminal-close();
+    callback terminal-input(string);
+    callback terminal-resize(int, int);
+
+    callback save-settings(string, string, string, string, string, string, string, bool);
+    callback api-key-created(string, string);
+    callback api-key-deleted(string);
+    callback update-check();
+    callback update-apply();
+    callback panel-ssl-issue();
+    callback twofa-setup(string);
+    callback twofa-enable(string);
+    callback twofa-disable(string);
 
     init => {
         Palette.color-scheme = root.dark ? ColorScheme.dark : ColorScheme.light;
@@ -79,65 +271,161 @@ export component AppWindow inherits Window {
         toggle-theme() => { root.toggle-theme(); }
         logout() => { root.logout(); }
 
-        if root.current-page == Page.dashboard : PlaceholderPage {
-            title: "Dashboard";
-            description: "Live server overview.";
+        if root.current-page == Page.dashboard : DashboardPage {
+            snapshot <=> root.dash-snapshot;
+            cpu-spark: root.dash-cpu-spark;
+            mem-spark: root.dash-mem-spark;
+            services <=> root.dash-services;
+            audit <=> root.dash-audit;
+            status <=> root.dash-status;
+            open-site(id) => { root.open-site(id); }
+            navigate(page) => { root.navigate(page); }
         }
-        if root.current-page == Page.sites : PlaceholderPage {
-            title: "Sites";
-            description: "Every domain gets its own Nginx vhost and an isolated PHP-FPM pool.";
+
+        if root.current-page == Page.sites : SitesPage {
+            sites <=> root.sites;
+            status <=> root.sites-status;
+            create-site(domain, aliases, template, php, ssl, docroot) => { root.create-site(domain, aliases, template, php, ssl, docroot); }
+            delete-site(id) => { root.delete-site(id); }
+            open-site(id) => { root.open-site(id); }
         }
-        if root.current-page == Page.databases : PlaceholderPage {
-            title: "Databases";
-            description: "MariaDB/MySQL, PostgreSQL and Redis, with per-database credentials.";
+
+        if root.current-page == Page.site-detail : SiteDetailPage {
+            id: root.site-detail-id;
+            detail <=> root.site-detail;
+            ssl <=> root.site-ssl-status;
+            error <=> root.site-error;
+            ssl-message <=> root.site-ssl-message;
+            site-action(id, action) => { root.site-action(id, action); }
+            site-ssl(id) => { root.site-ssl(id); }
+            back() => { root.navigate(Page.sites); }
         }
-        if root.current-page == Page.php : PlaceholderPage {
-            title: "PHP";
-            description: "Per-site PHP-FPM pools and supported versions.";
+
+        if root.current-page == Page.databases : DatabasesPage {
+            databases <=> root.databases;
+            engines <=> root.database-engines;
+            status <=> root.databases-status;
+            create-database(name, user) => { root.create-database(name, user); }
+            delete-database(id) => { root.delete-database(id); }
         }
-        if root.current-page == Page.security : PlaceholderPage {
-            title: "Security";
-            description: "Firewall rules, fail2ban jails and managed SSH keys.";
+
+        if root.current-page == Page.php : PhpPage {
+            versions <=> root.php-versions;
+            installed: root.php-installed;
+            status <=> root.php-status;
         }
-        if root.current-page == Page.backups : PlaceholderPage {
-            title: "Backups";
-            description: "Archive, verify and restore server state.";
+
+        if root.current-page == Page.security : SecurityPage {
+            firewall <=> root.firewall;
+            jails <=> root.jails;
+            ssh-keys <=> root.ssh-keys;
+            status <=> root.security-status;
+            firewall-apply(port, proto, source, action, comment) => { root.firewall-apply(port, proto, source, action, comment); }
+            unban(jail, ip) => { root.unban(jail, ip); }
+            add-ssh-key(label, key, user) => { root.add-ssh-key(label, key, user); }
+            remove-ssh-key(id) => { root.remove-ssh-key(id); }
         }
-        if root.current-page == Page.cron : PlaceholderPage {
-            title: "Cron";
-            description: "Scheduled shell commands with a run log.";
+
+        if root.current-page == Page.backups : BackupsPage {
+            backups <=> root.backups;
+            schedules <=> root.backup-schedules;
+            status <=> root.backups-status;
+            run-backup(name, kind, site) => { root.run-backup(name, kind, site); }
+            backup-action(id, action, passphrase) => { root.backup-action(id, action, passphrase); }
+            delete-backup(id) => { root.delete-backup(id); }
+            create-schedule(name, cron, type, path, site) => { root.create-schedule(name, cron, type, path, site); }
+            delete-schedule(id) => { root.delete-schedule(id); }
         }
-        if root.current-page == Page.logs : PlaceholderPage {
-            title: "Logs";
-            description: "Filter nginx, PHP-FPM, panel and system logs.";
+
+        if root.current-page == Page.cron : CronPage {
+            jobs <=> root.cron-jobs;
+            status <=> root.cron-status;
+            create-cron(expression, command, user, site, id) => { root.create-cron(expression, command, user, site, id); }
+            delete-cron(id) => { root.delete-cron(id); }
+            run-cron(id) => { root.run-cron(id); }
         }
-        if root.current-page == Page.files : PlaceholderPage {
-            title: "Files";
-            description: "Browse, edit and upload files inside managed directories.";
+
+        if root.current-page == Page.logs : LogsPage {
+            sources <=> root.log-sources;
+            lines <=> root.log-lines;
+            active-source <=> root.active-log-source;
+            status <=> root.logs-status;
+            source-changed(id) => { root.log-source(id); }
         }
-        if root.current-page == Page.deployments : PlaceholderPage {
-            title: "Deployments";
-            description: "Pull, build and publish a Git repository.";
+
+        if root.current-page == Page.files : FilesPage {
+            rows <=> root.file-rows;
+            path <=> root.current-file-path;
+            status <=> root.files-status;
+            content <=> root.file-editor-content;
+            path-changed(path) => { root.file-path(path); }
+            file-write(scope, path, content) => { root.file-write(scope, path, content); }
+            file-mkdir(scope, path) => { root.file-mkdir(scope, path); }
+            file-delete(scope, path) => { root.file-delete(scope, path); }
+            file-renamed(scope, from, to) => { root.file-renamed(scope, from, to); }
+            file-chmod(scope, path, mode) => { root.file-chmod(scope, path, mode); }
+            file-content(scope, path) => { root.file-content(scope, path); }
         }
-        if root.current-page == Page.alerts : PlaceholderPage {
-            title: "Alerts";
-            description: "Notify by email or webhook when something needs attention.";
+
+        if root.current-page == Page.deployments : DeploymentsPage {
+            deployments <=> root.deployments;
+            status <=> root.deployments-status;
+            create-deployment(site, repo, branch, subdir, build, user, enabled, id) => { root.create-deployment(site, repo, branch, subdir, build, user, enabled, id); }
+            run-deployment(id) => { root.run-deployment(id); }
+            delete-deployment(id) => { root.delete-deployment(id); }
         }
-        if root.current-page == Page.terminal : PlaceholderPage {
-            title: "Terminal";
-            description: "A root shell inside the privileged core.";
+
+        if root.current-page == Page.alerts : AlertsPage {
+            channels <=> root.alert-channels;
+            rules <=> root.alert-rules;
+            alerts <=> root.alerts;
+            status <=> root.alerts-status;
+            create-channel(name, kind, url, to, host) => { root.create-channel(name, kind, url, to, host); }
+            delete-channel(id) => { root.delete-channel(id); }
+            create-rule(name, event, severity, channel, enabled, cooldown) => { root.create-rule(name, event, severity, channel, enabled, cooldown); }
+            delete-rule(id) => { root.delete-rule(id); }
+            test-alert(channel, message) => { root.test-alert(channel, message); }
         }
-        if root.current-page == Page.users : PlaceholderPage {
-            title: "Users";
-            description: "Panel accounts and their roles.";
+
+        if root.current-page == Page.terminal : TerminalPage {
+            id <=> root.terminal-id;
+            shell <=> root.terminal-shell;
+            status <=> root.terminal-status;
+            lines <=> root.terminal-lines;
+            terminal-close() => { root.terminal-close(); }
+            terminal-input(data) => { root.terminal-input(data); }
+            terminal-resize(rows, cols) => { root.terminal-resize(rows, cols); }
         }
-        if root.current-page == Page.settings : PlaceholderPage {
-            title: "Settings";
-            description: "Panel-wide configuration and certificates.";
+
+        if root.current-page == Page.users : UsersPage {
+            users <=> root.users;
+            status <=> root.users-status;
+            create-user(email, name, password, role, sites, dbs) => { root.create-user(email, name, password, role, sites, dbs); }
+            update-user(id, email, name, role, status, totp, sites, dbs) => { root.update-user(id, email, name, role, status, totp, sites, dbs); }
         }
-        if root.current-page == Page.site-detail : PlaceholderPage {
-            title: "Site detail";
-            description: "Overview, SSL and lifecycle actions for a site.";
+
+        if root.current-page == Page.settings : SettingsPage {
+            settings-json: root.settings-json;
+            hostname <=> root.hostname;
+            timezone <=> root.timezone;
+            locale <=> root.locale;
+            api-keys <=> root.api-keys;
+            update-json: root.update-json;
+            certificate <=> root.panel-certificate;
+            status <=> root.settings-status;
+            api-key-reveal <=> root.api-key-reveal;
+            twofa-secret <=> root.twofa-secret;
+            twofa-uri <=> root.twofa-uri;
+            twofa-qr <=> root.twofa-qr;
+            save-settings(hostname, timezone, locale, channel, lifetime, maintenance, ssl, enabled) => { root.save-settings(hostname, timezone, locale, channel, lifetime, maintenance, ssl, enabled); }
+            api-key-created(name, scopes) => { root.api-key-created(name, scopes); }
+            api-key-deleted(id) => { root.api-key-deleted(id); }
+            update-check() => { root.update-check(); }
+            update-apply() => { root.update-apply(); }
+            panel-ssl-issue() => { root.panel-ssl-issue(); }
+            twofa-setup(password) => { root.twofa-setup(password); }
+            twofa-enable(code) => { root.twofa-enable(code); }
+            twofa-disable(password) => { root.twofa-disable(password); }
         }
     }
 }

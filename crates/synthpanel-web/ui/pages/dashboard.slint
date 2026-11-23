@@ -1,0 +1,140 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { PageHeader, Card, Notice } from "../widgets/card.slint";
+import { StatCard } from "../widgets/stat_card.slint";
+import { Sparkline } from "../widgets/sparkline.slint";
+import { ServiceList } from "../widgets/service_list.slint";
+import { AuditFeed } from "../widgets/audit_feed.slint";
+import { AppButton } from "../widgets/button.slint";
+import { MetricSnapshot, Service, AuditEntry, Page } from "../types.slint";
+
+export component DashboardPage inherits Rectangle {
+    in-out property <MetricSnapshot> snapshot;
+    in property <string> cpu-spark;
+    in property <string> mem-spark;
+    in-out property <[Service]> services;
+    in-out property <[AuditEntry]> audit;
+    in-out property <string> status;
+
+    callback open-site(string);
+    callback navigate(Page);
+
+    private property <string> cpu-text: "—";
+    private property <string> load-text: "—";
+    private property <string> mem-text: "—";
+    private property <string> mem-total: "—";
+    private property <string> disk-text: "—";
+    private property <string> disk-total: "—";
+    private property <string> net-text: "—";
+
+    changed snapshot => {
+        root.cpu-text = root.snapshot.cpu > 0 ? root.snapshot.cpu.to-fixed(0) + "%" : "—";
+        root.load-text = root.snapshot.load1 > 0 ? "load " + root.snapshot.load1.to-fixed(2) : "load —";
+        root.mem-text = root.snapshot.mem-used > 0 ? (root.snapshot.mem-used / 1024).to-fixed(1) + " GB" : "—";
+        root.mem-total = root.snapshot.mem-total > 0 ? "of " + root.snapshot.mem-total.to-fixed(0) + " GB" : "—";
+        root.disk-text = root.snapshot.disk-used > 0 ? root.snapshot.disk-used.to-fixed(1) + " GB" : "—";
+        root.disk-total = root.snapshot.disk-total > 0 ? "of " + root.snapshot.disk-total.to-fixed(0) + " GB" : "—";
+        root.net-text = root.snapshot.net-rx > 0 || root.snapshot.net-tx > 0
+            ? root.snapshot.net-rx.to-fixed(0) + "↓ " + root.snapshot.net-tx.to-fixed(0) + "↑"
+            : "—";
+    }
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Dashboard";
+            subtitle: "Live server overview";
+        }
+
+        if root.status != "" : Notice { text: root.status; }
+
+        HorizontalLayout {
+            spacing: 16px;
+            StatCard {
+                label: "CPU";
+                value: root.cpu-text;
+                hint: root.load-text;
+                icon: @image-url("../assets/icons/clock.svg");
+                horizontal-stretch: 1;
+            }
+            StatCard {
+                label: "Memory";
+                value: root.mem-text;
+                hint: root.mem-total;
+                icon: @image-url("../assets/icons/server.svg");
+                horizontal-stretch: 1;
+            }
+            StatCard {
+                label: "Disk";
+                value: root.disk-text;
+                hint: root.disk-total;
+                icon: @image-url("../assets/icons/archive.svg");
+                horizontal-stretch: 1;
+            }
+            StatCard {
+                label: "Network";
+                value: root.net-text;
+                hint: "rx · tx";
+                icon: @image-url("../assets/icons/globe.svg");
+                horizontal-stretch: 1;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 16px;
+
+            Card {
+                title: "CPU · last 24 hours";
+                horizontal-stretch: 1;
+                Sparkline {
+                    path: root.cpu-spark;
+                    empty-text: "no metric history";
+                }
+            }
+
+            Card {
+                title: "Memory · last 24 hours";
+                horizontal-stretch: 1;
+                Sparkline {
+                    path: root.mem-spark;
+                    empty-text: "no metric history";
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 16px;
+
+            Card {
+                title: "Services";
+                horizontal-stretch: 1;
+                ServiceList { services: root.services; }
+            }
+
+            Card {
+                title: "Recent activity";
+                horizontal-stretch: 1;
+                AuditFeed { entries: root.audit; }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 10px;
+            AppButton {
+                text: "Open sites";
+                clicked => { root.navigate(Page.sites); }
+            }
+            AppButton {
+                text: "Start a terminal";
+                clicked => { root.navigate(Page.terminal); }
+            }
+            AppButton {
+                text: "Run a backup";
+                clicked => { root.navigate(Page.backups); }
+            }
+        }
+    }
+}

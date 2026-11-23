@@ -83,6 +83,13 @@ export struct SslStatus {
     expiring-soon: bool,
 }
 
+export struct SiteSsl {
+    domain: string,
+    ssl-mode: string,
+    expires: string,
+    expiring-soon: bool,
+}
+
 export struct UserRow {
     id: string,
     email: string,
@@ -137,12 +144,19 @@ export struct SshKeyRow {
     fingerprint: string,
 }
 
+export enum Status {
+    active,
+    idle,
+    failed,
+}
+
 export struct BackupRow {
     id: string,
     name: string,
     kind: string,
     status: string,
     size: float,
+    size-label: string,
     created: string,
     encrypted: bool,
     error: string,
@@ -191,6 +205,7 @@ export struct FileRow {
     path: string,
     is-directory: bool,
     size: float,
+    size-label: string,
     mode: string,
     owner: string,
     modified: string,

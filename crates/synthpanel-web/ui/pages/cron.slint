@@ -1,0 +1,133 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { CronRow } from "../types.slint";
+
+export component CronPage inherits Rectangle {
+    in-out property <[CronRow]> jobs;
+    in-out property <string> status;
+
+    private property <bool> show-form: false;
+    private property <string> new-expression: "0 * * * *";
+    private property <string> new-command: "";
+    private property <string> new-user: "root";
+    private property <string> new-site: "";
+    private property <string> new-id: "";
+
+    callback create-cron(string, string, string, string, string);
+    callback delete-cron(string);
+    callback run-cron(string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Cron";
+            subtitle: "Scheduled shell commands with a run log.";
+        }
+
+        Notice { text: root.status; }
+
+        AppButton {
+            text: root.show-form ? "Hide form" : "New job";
+            primary: true;
+            clicked => { root.show-form = !root.show-form; }
+        }
+
+        if root.show-form : Card {
+            title: "Create a cron job";
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: "Expression";
+                        text <=> root.new-expression;
+                        horizontal-stretch: 1;
+                    }
+                    TextField {
+                        label: "User";
+                        text <=> root.new-user;
+                        horizontal-stretch: 1;
+                    }
+                }
+                TextField {
+                    label: "Command";
+                    text <=> root.new-command;
+                }
+                TextField {
+                    label: "Site (optional)";
+                    text <=> root.new-site;
+                    hint: "Leave empty for a panel job.";
+                }
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                AppButton {
+                    text: "Create";
+                    primary: true;
+                    clicked => {
+                        root.create-cron(root.new-expression, root.new-command, root.new-user, root.new-site, root.new-id);
+                        root.show-form = false;
+                    }
+                }
+                AppButton {
+                    text: "Cancel";
+                    clicked => { root.show-form = false; }
+                }
+            }
+        }
+
+        Card {
+            title: "Jobs";
+            if root.jobs.length == 0 : Text {
+                text: "No cron jobs yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for job in root.jobs : VerticalLayout {
+                spacing: 4px;
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: job.expression;
+                        font-size: 13px;
+                        font-family: "monospace";
+                        font-weight: 500;
+                        color: Theme.text;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: job.command;
+                        font-size: 12px;
+                        color: Theme.muted;
+                        overflow: elide;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        text: "next " + (job.next-run == "" ? "—" : job.next-run);
+                        font-size: 11px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    Rectangle { horizontal-stretch: 1; background: transparent; }
+                    IconButton {
+                        icon: @image-url("../assets/icons/play.svg");
+                        tooltip: "Run now";
+                        clicked => { root.run-cron(job.id); }
+                    }
+                    IconButton {
+                        icon: @image-url("../assets/icons/trash.svg");
+                        tooltip: "Delete job";
+                        danger: true;
+                        clicked => { root.delete-cron(job.id); }
+                    }
+                }
+            }
+        }
+    }
+}

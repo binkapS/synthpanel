@@ -1,0 +1,149 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField, TextArea } from "../widgets/field.slint";
+import { FileRow } from "../types.slint";
+
+export component FilesPage inherits Rectangle {
+    in-out property <[FileRow]> rows;
+    in-out property <string> path;
+    in-out property <string> status;
+    in-out property <string> content;
+
+    private property <bool> editing: false;
+    private property <string> scope: "site";
+    private property <string> new-name: "";
+
+    callback path-changed(string);
+    callback file-write(string, string, string);
+    callback file-mkdir(string, string);
+    callback file-delete(string, string);
+    callback file-renamed(string, string, string);
+    callback file-chmod(string, string, string);
+    callback file-content(string, string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Files";
+            subtitle: "Browse, edit and upload files inside managed directories.";
+        }
+
+        Notice { text: root.status; }
+
+        HorizontalLayout {
+            spacing: 10px;
+            Text {
+                text: root.path == "" ? "/" : root.path;
+                font-size: 13px;
+                font-family: "monospace";
+                color: Theme.muted;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+            AppButton {
+                text: "Parent";
+                clicked => { root.path-changed(""); }
+            }
+            AppButton {
+                text: root.editing ? "Hide editor" : "New file";
+                clicked => { root.editing = !root.editing; }
+            }
+        }
+
+        if root.editing : Card {
+            title: "Edit file";
+            VerticalLayout {
+                spacing: 10px;
+                HorizontalLayout {
+                    spacing: 10px;
+                    TextField {
+                        label: "Name";
+                        text <=> root.new-name;
+                        horizontal-stretch: 1;
+                    }
+                    AppButton {
+                        text: "New folder";
+                        clicked => {
+                            root.file-mkdir(root.scope, root.path + "/" + root.new-name);
+                            root.new-name = "";
+                        }
+                    }
+                }
+                TextArea {
+                    label: "Content";
+                    text <=> root.content;
+                    lines: 12;
+                }
+                AppButton {
+                    text: "Save";
+                    primary: true;
+                    clicked => {
+                        root.file-write(root.scope, root.path + "/" + root.new-name, root.content);
+                        root.editing = false;
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: "Entries";
+            if root.rows.length == 0 : Text {
+                text: "Nothing here yet.";
+                font-size: 12px;
+                color: Theme.muted;
+            }
+            for entry in root.rows : HorizontalLayout {
+                height: 32px;
+                spacing: 12px;
+                Text {
+                    text: entry.name;
+                    font-size: 13px;
+                    font-family: "monospace";
+                    color: Theme.text;
+                    overflow: elide;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: entry.is-directory ? "dir" : entry.size-label;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: entry.mode;
+                    font-size: 11px;
+                    font-family: "monospace";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: entry.owner;
+                    font-size: 11px;
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                if entry.is-directory : AppButton {
+                    text: "Open";
+                    clicked => { root.path-changed(entry.path); }
+                }
+                if !entry.is-directory : IconButton {
+                    icon: @image-url("../assets/icons/refresh.svg");
+                    tooltip: "Edit";
+                    clicked => { root.file-content(root.scope, entry.path); }
+                }
+                IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Delete";
+                    danger: true;
+                    clicked => { root.file-delete(root.scope, entry.path); }
+                }
+            }
+        }
+    }
+}

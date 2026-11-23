@@ -1,0 +1,234 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+import { ApiKeyRow, PanelCertificate } from "../types.slint";
+
+export component SettingsPage inherits Rectangle {
+    in property <string> settings-json;
+    in-out property <string> hostname;
+    in-out property <string> timezone;
+    in-out property <string> locale;
+    in-out property <[ApiKeyRow]> api-keys;
+    in property <string> update-json;
+    in-out property <PanelCertificate> certificate;
+    in-out property <string> status;
+    in-out property <string> api-key-reveal;
+    in-out property <string> twofa-secret;
+    in-out property <string> twofa-uri;
+    in-out property <string> twofa-qr;
+
+    private property <string> key-name: "";
+    private property <string> key-scopes: "";
+    private property <string> twofa-code: "";
+    private property <string> twofa-password: "";
+
+    callback save-settings(string, string, string, string, string, string, string, bool);
+    callback api-key-created(string, string);
+    callback api-key-deleted(string);
+    callback update-check();
+    callback update-apply();
+    callback panel-ssl-issue();
+    callback twofa-setup(string);
+    callback twofa-enable(string);
+    callback twofa-disable(string);
+
+    VerticalLayout {
+        spacing: 18px;
+
+        PageHeader {
+            title: "Settings";
+            subtitle: "Panel-wide configuration, API keys, updates and two-factor auth.";
+        }
+
+        Notice { text: root.status; }
+        if root.api-key-reveal != "" : Notice {
+            text: "New API key: " + root.api-key-reveal;
+            kind: "warning";
+        }
+
+        Card {
+            title: "General";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Hostname";
+                    text <=> root.hostname;
+                    horizontal-stretch: 2;
+                }
+                TextField {
+                    label: "Timezone";
+                    text <=> root.timezone;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Locale";
+                    text <=> root.locale;
+                    horizontal-stretch: 1;
+                }
+            }
+            AppButton {
+                text: "Save";
+                primary: true;
+                clicked => { root.save-settings(root.hostname, root.timezone, root.locale, "stable", "", "", "", false); }
+            }
+        }
+
+        Card {
+            title: "Panel certificate";
+            VerticalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.certificate.hostname == "" ? "No certificate loaded" : root.certificate.hostname;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                }
+                Text {
+                    text: root.certificate.issuer == "" ? "" : "Issuer: " + root.certificate.issuer;
+                    font-size: 11px;
+                    color: Theme.muted;
+                }
+                Text {
+                    text: root.certificate.expires == "" ? "" : "Expires: " + root.certificate.expires;
+                    font-size: 11px;
+                    color: Theme.muted;
+                }
+                if root.certificate.days-left < 30 && root.certificate.days-left >= 0 : Text {
+                    text: "expires in " + root.certificate.days-left.to-fixed(0) + " day(s)";
+                    font-size: 11px;
+                    color: Theme.danger;
+                }
+                AppButton {
+                    text: "Issue / renew";
+                    primary: true;
+                    clicked => { root.panel-ssl-issue(); }
+                }
+            }
+        }
+
+        Card {
+            title: "API keys";
+            HorizontalLayout {
+                spacing: 12px;
+                TextField {
+                    label: "Name";
+                    text <=> root.key-name;
+                    horizontal-stretch: 1;
+                }
+                TextField {
+                    label: "Scopes";
+                    text <=> root.key-scopes;
+                    hint: "e.g. read:metrics,write:sites";
+                    horizontal-stretch: 2;
+                }
+                AppButton {
+                    text: "Create";
+                    primary: true;
+                    clicked => { root.api-key-created(root.key-name, root.key-scopes); }
+                }
+            }
+            for key in root.api-keys : HorizontalLayout {
+                height: 32px;
+                spacing: 12px;
+                Text {
+                    text: key.name;
+                    font-size: 13px;
+                    font-weight: 500;
+                    color: Theme.text;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: key.prefix;
+                    font-size: 11px;
+                    font-family: "monospace";
+                    color: Theme.muted;
+                    vertical-alignment: center;
+                }
+                Rectangle { horizontal-stretch: 1; background: transparent; }
+                IconButton {
+                    icon: @image-url("../assets/icons/trash.svg");
+                    tooltip: "Revoke";
+                    danger: true;
+                    clicked => { root.api-key-deleted(key.id); }
+                }
+            }
+        }
+
+        Card {
+            title: "Updates";
+            Text {
+                text: root.update-json;
+                font-size: 11px;
+                font-family: "monospace";
+                color: Theme.muted;
+                wrap: word-wrap;
+            }
+            HorizontalLayout {
+                spacing: 10px;
+                AppButton {
+                    text: "Check";
+                    clicked => { root.update-check(); }
+                }
+                AppButton {
+                    text: "Apply";
+                    primary: true;
+                    clicked => { root.update-apply(); }
+                }
+            }
+        }
+
+        Card {
+            title: "Two-factor authentication";
+            if root.twofa-secret != "" : VerticalLayout {
+                spacing: 8px;
+                Text {
+                    text: "Secret: " + root.twofa-secret;
+                    font-size: 12px;
+                    font-family: "monospace";
+                    color: Theme.text;
+                }
+                Text {
+                    text: "Add the URI to your authenticator app, then confirm with a code.";
+                    font-size: 11px;
+                    color: Theme.muted;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    TextField {
+                        label: "Code";
+                        text <=> root.twofa-code;
+                        horizontal-stretch: 1;
+                    }
+                    AppButton {
+                        text: "Enable";
+                        primary: true;
+                        clicked => { root.twofa-enable(root.twofa-code); }
+                    }
+                }
+            }
+            if root.twofa-secret == "" : HorizontalLayout {
+                spacing: 10px;
+                TextField {
+                    label: "Password";
+                    text <=> root.twofa-password;
+                    password: true;
+                    horizontal-stretch: 1;
+                }
+                AppButton {
+                    text: "Set up";
+                    primary: true;
+                    clicked => { root.twofa-setup(root.twofa-password); }
+                }
+            }
+            if root.twofa-secret != "" : AppButton {
+                text: "Disable two-factor authentication";
+                danger: true;
+                clicked => { root.twofa-disable(root.twofa-password); }
+            }
+        }
+    }
+}
