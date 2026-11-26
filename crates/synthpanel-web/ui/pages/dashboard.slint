@@ -47,10 +47,10 @@ export component DashboardPage inherits Rectangle {
             ? "of " + root.snapshot.disk-total.to-fixed(0) + " GB"
             : "—";
         // The bridge converts network byte counters into bytes/second; render
-        // them in the human units the Svelte SPA used (KB/s and MB/s).
+        // them as megabits per second (8 bits per byte, SI mega).
         root.net-text = root.snapshot.net-rx > 0 || root.snapshot.net-tx > 0
-            ? (root.snapshot.net-rx / 1024).to-fixed(1) + " KB/s↓ "
-                + (root.snapshot.net-tx / 1024).to-fixed(1) + " KB/s↑"
+            ? (root.snapshot.net-rx * 8 / 1000000).to-fixed(2) + " Mbps↓ "
+                + (root.snapshot.net-tx * 8 / 1000000).to-fixed(2) + " Mbps↑"
             : "—";
     }
 

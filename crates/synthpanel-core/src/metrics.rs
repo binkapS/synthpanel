@@ -165,7 +165,18 @@ pub async fn range(pool: &SqlitePool, host: &str, since_ts: i64) -> Result<Vec<S
     .bind(since_ts)
     .fetch_all(pool)
     .await?;
-    Ok(rows)
+    // A raw 24h history can be tens of thousands of rows. The IPC channel is
+    // line-delimited with a 1 MiB limit per response, so downsample evenly to
+    // a fixed budget before serialising. Sparklines only need a few hundred
+    // points to look identical.
+    const MAX_POINTS: usize = 720;
+    if rows.len() <= MAX_POINTS {
+        return Ok(rows);
+    }
+    let last = rows.len() - 1;
+    Ok((0..MAX_POINTS)
+        .map(|i| rows[i * last / (MAX_POINTS - 1)].clone())
+        .collect())
 }
 
 pub async fn prune(pool: &SqlitePool, host: &str) -> Result<u64> {

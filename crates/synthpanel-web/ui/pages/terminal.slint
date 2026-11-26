@@ -202,7 +202,9 @@ export component TerminalPage inherits Rectangle {
                             for line in root.lines : Rectangle {
                                 height: 16px;
                                 horizontal-stretch: 1;
-                                background: line.kind == "cursor" && root.cursor-on ? #16302a : transparent;
+                                // Only the single block glyph marks the cursor;
+                                // highlighting the whole row would paint a
+                                // full-width bar across the terminal.
                                 HorizontalLayout {
                                     spacing: 0px;
                                     alignment: start;
