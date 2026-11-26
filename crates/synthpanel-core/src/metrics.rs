@@ -99,9 +99,23 @@ impl Collector {
 }
 
 fn disk_usage(disks: &sysinfo::Disks) -> (f64, i64) {
+    // sysinfo lists every mounted filesystem, including Docker overlay
+    // mounts that each report the size of the whole backing disk. Summing
+    // them inflates a 256 GB drive into several TB. Only physical disks
+    // (HDD/SSD) represent real storage.
+    let physical: Vec<_> = disks
+        .list()
+        .iter()
+        .filter(|disk| matches!(disk.kind(), sysinfo::DiskKind::HDD | sysinfo::DiskKind::SSD))
+        .collect();
+    let list: Vec<_> = if physical.is_empty() {
+        disks.list().iter().collect()
+    } else {
+        physical
+    };
     let mut total = 0u64;
     let mut available = 0u64;
-    for disk in disks.list() {
+    for disk in list {
         total += disk.total_space();
         available += disk.available_space();
     }
@@ -145,6 +159,34 @@ pub async fn store(pool: &SqlitePool, snapshot: &Snapshot) -> Result<()> {
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Network byte rate between the two most recent samples, in bytes/second.
+///
+/// Cumulative interface counters must never be presented as a rate: doing so
+/// turns a few GB since boot into thousands of Mbps. The rate is computed
+/// from two consecutive core samples and included alongside the snapshot.
+pub async fn network_rates(pool: &SqlitePool, host: &str) -> (f64, f64) {
+    let rows: Vec<Snapshot> = match sqlx::query_as::<_, Snapshot>(
+        "SELECT * FROM metrics_raw WHERE host = ? ORDER BY ts DESC LIMIT 2",
+    )
+    .bind(host)
+    .fetch_all(pool)
+    .await
+    {
+        Ok(rows) => rows,
+        Err(_) => return (0.0, 0.0),
+    };
+    if rows.len() < 2 {
+        return (0.0, 0.0);
+    }
+    let seconds = (rows[0].ts - rows[1].ts) as f64;
+    if seconds <= 0.0 {
+        return (0.0, 0.0);
+    }
+    let rx = ((rows[0].net_rx - rows[1].net_rx) as f64 / seconds).max(0.0);
+    let tx = ((rows[0].net_tx - rows[1].net_tx) as f64 / seconds).max(0.0);
+    (rx, tx)
 }
 
 pub async fn latest(pool: &SqlitePool, host: &str) -> Result<Option<Snapshot>> {

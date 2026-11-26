@@ -130,20 +130,13 @@ pub fn metric_snapshot(body: &Value) -> MetricSnapshot {
     snapshot.mem_total = num(body, "mem_total") / 1048576.0;
     snapshot.disk_used = num(body, "disk_used"); // already a percentage
     snapshot.disk_total = num(body, "disk_total") / 1073741824.0; // bytes → GiB
-    snapshot.net_rx = num(body, "net_rx"); // byte total, not a rate
-    snapshot.net_tx = num(body, "net_tx");
+    // The core reports a real bytes/second rate derived from consecutive
+    // samples. Older cores that lack the fields show no rate rather than
+    // mistaking the cumulative counter for bytes per second.
+    snapshot.net_rx = num(body, "net_rx_rate");
+    snapshot.net_tx = num(body, "net_tx_rate");
     snapshot.ts = int(body, "ts");
     snapshot
-}
-
-/// Network rate in bytes/second between two consecutive snapshots.
-pub fn network_rate(previous: &Value, current: &Value) -> (f32, f32) {
-    let previous_ts = int(previous, "ts") as i64;
-    let current_ts = int(current, "ts") as i64;
-    let seconds = ((current_ts - previous_ts).max(1)) as f32;
-    let rx = (num(current, "net_rx") - num(previous, "net_rx")) / seconds;
-    let tx = (num(current, "net_tx") - num(previous, "net_tx")) / seconds;
-    (rx.max(0.0), tx.max(0.0))
 }
 
 pub fn to_services(body: &Value) -> Vec<Service> {

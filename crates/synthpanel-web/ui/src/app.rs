@@ -27,7 +27,6 @@ pub struct Bridge {
     app: RefCell<Rc<AppWindow>>,
     /// The last dashboard metrics snapshot, kept so the next one can be
     /// converted into a network *rate* (the core reports byte counters).
-    prev_snapshot: RefCell<Option<serde_json::Value>>,
     /// The virtual terminal that renders the raw PTY stream.
     vt: RefCell<Option<crate::terminal::Terminal>>,
 }
@@ -42,7 +41,6 @@ pub fn install() -> Result<(), JsValue> {
 
     let bridge = Bridge {
         app: RefCell::new(app.clone()),
-        prev_snapshot: RefCell::new(None),
         vt: RefCell::new(None),
     };
     let bridge = Rc::new(bridge);
@@ -1547,24 +1545,9 @@ impl Bridge {
             1 => match value.get("type").and_then(serde_json::Value::as_str) {
                 Some("snapshot") => {
                     let metrics = value.get("metrics").cloned().unwrap_or_default();
-                    if let Some(previous) = self.prev_snapshot.borrow().clone() {
-                        let (rx, tx) = models::network_rate(&previous, &metrics);
-                        let mut body = metrics.clone();
-                        if let serde_json::Value::Object(map) = &mut body {
-                            map.insert("net_rx".into(), serde_json::json!(rx));
-                            map.insert("net_tx".into(), serde_json::json!(tx));
-                        }
-                        self.prev_snapshot.borrow_mut().replace(metrics.clone());
-                        let snapshot = models::metric_snapshot(&body);
-                        if !snapshot.host.is_empty() {
-                            self.app.borrow_mut().set_dash_snapshot(snapshot);
-                        }
-                    } else {
-                        self.prev_snapshot.borrow_mut().replace(metrics.clone());
-                        let snapshot = models::metric_snapshot(&metrics);
-                        if !snapshot.host.is_empty() {
-                            self.app.borrow_mut().set_dash_snapshot(snapshot);
-                        }
+                    let snapshot = models::metric_snapshot(&metrics);
+                    if !snapshot.host.is_empty() {
+                        self.app.borrow_mut().set_dash_snapshot(snapshot);
                     }
                     if let Some(services) = value.get("services") {
                         self.app.borrow_mut()

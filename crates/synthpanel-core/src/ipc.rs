@@ -325,7 +325,15 @@ impl IpcServer {
                     .await
                     .map_err(internal)?;
                 match snapshot {
-                    Some(snapshot) => Ok(serde_json::to_value(snapshot).map_err(internal)?),
+                    Some(snapshot) => {
+                        let (rx_rate, tx_rate) = metrics::network_rates(&self.pool, &self.host).await;
+                        let mut value = serde_json::to_value(snapshot).map_err(internal)?;
+                        if let serde_json::Value::Object(map) = &mut value {
+                            map.insert("net_rx_rate".into(), json!(rx_rate));
+                            map.insert("net_tx_rate".into(), json!(tx_rate));
+                        }
+                        Ok(value)
+                    }
                     None => Ok(Value::Null),
                 }
             }
