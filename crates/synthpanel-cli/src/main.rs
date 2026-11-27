@@ -113,6 +113,21 @@ pub enum Command {
         #[arg(long)]
         root: Option<String>,
     },
+    /// Create a reverse-proxy site.
+    #[command(name = "sites:proxy")]
+    SitesProxy {
+        /// Domain name.
+        domain: String,
+        /// Upstream target, e.g. http://127.0.0.1:3000.
+        #[arg(long)]
+        target: String,
+        /// Comma separated aliases.
+        #[arg(long)]
+        aliases: Option<String>,
+        /// SSL mode: none, le or custom.
+        #[arg(long, default_value = "none")]
+        ssl: String,
+    },
     /// Delete a site by id.
     #[command(name = "sites:delete")]
     SitesDelete {
@@ -124,6 +139,78 @@ pub enum Command {
     SitesShow {
         /// Site id.
         id: String,
+    },
+    /// Show the security controls of a site.
+    #[command(name = "sites:security:get")]
+    SitesSecurityGet {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+    },
+    /// Update the security controls of a site.
+    #[command(name = "sites:security:set")]
+    SitesSecuritySet {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// Comma separated client IPs to deny.
+        #[arg(long)]
+        ip_block: Option<String>,
+        /// Comma separated user-agent names to block.
+        #[arg(long)]
+        bot_block: Option<String>,
+        /// Basic-auth user name.
+        #[arg(long)]
+        basic_auth_user: Option<String>,
+        /// Basic-auth password.
+        #[arg(long)]
+        basic_auth_password: Option<String>,
+        /// Only accept requests forwarded by Cloudflare.
+        #[arg(long)]
+        cloudflare_only: bool,
+    },
+    /// List the SSH users of a site.
+    #[command(name = "sites:ssh-users:list")]
+    SitesSshUsersList {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+    },
+    /// Add an SSH user to a site.
+    #[command(name = "sites:ssh-users:add")]
+    SitesSshUserAdd {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// System user name (lowercase letters, digits, dashes, underscores).
+        #[arg(long)]
+        username: String,
+        /// SSH public key to authorise for this user.
+        #[arg(long)]
+        public_key: String,
+    },
+    /// Remove an SSH user from a site.
+    #[command(name = "sites:ssh-users:remove")]
+    SitesSshUserRemove {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// System user name.
+        #[arg(long)]
+        username: String,
+    },
+    /// Install a custom certificate for a site.
+    #[command(name = "ssl:cert:install")]
+    SslCertInstall {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// Path to a local PEM certificate file.
+        #[arg(long)]
+        cert: PathBuf,
+        /// Path to a local PEM private-key file.
+        #[arg(long)]
+        key: PathBuf,
     },
     /// List panel users.
     #[command(name = "users:list")]
@@ -151,6 +238,21 @@ pub enum Command {
     DbDelete {
         /// Database id.
         id: String,
+    },
+    /// Dump a database on demand.
+    #[command(name = "db:dump")]
+    DbDump {
+        /// Database id.
+        id: String,
+    },
+    /// Import a SQL dump into a database.
+    #[command(name = "db:import")]
+    DbImport {
+        /// Database id.
+        id: String,
+        /// Path to a local SQL dump file (sent as raw SQL over IPC).
+        #[arg(long)]
+        file: PathBuf,
     },
     /// Show the firewall status.
     #[command(name = "security:firewall")]
@@ -422,6 +524,23 @@ pub enum Command {
         #[arg(long, default_value = "operator")]
         role: String,
     },
+    /// List the sites a user may manage.
+    #[command(name = "user-sites:list")]
+    UserSitesList {
+        /// User id.
+        #[arg(long)]
+        user: String,
+    },
+    /// Replace the sites a user may manage.
+    #[command(name = "user-sites:set")]
+    UserSitesSet {
+        /// User id.
+        #[arg(long)]
+        user: String,
+        /// Comma separated site ids (empty string clears the list).
+        #[arg(long, default_value = "")]
+        sites: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -490,6 +609,16 @@ fn print_table(title: &str, rows: &[(&str, &str)]) {
     for (key, value) in rows {
         println!("  {key:<24} {value}");
     }
+}
+
+/// Split a comma separated CLI value into a JSON-ready list.
+fn split_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 #[tokio::main]
@@ -618,6 +747,29 @@ async fn main() -> Result<()> {
             println!("{}", global.as_json(&result));
             Ok(())
         }
+        Command::SitesProxy {
+            domain,
+            target,
+            aliases,
+            ssl,
+        } => {
+            // The proxy renderer consumes a top-level `proxy_target <url>;`
+            // line from the site's custom directives.
+            let directives = format!("proxy_target {target};");
+            let params = json!({
+                "domain": domain,
+                "aliases": split_list(aliases.as_deref().unwrap_or("")),
+                "template": "proxy",
+                "ssl_mode": ssl,
+                "directives": directives,
+                "proxy_pass": target,
+            });
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITES_CREATE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
         Command::SitesDelete { id } => {
             let result: Value = global
                 .call(synthpanel_ipc::methods::SITES_DELETE, json!({ "id": id }))
@@ -628,6 +780,117 @@ async fn main() -> Result<()> {
         Command::SitesShow { id } => {
             let result: Value = global
                 .call(synthpanel_ipc::methods::SITES_GET, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesSecurityGet { site } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::SITE_SECURITY_GET,
+                    json!({ "site_id": site }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesSecuritySet {
+            site,
+            ip_block,
+            bot_block,
+            basic_auth_user,
+            basic_auth_password,
+            cloudflare_only,
+        } => {
+            let mut params = json!({ "site_id": site });
+            if let Some(value) = ip_block {
+                params["ip_blocks"] = json!(split_list(value));
+            }
+            if let Some(value) = bot_block {
+                params["bot_blocks"] = json!(split_list(value));
+            }
+            match (basic_auth_user, basic_auth_password) {
+                (Some(user), Some(password)) => {
+                    params["basic_auth_enabled"] = json!(true);
+                    params["basic_auth_user"] = json!(user);
+                    params["password"] = json!(password);
+                    params["basic_auth_password"] = json!(password);
+                }
+                (Some(_), None) => bail!("--basic-auth-user needs --basic-auth-password"),
+                (None, Some(_)) => bail!("--basic-auth-password needs --basic-auth-user"),
+                (None, None) => {}
+            }
+            if *cloudflare_only {
+                params["cloudflare_only"] = json!(true);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITE_SECURITY_SET, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesSshUsersList { site } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::SITE_SSH_USERS_LIST,
+                    json!({ "site_id": site }),
+                )
+                .await?;
+            match result
+                .get("users")
+                .and_then(Value::as_array)
+                .or_else(|| result.as_array())
+            {
+                Some(users) if users.is_empty() => eprintln!("no SSH users for this site yet"),
+                Some(users) => {
+                    for user in users {
+                        println!("{}", global.as_json(user));
+                    }
+                }
+                None => println!("{}", global.as_json(&result)),
+            }
+            Ok(())
+        }
+        Command::SitesSshUserAdd {
+            site,
+            username,
+            public_key,
+        } => {
+            let params = json!({
+                "site_id": site,
+                "username": username,
+                "public_key": public_key,
+            });
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITE_SSH_USER_ADD, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesSshUserRemove { site, username } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::SITE_SSH_USER_REMOVE,
+                    json!({ "site_id": site, "username": username }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SslCertInstall { site, cert, key } => {
+            let certificate = std::fs::read_to_string(cert)
+                .with_context(|| format!("cannot read {}", cert.display()))?;
+            let private_key = std::fs::read_to_string(key)
+                .with_context(|| format!("cannot read {}", key.display()))?;
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::SSL_CERT_INSTALL,
+                    json!({
+                        "site_id": site,
+                        "cert": certificate,
+                        "key": private_key,
+                    }),
+                )
                 .await?;
             println!("{}", global.as_json(&result));
             Ok(())
@@ -668,6 +931,25 @@ async fn main() -> Result<()> {
                 .call(
                     synthpanel_ipc::methods::DATABASES_DELETE,
                     json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DbDump { id } => {
+            let result: Value = global
+                .call(synthpanel_ipc::methods::DATABASES_DUMP, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DbImport { id, file } => {
+            let data = std::fs::read_to_string(file)
+                .with_context(|| format!("cannot read {}", file.display()))?;
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::DATABASES_IMPORT,
+                    json!({ "id": id, "data": data }),
                 )
                 .await?;
             println!("{}", global.as_json(&result));
@@ -1131,6 +1413,38 @@ async fn main() -> Result<()> {
             println!("{}", global.as_json(&result));
             Ok(())
         }
+        Command::UserSitesList { user } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::USER_SITES_LIST,
+                    json!({ "user_id": user }),
+                )
+                .await?;
+            match result
+                .get("site_ids")
+                .and_then(Value::as_array)
+                .or_else(|| result.as_array())
+            {
+                Some(sites) if sites.is_empty() => eprintln!("no sites assigned to this user yet"),
+                Some(sites) => {
+                    for site in sites {
+                        println!("{}", global.as_json(site));
+                    }
+                }
+                None => println!("{}", global.as_json(&result)),
+            }
+            Ok(())
+        }
+        Command::UserSitesSet { user, sites } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::USER_SITES_SET,
+                    json!({ "user_id": user, "site_ids": split_list(sites) }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
         Command::Settings => {
             let settings: Value = global
                 .call(synthpanel_ipc::methods::SETTINGS_LIST, json!({}))
@@ -1254,5 +1568,93 @@ mod tests {
         assert_eq!(cli.token_file, PathBuf::from("/run/synthpanel/ipc-token"));
         assert_eq!(cli.socket, PathBuf::from("/run/synthpanel/core.sock"));
         assert!(matches!(cli.command, Command::Settings));
+    }
+
+    #[test]
+    fn cli_parses_cloudpanel_parity_verbs() {
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "sites:proxy",
+            "app.example.com",
+            "--target",
+            "http://127.0.0.1:3000",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::SitesProxy { .. }));
+
+        let cli =
+            Cli::try_parse_from(["synthpanel", "sites:security:get", "--site", "site-id"]).unwrap();
+        assert!(matches!(cli.command, Command::SitesSecurityGet { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "sites:security:set",
+            "--site",
+            "site-id",
+            "--ip-block",
+            "10.0.0.8",
+            "--cloudflare-only",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::SitesSecuritySet { .. }));
+
+        let cli = Cli::try_parse_from(["synthpanel", "sites:ssh-users:list", "--site", "site-id"])
+            .unwrap();
+        assert!(matches!(cli.command, Command::SitesSshUsersList { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "sites:ssh-users:add",
+            "--site",
+            "site-id",
+            "--username",
+            "deploy",
+            "--public-key",
+            "ssh-ed25519 AAAA…",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::SitesSshUserAdd { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "sites:ssh-users:remove",
+            "--site",
+            "site-id",
+            "--username",
+            "deploy",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::SitesSshUserRemove { .. }));
+    }
+
+    #[test]
+    fn cli_parses_db_and_acl_verbs() {
+        let cli = Cli::try_parse_from(["synthpanel", "db:dump", "db-id"]).unwrap();
+        assert!(matches!(cli.command, Command::DbDump { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "db:import",
+            "db-id",
+            "--file",
+            "/tmp/dump.sql",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::DbImport { .. }));
+
+        let cli =
+            Cli::try_parse_from(["synthpanel", "user-sites:list", "--user", "user-id"]).unwrap();
+        assert!(matches!(cli.command, Command::UserSitesList { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "user-sites:set",
+            "--user",
+            "user-id",
+            "--sites",
+            "site-1,site-2",
+        ])
+        .unwrap();
+        assert!(matches!(cli.command, Command::UserSitesSet { .. }));
     }
 }

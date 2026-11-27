@@ -1,6 +1,7 @@
 //! Nginx vhost rendering and validation.
 
-use crate::sites::SiteExtras;
+use crate::site_security::SiteSecuritySettings;
+use crate::sites::{SiteExtras, SiteRecord};
 use anyhow::Result;
 use regex::Regex;
 
@@ -67,18 +68,31 @@ impl ReservedDirectives {
     }
 }
 
-/// Render an Nginx vhost file for a site.
+/// Render an Nginx vhost file for a site without any security overrides.
+///
+/// Callers that manage site security should use
+/// [`render_vhost_with_security`] so the access rules are included in the
+/// same render → lint → `nginx -t` → rollback apply pipeline.
 pub fn render_vhost(site: &SiteExtras, panel_hostname: &str) -> String {
+    render_vhost_with_security(site, panel_hostname, &SiteSecuritySettings::default())
+}
+
+/// Render an Nginx vhost including the site's security controls.
+pub fn render_vhost_with_security(
+    site: &SiteExtras,
+    panel_hostname: &str,
+    security: &SiteSecuritySettings,
+) -> String {
     let extras = site;
     let site = &extras.site;
-    let directives_source = extras.nginx.as_deref();
-    let php_version = site.php_version.as_deref().unwrap_or("8.3");
-    let all_names = site.all_server_names();
-    let mut server_names: Vec<String> = all_names.clone();
+    let ssl_mode = site.ssl_mode.as_str();
+    // Proxy sites carry their target through the existing custom directive
+    // field (see `extract_proxy_target`); the site table has no such column.
+    let (directives, proxy_target) = extract_proxy_target(extras.nginx.as_deref());
+    let mut server_names: Vec<String> = site.all_server_names();
     server_names.sort();
     server_names.dedup();
     let server_name = server_names;
-    let ssl_mode = site.ssl_mode.as_str();
 
     let ssl_listen = match ssl_mode {
         "none" => "listen 80;".to_string(),
@@ -89,40 +103,38 @@ pub fn render_vhost(site: &SiteExtras, panel_hostname: &str) -> String {
         _ => "    # HTTP to HTTPS redirect\n    if ($scheme = http) { return 301 https://$host$request_uri; }\n".to_string(),
     };
 
-    let ssl_block = match ssl_mode {
-        "none" => String::new(),
-        "le" => format!(
-            "    ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;\n\
-             {indent}ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;\n\
-             {indent}ssl_protocols TLSv1.2 TLSv1.3;\n\
-             {indent}ssl_session_cache shared:SSL:10m;\n\
-             {indent}add_header Strict-Transport-Security \"max-age=63072000\" always;\n",
-            domain = site.domain,
-            indent = "    "
-        ),
-        "custom" => format!(
-            "    ssl_certificate /etc/nginx/synthpanel/certs/{id}/cert.pem;\n\
-             {indent}ssl_certificate_key /etc/nginx/synthpanel/certs/{id}/key.pem;\n",
-            id = site.id,
-            indent = "    "
-        ),
-        _ => String::new(),
-    };
+    let ssl_block = render_ssl_block(site, ssl_mode);
 
     let php_block = match site.template.as_str() {
-        "static" | "node" | "nextjs" => String::new(),
-        _ => format!(
-            "    location ~ \\.php$ {{\n\
-             {indent}fastcgi_pass unix:/run/php/php{ver}-sp-{id}.sock;\n\
-             {indent}include /etc/nginx/snippets/fastcgi-php.conf;\n\
-             {indent}}}\n",
-            ver = php_version,
-            id = site.id,
-            indent = "        "
-        ),
+        "static" | "node" | "nextjs" | "proxy" => String::new(),
+        _ => {
+            let php_version = site.php_version.as_deref().unwrap_or("8.3");
+            format!(
+                "    location ~ \\.php$ {{\n\
+                 {indent}fastcgi_pass unix:/run/php/php{ver}-sp-{id}.sock;\n\
+                 {indent}include /etc/nginx/snippets/fastcgi-php.conf;\n\
+                 {indent}}}\n",
+                ver = php_version,
+                id = site.id,
+                indent = "        "
+            )
+        }
     };
 
-    let directives_block = match directives_source {
+    let content_location = match site.template.as_str() {
+        "proxy" => render_proxy_location(proxy_target.as_deref()),
+        _ => "    # Static files\n    location / {\n        try_files $uri $uri/ =404;\n    }\n\n"
+            .to_string(),
+    };
+
+    let security_block = crate::site_security::render_security_block(security, &site.id);
+    let acme_block = if security.has_restrictions() {
+        render_acme_exception(&site.id)
+    } else {
+        String::new()
+    };
+
+    let directives_block = match directives.as_deref() {
         Some(text) if !text.trim().is_empty() => {
             format!("    # Custom directives\n{}", indent_lines(text, 4))
         }
@@ -142,16 +154,190 @@ pub fn render_vhost(site: &SiteExtras, panel_hostname: &str) -> String {
     ));
     out.push_str("    index index.html index.php;\n\n");
     out.push_str(&http_redirect);
+    out.push_str(&security_block);
     out.push_str(&ssl_block);
     out.push_str(&php_block);
-    out.push_str(
-        "    # Static files\n    location / {\n        try_files $uri $uri/ =404;\n    }\n\n",
-    );
+    out.push_str(&content_location);
+    out.push_str(&acme_block);
     out.push_str(&directives_block);
     out.push_str("}\n");
 
     let _ = panel_hostname;
     out
+}
+
+/// Certificate directives, TLS hardening, HSTS and OCSP stapling for any
+/// site with TLS enabled.
+fn render_ssl_block(site: &SiteRecord, ssl_mode: &str) -> String {
+    let (cert, key, trusted) = match ssl_mode {
+        "none" => return String::new(),
+        "le" => (
+            format!("/etc/letsencrypt/live/{}/fullchain.pem", site.domain),
+            format!("/etc/letsencrypt/live/{}/privkey.pem", site.domain),
+            None,
+        ),
+        "custom" => {
+            let paths = crate::ssl::site_cert_paths(&site.id);
+            (
+                paths.fullchain.display().to_string(),
+                paths.key.display().to_string(),
+                Some(paths.chain.display().to_string()),
+            )
+        }
+        _ => return String::new(),
+    };
+    let mut out = format!(
+        "    ssl_certificate {};\n\
+         {indent}ssl_certificate_key {};\n",
+        escape_config_value(&cert),
+        escape_config_value(&key),
+        indent = "    "
+    );
+    if let Some(trusted) = trusted {
+        out.push_str(&format!(
+            "    ssl_trusted_certificate {};\n",
+            escape_config_value(&trusted)
+        ));
+    }
+    out.push_str(
+        "    ssl_protocols TLSv1.2 TLSv1.3;\n\
+         \x20   ssl_session_cache shared:SSL:10m;\n\
+         \x20   ssl_stapling on;\n\
+         \x20   ssl_stapling_verify on;\n\
+         \x20   resolver 1.1.1.1 8.8.8.8 valid=300s;\n\
+         \x20   resolver_timeout 5s;\n\
+         \x20   add_header Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;\n",
+    );
+    out.push('\n');
+    out
+}
+
+/// The `proxy` template's location block.
+///
+/// The site table has no upstream column, so the target is taken from the
+/// existing custom-directives field: a top-level `proxy_target <url>;` line
+/// (or a plain `proxy_pass <url>;` line) is consumed and used here instead of
+/// being emitted twice. Without a target the vhost stays valid and returns
+/// 503 rather than emitting an incomplete `proxy_pass`.
+fn render_proxy_location(target: Option<&str>) -> String {
+    let Some(target) = target.filter(|value| safe_proxy_target(value)) else {
+        return "    # Reverse proxy without a target: set `proxy_target <url>;` in the\n\
+                \x20   # site's custom directives (or use a top-level `proxy_pass <url>;`).\n\
+                \x20   location / {\n        return 503;\n    }\n\n"
+            .to_string();
+    };
+    format!(
+        "    # Reverse proxy\n\
+         {indent}location / {{\n\
+         {indent}    proxy_pass {target};\n\
+         {indent}    proxy_http_version 1.1;\n\
+         {indent}    proxy_set_header Host $host;\n\
+         {indent}    proxy_set_header X-Real-IP $remote_addr;\n\
+         {indent}    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n\
+         {indent}    proxy_set_header X-Forwarded-Proto $scheme;\n\
+         {indent}    proxy_set_header X-Forwarded-Host $host;\n\
+         {indent}    proxy_set_header X-Forwarded-Port $server_port;\n\
+         {indent}    proxy_set_header Upgrade $http_upgrade;\n\
+         {indent}    proxy_set_header Connection \"upgrade\";\n\
+         {indent}    proxy_redirect off;\n\
+         {indent}}}\n\n",
+        indent = "    ",
+        target = target
+    )
+}
+
+/// Pull the proxy target out of top-level custom directives and return the
+/// remaining directives text.
+fn extract_proxy_target(text: Option<&str>) -> (Option<String>, Option<String>) {
+    let Some(text) = text else {
+        return (None, None);
+    };
+    let mut target = None;
+    let mut kept: Vec<&str> = Vec::new();
+    let mut depth = 0i32;
+    for line in text.lines() {
+        if depth == 0 && target.is_none() {
+            let trimmed = line.trim();
+            if let Some(value) = directive_value(trimmed, "proxy_target")
+                .or_else(|| directive_value(trimmed, "proxy_pass"))
+            {
+                target = Some(value.to_string());
+                continue;
+            }
+        }
+        depth += brace_delta(line);
+        kept.push(line);
+    }
+    (Some(kept.join("\n")), target)
+}
+
+fn directive_value<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    let rest = line.strip_prefix(name)?;
+    if !rest.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let value = rest.trim().strip_suffix(';')?.trim();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn brace_delta(line: &str) -> i32 {
+    let mut delta = 0;
+    let mut quote = '\0';
+    let mut escaped = false;
+    for ch in line.chars() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if quote != '\0' {
+            if ch == quote {
+                quote = '\0';
+            }
+            continue;
+        }
+        if ch == '"' || ch == '\'' {
+            quote = ch;
+            continue;
+        }
+        match ch {
+            '{' => delta += 1,
+            '}' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
+fn safe_proxy_target(value: &str) -> bool {
+    let value = value.trim();
+    (value.starts_with("http://") || value.starts_with("https://") || value.starts_with("unix:"))
+        && value
+            .chars()
+            .all(|c| !c.is_control() && !matches!(c, ';' | '{' | '}' | '#' | ' ' | '"' | '\''))
+}
+
+/// Keep ACME HTTP-01 reachable even when the server has access restrictions.
+fn render_acme_exception(site_id: &str) -> String {
+    let root = crate::site_security::acme_webroot(site_id);
+    format!(
+        "    # ACME HTTP-01 must remain reachable through access restrictions\n\
+         {indent}location /.well-known/acme-challenge/ {{\n\
+         {indent}    allow all;\n\
+         {indent}    auth_basic off;\n\
+         {indent}    root \"{root}\";\n\
+         {indent}    try_files $uri =404;\n\
+         {indent}}}\n\n",
+        indent = "    ",
+        root = escape_config_value(&root.display().to_string())
+    )
+}
+
+fn escape_config_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 fn indent_lines(text: &str, spaces: usize) -> String {
@@ -174,7 +360,12 @@ mod tests {
     use crate::db;
     use crate::sites::{CreateSite, Sites};
 
-    async fn make_site(aliases: Vec<&str>, template: &str, ssl_mode: &str) -> SiteExtras {
+    async fn make_site_with(
+        aliases: Vec<&str>,
+        template: &str,
+        ssl_mode: &str,
+        directives: &str,
+    ) -> SiteExtras {
         let mut path = std::env::temp_dir();
         path.push(format!("sp-nginx-{}.db", uuid::Uuid::new_v4()));
         let pool = db::connect(&path).await.unwrap();
@@ -189,11 +380,15 @@ mod tests {
                 php_version: Some("8.3".into()),
                 ssl_mode: ssl_mode.into(),
                 owner_id: None,
-                directives: String::new(),
+                directives: directives.into(),
             })
             .await
             .unwrap();
         sites.get_with_extras(&site.id).await.unwrap().unwrap()
+    }
+
+    async fn make_site(aliases: Vec<&str>, template: &str, ssl_mode: &str) -> SiteExtras {
+        make_site_with(aliases, template, ssl_mode, "").await
     }
 
     #[tokio::test]
@@ -225,6 +420,112 @@ mod tests {
         assert!(!text.contains("fastcgi_pass"));
     }
 
+    #[tokio::test]
+    async fn proxy_template_has_no_fastcgi_or_static_fallback() {
+        let site = make_site(vec![], "proxy", "none").await;
+        let text = render_vhost(&site, "panel.local");
+        assert!(text.contains("# Reverse proxy"));
+        assert!(!text.contains("fastcgi_pass"));
+        assert!(!text.contains("try_files $uri $uri/ =404;"));
+        // No upstream configured: the vhost must still be valid.
+        assert!(text.contains("return 503;"));
+        assert!(!text.contains("proxy_pass ;"));
+    }
+
+    #[tokio::test]
+    async fn proxy_target_comes_from_custom_directives() {
+        let site = make_site_with(
+            vec![],
+            "proxy",
+            "none",
+            "proxy_target http://127.0.0.1:3000;\nadd_header X-Test yes;",
+        )
+        .await;
+        let text = render_vhost(&site, "panel.local");
+        assert!(text.contains("proxy_pass http://127.0.0.1:3000;"));
+        assert!(text.contains("proxy_set_header X-Forwarded-Proto $scheme;"));
+        assert!(text.contains("proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"));
+        assert!(text.contains("proxy_set_header Upgrade $http_upgrade;"));
+        assert!(text.contains("add_header X-Test yes;"));
+        assert!(!text.contains("proxy_target"));
+        assert!(!text.contains("return 503;"));
+    }
+
+    #[tokio::test]
+    async fn proxy_pass_in_custom_directives_is_also_accepted() {
+        let site =
+            make_site_with(vec![], "proxy", "none", "proxy_pass https://backend:8443;").await;
+        let text = render_vhost(&site, "panel.local");
+        assert!(text.contains("proxy_pass https://backend:8443;"));
+        assert!(!text.contains("# Custom directives"));
+    }
+
+    #[test]
+    fn proxy_target_inside_a_block_is_left_alone() {
+        let (kept, target) = extract_proxy_target(Some(
+            "location /api {\n    proxy_pass http://api;\n}\nproxy_target http://main;\n",
+        ));
+        assert_eq!(target.as_deref(), Some("http://main"));
+        let kept = kept.unwrap();
+        assert!(kept.contains("proxy_pass http://api;"));
+        assert!(!kept.contains("proxy_target"));
+    }
+
+    #[tokio::test]
+    async fn security_rules_are_rendered_into_the_vhost() {
+        let site = make_site(vec![], "static", "none").await;
+        let security = SiteSecuritySettings {
+            ip_blocks: vec!["203.0.113.10".into()],
+            bot_blocks: vec!["EvilBot/1.0".into()],
+            basic_auth_enabled: true,
+            basic_auth_user: "admin".into(),
+            cloudflare_only: true,
+        };
+        let text = render_vhost_with_security(&site, "panel.local", &security);
+        assert!(text.contains("deny 203.0.113.10;"));
+        assert!(text.contains("allow 173.245.48.0/20;"));
+        assert!(text.contains("deny all;"));
+        assert!(text.contains(r#"$http_user_agent ~* "EvilBot\/1\.0""#));
+        assert!(text.contains(r#"auth_basic "Restricted area";"#));
+        assert!(text.contains("auth_basic_user_file "));
+        assert!(text.contains(&format!("htpasswd-{}", site.site.id)));
+        assert!(text.contains("location /.well-known/acme-challenge/"));
+        assert!(text.contains("auth_basic off;"));
+    }
+
+    #[tokio::test]
+    async fn custom_certificates_render_installed_paths_and_tls_hardening() {
+        let site = make_site(vec![], "static", "custom").await;
+        let text = render_vhost(&site, "panel.local");
+        assert!(text.contains(&format!(
+            "ssl_certificate {};",
+            crate::ssl::site_cert_paths(&site.site.id)
+                .fullchain
+                .display()
+        )));
+        assert!(text.contains(&format!(
+            "ssl_certificate_key {};",
+            crate::ssl::site_cert_paths(&site.site.id).key.display()
+        )));
+        assert!(text.contains("ssl_trusted_certificate "));
+        assert!(text.contains("ssl_stapling on;"));
+        assert!(text.contains("ssl_stapling_verify on;"));
+        assert!(text.contains("Strict-Transport-Security"));
+    }
+
+    #[tokio::test]
+    async fn letsencrypt_sites_get_ocsp_stapling() {
+        let site = make_site(vec![], "php", "le").await;
+        let text = render_vhost(&site, "panel.local");
+        assert!(text.contains("ssl_stapling on;"));
+        assert!(text.contains("resolver "));
+        assert!(
+            text.contains(
+                "Strict-Transport-Security \"max-age=63072000; includeSubDomains\" always;"
+            )
+        );
+    }
+
     #[test]
     fn lint_rejects_reserved_directives() {
         assert!(lint_directives("root /var/www/other;\n").is_err());
@@ -245,6 +546,8 @@ mod tests {
             lint_directives("location /assets/ { add_header Cache-Control \"max-age=604800\"; }\n")
                 .is_ok()
         );
+        // The proxy target marker is consumed by the renderer, not by nginx.
+        assert!(lint_directives("proxy_target http://127.0.0.1:3000;\n").is_ok());
     }
 
     #[test]

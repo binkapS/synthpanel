@@ -168,6 +168,7 @@ export component AppShell inherits Rectangle {
                         NavItem { label: @tr("Terminal"); icon: @image-url("../assets/icons/terminal.svg"); active: root.current-page == Page.terminal; clicked => root.navigate(Page.terminal); }
                         NavItem { label: @tr("Users"); icon: @image-url("../assets/icons/users.svg"); active: root.current-page == Page.users; clicked => root.navigate(Page.users); }
                         NavItem { label: @tr("Settings"); icon: @image-url("../assets/icons/settings.svg"); active: root.current-page == Page.settings; clicked => root.navigate(Page.settings); }
+                        NavItem { label: @tr("Sessions"); icon: @image-url("../assets/icons/key.svg"); active: root.current-page == Page.sessions; clicked => root.navigate(Page.sessions); }
                     }
                 }
             }

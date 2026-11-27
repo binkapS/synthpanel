@@ -57,8 +57,7 @@ if command -v "$WASM_OPT" >/dev/null 2>&1; then
     echo "warning: $WASM_OPT failed; keeping the unoptimized $WASM_FILE" >&2
   fi
 else
-  echo "warning: $WASM_OPT not found; skipping WASM size optimization." >&2
-  echo "         Install binaryen (e.g. sudo apt-get install -y binaryen) for a smaller bundle." >&2
+  echo "info: WASM_OPT is unset; skipping the opt-in wasm-opt pass." >&2
 fi
 
 cp web/index.html dist/index.html

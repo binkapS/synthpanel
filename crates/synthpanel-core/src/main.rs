@@ -49,11 +49,13 @@ async fn main() -> Result<()> {
     let sites = synthpanel_core::sites::Sites::new(pool.clone());
     let databases = synthpanel_core::databases::Databases::new(pool.clone());
     let apply = synthpanel_core::apply::ApplyPipeline::new();
+    let site_users = synthpanel_core::site_users::SiteUsers::new(pool.clone(), paths.clone());
     let stores = synthpanel_core::ipc::Stores {
         settings,
         users,
         sites,
         databases,
+        site_users,
     };
     let server = IpcServer::new(paths.clone(), pool.clone(), stores, apply, host.clone());
 

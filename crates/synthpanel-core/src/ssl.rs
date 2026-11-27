@@ -507,6 +507,132 @@ pub fn expires_within(path: &Path, days: i64) -> bool {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Custom (user-supplied) certificates
+// ---------------------------------------------------------------------------
+
+const DEFAULT_SITE_CERT_DIR: &str = "/etc/nginx/synthpanel/certs";
+const SITE_CERT_DIR_ENV: &str = "SYNTHPANEL_SITE_CERT_DIR";
+
+/// File layout of a site's custom certificate.
+#[derive(Debug, Clone)]
+pub struct SiteCertPaths {
+    pub dir: PathBuf,
+    /// The leaf certificate exactly as supplied.
+    pub cert: PathBuf,
+    pub key: PathBuf,
+    /// The supplied chain, or the leaf certificate when no chain was given so
+    /// that `ssl_trusted_certificate` always points at a parseable PEM file.
+    pub chain: PathBuf,
+    /// The leaf followed by the chain, which is what nginx sends to clients.
+    pub fullchain: PathBuf,
+}
+
+/// Root directory for per-site custom certificates. Overridable for tests and
+/// development containers with `SYNTHPANEL_SITE_CERT_DIR`.
+pub fn site_cert_root() -> PathBuf {
+    std::env::var_os(SITE_CERT_DIR_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_SITE_CERT_DIR))
+}
+
+pub fn site_cert_paths_in(root: &Path, site_id: &str) -> SiteCertPaths {
+    let dir = root.join(site_id);
+    SiteCertPaths {
+        cert: dir.join("cert.pem"),
+        key: dir.join("key.pem"),
+        chain: dir.join("chain.pem"),
+        fullchain: dir.join("fullchain.pem"),
+        dir,
+    }
+}
+
+/// Paths the `custom` vhost template renders.
+pub fn site_cert_paths(site_id: &str) -> SiteCertPaths {
+    site_cert_paths_in(&site_cert_root(), site_id)
+}
+
+/// Install a user-supplied certificate for a site.
+///
+/// A missing chain is tolerated: `chain.pem` then contains the leaf so nginx
+/// can still parse the file, and `fullchain.pem` contains just the leaf.
+pub fn install_custom_certificate(
+    site_id: &str,
+    cert: &str,
+    key: &str,
+    chain: Option<&str>,
+) -> Result<SiteCertPaths> {
+    install_custom_certificate_in(&site_cert_root(), site_id, cert, key, chain)
+}
+
+/// Same as [`install_custom_certificate`] with an explicit root directory;
+/// useful for tests and for callers that manage their own layout.
+pub fn install_custom_certificate_in(
+    root: &Path,
+    site_id: &str,
+    cert: &str,
+    key: &str,
+    chain: Option<&str>,
+) -> Result<SiteCertPaths> {
+    validate_site_id(site_id)?;
+    let cert = validate_pem("CERTIFICATE", cert, "certificate")?;
+    let key = validate_pem("PRIVATE KEY", key, "private key")?;
+    let chain = match chain.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Some(validate_pem("CERTIFICATE", value, "chain")?),
+        None => None,
+    };
+
+    let paths = site_cert_paths_in(root, site_id);
+    std::fs::create_dir_all(&paths.dir)
+        .with_context(|| format!("cannot create {}", paths.dir.display()))?;
+    restrict(&paths.dir, 0o755);
+
+    let chain_contents = match &chain {
+        Some(chain) => format!("{chain}\n"),
+        None => format!("# No separate chain supplied; using the leaf certificate.\n{cert}\n"),
+    };
+    let fullchain = match &chain {
+        Some(chain) => format!("{cert}\n{chain}\n"),
+        None => format!("{cert}\n"),
+    };
+    std::fs::write(&paths.cert, format!("{cert}\n"))
+        .with_context(|| format!("cannot write {}", paths.cert.display()))?;
+    std::fs::write(&paths.chain, chain_contents)
+        .with_context(|| format!("cannot write {}", paths.chain.display()))?;
+    std::fs::write(&paths.fullchain, fullchain)
+        .with_context(|| format!("cannot write {}", paths.fullchain.display()))?;
+    std::fs::write(&paths.key, format!("{key}\n"))
+        .with_context(|| format!("cannot write {}", paths.key.display()))?;
+    restrict(&paths.cert, 0o644);
+    restrict(&paths.chain, 0o644);
+    restrict(&paths.fullchain, 0o644);
+    restrict(&paths.key, 0o600);
+    // Best effort: nginx's master reads the key as root, but an unprivileged
+    // nginx installation needs the web user to own it.
+    crate::ownership::chown_to_synthpanel(&paths.key);
+    Ok(paths)
+}
+
+fn validate_site_id(site_id: &str) -> Result<()> {
+    if site_id.is_empty()
+        || !site_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        bail!("invalid site id `{site_id}`");
+    }
+    Ok(())
+}
+
+fn validate_pem(label: &str, value: &str, what: &str) -> Result<String> {
+    let value = value.trim().to_string();
+    if value.is_empty() || !value.contains(&format!("-----BEGIN {label}-----")) {
+        bail!("{what} must be a PEM block beginning with -----BEGIN {label}-----");
+    }
+    Ok(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,5 +713,69 @@ mod tests {
     #[test]
     fn missing_certificate_is_not_expiring() {
         assert!(!expires_within(Path::new("/nonexistent/cert.pem"), 30));
+    }
+
+    #[test]
+    fn installs_a_custom_certificate() {
+        let dir = std::env::temp_dir().join(format!("sp-ssl-{}", uuid::Uuid::new_v4()));
+        let certified =
+            rcgen::generate_simple_self_signed(vec!["site.example.com".to_string()]).unwrap();
+        let cert = certified.cert.pem();
+        let key = certified.signing_key.serialize_pem();
+        let chain = "-----BEGIN CERTIFICATE-----\nQUJD\n-----END CERTIFICATE-----";
+        let paths =
+            install_custom_certificate_in(&dir, "site-123", &cert, &key, Some(chain)).unwrap();
+
+        assert_eq!(paths.dir, dir.join("site-123"));
+        assert_eq!(
+            std::fs::read_to_string(&paths.cert).unwrap(),
+            format!("{}\n", cert.trim())
+        );
+        assert_eq!(
+            std::fs::read_to_string(&paths.key).unwrap(),
+            format!("{}\n", key.trim())
+        );
+        assert!(
+            std::fs::read_to_string(&paths.chain)
+                .unwrap()
+                .contains("QUJD")
+        );
+        let fullchain = std::fs::read_to_string(&paths.fullchain).unwrap();
+        assert!(fullchain.starts_with(cert.trim()));
+        assert!(fullchain.contains(chain));
+
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&paths.key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_missing_chain_still_produces_parseable_certificate_files() {
+        let dir = std::env::temp_dir().join(format!("sp-ssl-{}", uuid::Uuid::new_v4()));
+        let certified =
+            rcgen::generate_simple_self_signed(vec!["site.example.com".to_string()]).unwrap();
+        let cert = certified.cert.pem();
+        let key = certified.signing_key.serialize_pem();
+        let paths = install_custom_certificate_in(&dir, "site-456", &cert, &key, None).unwrap();
+        let chain = std::fs::read_to_string(&paths.chain).unwrap();
+        assert!(chain.contains("-----BEGIN CERTIFICATE-----"));
+        let fullchain = std::fs::read_to_string(&paths.fullchain).unwrap();
+        assert_eq!(fullchain.matches("-----BEGIN CERTIFICATE-----").count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn rejects_invalid_certificate_material_and_site_ids() {
+        let dir = std::env::temp_dir().join(format!("sp-ssl-{}", uuid::Uuid::new_v4()));
+        assert!(install_custom_certificate_in(&dir, "site", "", "key", None).is_err());
+        assert!(install_custom_certificate_in(&dir, "../escape", "cert", "key", None).is_err());
+        let certified =
+            rcgen::generate_simple_self_signed(vec!["site.example.com".to_string()]).unwrap();
+        assert!(
+            install_custom_certificate_in(&dir, "site", &certified.cert.pem(), "not a key", None)
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

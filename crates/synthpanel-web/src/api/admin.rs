@@ -127,6 +127,11 @@ pub async fn users_create(
             }),
         )
         .await?;
+    let user_id = created
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    set_user_sites(&state, user_id, body.get("sites")).await?;
     audit(&state, &user.user_id, "", "users.create", &email, &user.ip).await;
     Ok(Json(sanitize_user(&created)))
 }
@@ -231,8 +236,41 @@ pub async fn users_update(
     if sensitive {
         state.sessions.revoke_all_for_user(&id);
     }
+    set_user_sites(&state, &id, body.get("sites")).await?;
     audit(&state, &user.user_id, "", "users.update", &id, &user.ip).await;
     Ok(Json(sanitize_user(&updated)))
+}
+
+/// Persist the site assignments for an account. The UI sends a comma- or
+/// newline-separated string; scripts may send an array of ids.
+async fn set_user_sites(
+    state: &AppState,
+    user_id: &str,
+    value: Option<&Value>,
+) -> Result<(), ApiError> {
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let site_ids: Vec<String> = match value {
+        Value::Array(items) => items
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+        Value::String(text) => text
+            .split(|c| c == ',' || c == '\n')
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(str::to_string)
+            .collect(),
+        _ => Vec::new(),
+    };
+    let _: Value = state
+        .core_call(
+            methods::USER_SITES_SET,
+            json!({ "user_id": user_id, "site_ids": site_ids }),
+        )
+        .await?;
+    Ok(())
 }
 
 /// Ensure the authenticated user has the admin role.

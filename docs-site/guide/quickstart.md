@@ -9,7 +9,8 @@
 4. **Schedule it.** Add a backup schedule with a cron expression and a
    retention count.
 5. **Invite your team.** Users → New user. Roles are admin, operator and user;
-   quotas limit sites and databases per account.
+   the per-user site quota is enforced, while the database quota is still being
+   wired.
 
 Every action is audit-logged and available through the API and CLI:
 

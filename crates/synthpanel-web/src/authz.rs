@@ -17,15 +17,16 @@
 //! trusted proxy.
 
 use crate::error::ApiError;
-use crate::extract::{SESSION_COOKIE, cookie_value};
+use crate::extract::{AuthUser, SESSION_COOKIE, cookie_value};
 use crate::state::AppState;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderMap, Method};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use serde_json::Value;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use synthpanel_ipc::Actor;
+use synthpanel_ipc::{Actor, methods};
 
 /// What a route requires.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,6 +37,13 @@ pub enum Policy {
     Operator,
     /// Only an administrator may call it.
     Admin,
+    /// A site-scoped operation.
+    ///
+    /// The middleware cannot enforce this policy on its own: it does not know
+    /// which account may see which site. A handler with this policy must call
+    /// [`require_site_access`] with the site id from its path. An API key
+    /// needs the `write` scope because site-scoped routes change state.
+    Site,
 }
 
 impl Policy {
@@ -43,15 +51,18 @@ impl Policy {
     pub fn scope(self) -> &'static str {
         match self {
             Policy::Read => "read",
-            Policy::Operator => "write",
+            Policy::Operator | Policy::Site => "write",
             Policy::Admin => "admin",
         }
     }
 
     /// Whether the role may call a route with this policy.
+    ///
+    /// Every role can reach a site-scoped route in principle; the per-site
+    /// assignment is checked separately by [`require_site_access`].
     pub fn allows(self, role: &str) -> bool {
         match self {
-            Policy::Read => true,
+            Policy::Read | Policy::Site => true,
             Policy::Operator => matches!(role, "admin" | "operator"),
             Policy::Admin => role == "admin",
         }
@@ -91,6 +102,15 @@ pub fn policy_for(method: &Method, path: &str) -> Policy {
         .any(|area| path == *area || path.starts_with(&format!("{area}/")))
     {
         return Policy::Admin;
+    }
+    // A concrete site is identified by /api/v1/sites/{id}/... . Those routes
+    // are site-scoped: every role may reach them, but the handler must call
+    // require_site_access with the id from the path so a `user` is limited to
+    // their assigned sites. Creating/listing sites stays operator-only.
+    if let Some(rest) = path.strip_prefix("/api/v1/sites/") {
+        if !rest.is_empty() {
+            return Policy::Site;
+        }
     }
     let mutating = !matches!(*method, Method::GET | Method::HEAD | Method::OPTIONS);
     if mutating
@@ -141,6 +161,123 @@ tokio::task_local! {
 /// The current actor, if the request had one.
 pub fn current_actor() -> Option<Actor> {
     ACTOR.try_with(|actor| actor.clone()).ok()
+}
+
+/// Read the site ids out of a `user_sites.list` response.
+///
+/// The core returns the assignments either as a list of ids or as a list of
+/// site records; an object wrapping either shape is accepted as well. Any
+/// other shape yields no sites, so a malformed answer cannot widen access.
+pub fn assigned_site_ids(value: &Value) -> Vec<String> {
+    let entries: Vec<&Value> = match value {
+        Value::Array(list) => list.iter().collect(),
+        Value::Object(map) => match map
+            .get("sites")
+            .or_else(|| map.get("site_ids"))
+            .or_else(|| map.get("assignments"))
+        {
+            Some(Value::Array(list)) => list.iter().collect(),
+            Some(record @ Value::Object(_)) => vec![record],
+            _ => Vec::new(),
+        },
+        _ => Vec::new(),
+    };
+
+    let mut ids: Vec<String> = Vec::new();
+    for entry in entries {
+        let id = match entry {
+            Value::String(id) => Some(id.as_str()),
+            Value::Object(_) => entry
+                .get("site_id")
+                .or_else(|| entry.get("id"))
+                .and_then(Value::as_str),
+            _ => None,
+        };
+        if let Some(id) = id.filter(|id| !id.is_empty()) {
+            if !ids.iter().any(|known| known == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
+/// The pure part of the site check, kept separate so it can be tested without
+/// a running core.
+///
+/// Administrators and operators may work on every site; the operator's
+/// exclusion from the administrative area is enforced by [`policy_for`]. A
+/// plain `user` may only reach assigned sites, and an unknown role gets no
+/// access at all.
+pub fn site_access_allowed(role: &str, site_id: &str, assigned: &[String]) -> bool {
+    if site_id.is_empty() {
+        return false;
+    }
+    match role {
+        "admin" | "operator" => true,
+        "user" => assigned.iter().any(|id| id == site_id),
+        _ => false,
+    }
+}
+
+/// Require that the account may act on `site_id`.
+///
+/// Call this in every site-scoped handler (including reads). For an account
+/// with the `user` role the assignments come from the core's `user_sites`
+/// table; for an operator or administrator no IPC call is needed. API keys
+/// inherit the role of their account, so a key owned by a `user` is limited
+/// to that user's sites too.
+pub async fn require_site_access(
+    state: &AppState,
+    user: &AuthUser,
+    site_id: &str,
+) -> Result<(), ApiError> {
+    let assigned = match user.role.as_str() {
+        "admin" | "operator" => Vec::new(),
+        "user" => {
+            let response: Value = state
+                .core_call(
+                    methods::USER_SITES_LIST,
+                    serde_json::json!({ "user_id": user.user_id }),
+                )
+                .await?;
+            assigned_site_ids(&response)
+        }
+        _ => Vec::new(),
+    };
+
+    if site_access_allowed(&user.role, site_id, &assigned) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("the account may not access this site"))
+    }
+}
+
+/// The middleware-level variant of [`require_site_access`]. It uses the
+/// resolved `AuthContext` so the check happens before the handler runs.
+pub async fn require_site_access_ctx(
+    state: &AppState,
+    context: &AuthContext,
+    site_id: &str,
+) -> Result<(), ApiError> {
+    let assigned = match context.role.as_str() {
+        "admin" | "operator" => Vec::new(),
+        "user" => {
+            let response: Value = state
+                .core_call(
+                    methods::USER_SITES_LIST,
+                    serde_json::json!({ "user_id": context.user_id }),
+                )
+                .await?;
+            assigned_site_ids(&response)
+        }
+        _ => Vec::new(),
+    };
+    if site_access_allowed(&context.role, site_id, &assigned) {
+        Ok(())
+    } else {
+        Err(ApiError::forbidden("the account may not access this site"))
+    }
 }
 
 /// The address of the client.
@@ -304,6 +441,16 @@ pub async fn authorize(
         return ApiError::forbidden("the account may not perform this operation").into_response();
     }
 
+    if policy == Policy::Site {
+        let site_id = path
+            .strip_prefix("/api/v1/sites/")
+            .and_then(|rest| rest.split('/').next())
+            .unwrap_or_default();
+        if let Err(error) = require_site_access_ctx(&state, &context, site_id).await {
+            return error.into_response();
+        }
+    }
+
     let actor = context.actor();
     ACTOR.scope(actor, next.run(request)).await
 }
@@ -311,6 +458,7 @@ pub async fn authorize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     fn get(path: &str) -> Policy {
         policy_for(&Method::GET, path)
@@ -369,5 +517,66 @@ mod tests {
         assert_eq!(Policy::Read.scope(), "read");
         assert_eq!(Policy::Operator.scope(), "write");
         assert_eq!(Policy::Admin.scope(), "admin");
+        assert_eq!(Policy::Site.scope(), "write");
+    }
+
+    #[test]
+    fn the_site_policy_delegates_the_check_to_the_handler() {
+        assert!(Policy::Site.allows("admin"));
+        assert!(Policy::Site.allows("operator"));
+        assert!(Policy::Site.allows("user"));
+    }
+
+    #[test]
+    fn site_access_is_decided_by_the_role_and_the_assignments() {
+        let cases = [
+            ("admin", "site-1", vec![], true),
+            ("operator", "site-9", vec![], true),
+            ("admin", "", vec![], false),
+            ("operator", "", vec![], false),
+            ("user", "site-1", vec!["site-1".into()], true),
+            ("user", "site-2", vec!["site-1".into()], false),
+            ("user", "site-1", vec![], false),
+            ("user", "", vec!["".into()], false),
+            ("guest", "site-1", vec!["site-1".into()], false),
+            ("", "site-1", vec!["site-1".into()], false),
+        ];
+        for (role, site, assigned, expected) in cases {
+            assert_eq!(
+                site_access_allowed(role, site, &assigned),
+                expected,
+                "role `{role}`, site `{site}`, assignments {assigned:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn assignments_are_read_from_every_supported_shape() {
+        let cases = [
+            (json!(["site-1", "site-2"]), vec!["site-1", "site-2"]),
+            (
+                json!([{"id": "site-1"}, {"id": "site-2"}]),
+                vec!["site-1", "site-2"],
+            ),
+            (json!([{"site_id": "site-1"}]), vec!["site-1"]),
+            (json!({"sites": ["site-1"]}), vec!["site-1"]),
+            (json!({"site_ids": ["site-1", "site-1"]}), vec!["site-1"]),
+            (json!({"assignments": [{"id": "site-3"}]}), vec!["site-3"]),
+            (
+                json!({"sites": [{"id": "site-4", "role": "user"}]}),
+                vec!["site-4"],
+            ),
+            (json!([]), vec![]),
+            (json!({}), vec![]),
+            (json!(null), vec![]),
+            (json!("site-1"), vec![]),
+            (json!({"sites": "site-1"}), vec![]),
+            (json!([{"id": ""}, 42, null]), vec![]),
+        ];
+        for (value, expected) in cases {
+            let ids = assigned_site_ids(&value);
+            let expected: Vec<String> = expected.into_iter().map(str::to_string).collect();
+            assert_eq!(ids, expected, "response {value}");
+        }
     }
 }

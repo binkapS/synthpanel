@@ -247,6 +247,18 @@ pub mod methods {
     pub const TERMINAL_READ: &str = "terminal.read";
     pub const TERMINAL_RESIZE: &str = "terminal.resize";
     pub const TERMINAL_CLOSE: &str = "terminal.close";
+
+    // CloudPanel-parity additions.
+    pub const USER_SITES_LIST: &str = "user_sites.list";
+    pub const USER_SITES_SET: &str = "user_sites.set";
+    pub const SITE_SECURITY_GET: &str = "site_security.get";
+    pub const SITE_SECURITY_SET: &str = "site_security.set";
+    pub const SITE_SSH_USERS_LIST: &str = "site_ssh_users.list";
+    pub const SITE_SSH_USER_ADD: &str = "site_ssh_users.add";
+    pub const SITE_SSH_USER_REMOVE: &str = "site_ssh_users.remove";
+    pub const SSL_CERT_INSTALL: &str = "ssl.cert.install";
+    pub const DATABASES_DUMP: &str = "databases.dump";
+    pub const DATABASES_IMPORT: &str = "databases.import";
 }
 
 /// Well-known error codes.

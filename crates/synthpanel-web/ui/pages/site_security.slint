@@ -1,0 +1,142 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { TextField, TextArea, Toggle } from "../widgets/field.slint";
+
+export component SiteSecurityPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("Site security page");
+
+    in property <string> site-id;
+    in-out property <string> ip-blocks;
+    in-out property <string> bot-blocks;
+    in-out property <bool> basic-auth-enabled;
+    in-out property <string> basic-auth-user;
+    in-out property <bool> cloudflare-only;
+    in-out property <string> status;
+
+    // The HTTP authentication password is never exposed as a view property:
+    // it is only sent with a save and is cleared after every attempt.
+    private property <string> basic-auth-password: "";
+
+    callback load-security(string);
+    callback save-security(string, string, string, bool, string, string, bool);
+
+    changed site-id => {
+        if (root.site-id != "") {
+            root.load-security(root.site-id);
+        }
+    }
+
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+
+            PageHeader {
+                title: @tr("Site security");
+                subtitle: @tr("IP blocking, bot protection and HTTP authentication for this site.");
+            }
+
+            if root.status != "" : Notice { text: root.status; }
+
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                AppButton {
+                    text: @tr("Reload");
+                    clicked => { root.load-security(root.site-id); }
+                }
+            }
+
+            Card {
+                title: @tr("IP blocking");
+                TextArea {
+                    label: @tr("Blocked IP addresses");
+                    text <=> root.ip-blocks;
+                    lines: 4;
+                    monospace: true;
+                }
+                Text {
+                    text: @tr("One IPv4 address or CIDR per line. Leave empty to allow all clients.");
+                    font-size: 11px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                    accessible-role: none;
+                }
+            }
+
+            Card {
+                title: @tr("Bot blocking");
+                TextArea {
+                    label: @tr("Blocked bots");
+                    text <=> root.bot-blocks;
+                    lines: 4;
+                }
+                Text {
+                    text: @tr("One bot name or user-agent fragment per line.");
+                    font-size: 11px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                    accessible-role: none;
+                }
+            }
+
+            Card {
+                title: @tr("HTTP authentication");
+                Toggle {
+                    label: @tr("Require a password");
+                    checked <=> root.basic-auth-enabled;
+                }
+                if root.basic-auth-enabled : HorizontalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: @tr("Username");
+                        text <=> root.basic-auth-user;
+                        horizontal-stretch: 1;
+                        min-width: 160px;
+                    }
+                    TextField {
+                        label: @tr("Password");
+                        text <=> root.basic-auth-password;
+                        password: true;
+                        hint: @tr("Stored as a hash; leave empty to keep the current password.");
+                        horizontal-stretch: 1;
+                        min-width: 160px;
+                    }
+                }
+            }
+
+            Card {
+                title: @tr("Cloudflare");
+                Toggle {
+                    label: @tr("Cloudflare only");
+                    checked <=> root.cloudflare-only;
+                }
+                Text {
+                    text: @tr("Trust Cloudflare IPs and reject requests that bypass it.");
+                    font-size: 11px;
+                    color: Theme.muted;
+                    wrap: word-wrap;
+                    accessible-role: none;
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                AppButton {
+                    text: @tr("Save security settings");
+                    primary: true;
+                    clicked => {
+                        root.save-security(root.site-id, root.ip-blocks, root.bot-blocks, root.basic-auth-enabled, root.basic-auth-user, root.basic-auth-password, root.cloudflare-only);
+                        root.basic-auth-password = "";
+                    }
+                }
+            }
+        }
+    }
+}

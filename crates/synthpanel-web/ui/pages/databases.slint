@@ -4,7 +4,7 @@
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton, IconButton } from "../widgets/button.slint";
-import { TextField, SelectField } from "../widgets/field.slint";
+import { TextField, SelectField, TextArea } from "../widgets/field.slint";
 import { StatusBadge } from "../widgets/status_badge.slint";
 import { DatabaseRow, EngineRow } from "../types.slint";
 
@@ -27,9 +27,15 @@ export component DatabasesPage inherits Rectangle {
     private property <string> user-password: "";
     private property <string> user-privileges: "read-write";
 
+    private property <bool> show-import-form: false;
+    private property <string> import-target: "";
+    private property <string> import-data: "";
+
     callback create-database(string, string, string);
     callback delete-database(string);
     callback add-db-user(string, string, string, string);
+    callback dump-database(string);
+    callback import-database(string, string);
 
     Flickable {
         VerticalLayout {
@@ -174,6 +180,51 @@ export component DatabasesPage inherits Rectangle {
                 }
             }
 
+            // Import sits next to the other forms instead of at the bottom of
+            // the list, so a row action never opens a stranded form.
+            if root.show-import-form : Card {
+                title: @tr("Import a database dump");
+                subtitle: root.import-target;
+                VerticalLayout {
+                    spacing: 12px;
+
+                    TextArea {
+                        label: @tr("SQL dump");
+                        text <=> root.import-data;
+                        lines: 6;
+                    }
+                    Text {
+                        text: @tr("Paste the contents of an SQL dump. Existing objects with the same name are overwritten.");
+                        font-size: 11px;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Import");
+                            primary: true;
+                            enabled: root.import-data != "";
+                            clicked => {
+                                root.import-database(root.import-target, root.import-data);
+                                root.show-import-form = false;
+                                root.import-data = "";
+                                root.import-target = "";
+                            }
+                        }
+                        AppButton {
+                            text: "Cancel";
+                            clicked => {
+                                root.show-import-form = false;
+                                root.import-target = "";
+                            }
+                        }
+                    }
+                }
+            }
+
             Card {
                 title: "Managed databases";
                 VerticalLayout {
@@ -185,7 +236,7 @@ export component DatabasesPage inherits Rectangle {
                         Text { text: "Name"; font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 140px; }
                         Text { text: "Engine"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 120px; }
                         Rectangle { width: 8px; }
-                        Text { text: "Actions"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 100px; horizontal-alignment: center; }
+                        Text { text: "Actions"; font-size: 11px; font-weight: 600; color: Theme.muted; width: 300px; horizontal-alignment: center; }
                     }
                     Rectangle { height: 1px; background: Theme.border; }
 
@@ -221,7 +272,7 @@ export component DatabasesPage inherits Rectangle {
                         }
                         Rectangle { width: 8px; }
                         HorizontalLayout {
-                            width: 100px;
+                            width: 300px;
                             spacing: 6px;
                             alignment: center;
                             AppButton {
@@ -229,6 +280,18 @@ export component DatabasesPage inherits Rectangle {
                                 clicked => {
                                     root.user-database = database.id;
                                     root.show-user-form = true;
+                                }
+                            }
+                            AppButton {
+                                text: @tr("Dump");
+                                clicked => { root.dump-database(database.id); }
+                            }
+                            AppButton {
+                                text: @tr("Import");
+                                clicked => {
+                                    root.import-target = database.id;
+                                    root.show-import-form = true;
+                                    root.import-data = "";
                                 }
                             }
                             IconButton {

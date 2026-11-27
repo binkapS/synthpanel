@@ -1,0 +1,127 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { PanelSession } from "../types.slint";
+
+export component SessionsPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("Sessions page");
+
+    in-out property <[PanelSession]> sessions;
+    in-out property <string> status;
+
+    callback load-sessions();
+    callback revoke-others();
+
+    init => {
+        root.load-sessions();
+    }
+
+    VerticalLayout {
+        alignment: start;
+        spacing: 18px;
+
+        PageHeader {
+            title: @tr("Sessions");
+            subtitle: @tr("Active panel sessions across all devices.");
+        }
+
+        if root.status != "" : Notice { text: root.status; }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+            AppButton {
+                text: @tr("Reload");
+                clicked => { root.load-sessions(); }
+            }
+            AppButton {
+                text: @tr("Revoke other sessions");
+                danger: true;
+                clicked => { root.revoke-others(); }
+            }
+        }
+
+        Card {
+            title: @tr("Active sessions");
+            subtitle: @tr("{} signed in", root.sessions.length);
+            Flickable {
+                max-height: 460px;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 0px;
+
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text { text: @tr("IP address"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 130px; }
+                        Text { text: @tr("Device"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 2; min-width: 180px; }
+                        Text { text: @tr("Started"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 110px; }
+                        Text { text: @tr("Expires"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 110px; }
+                        Rectangle { width: 8px; }
+                        Text { text: @tr("Status"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 80px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.sessions.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: @tr("No active sessions.");
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for session in root.sessions : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: session.ip;
+                            font-size: 13px;
+                            font-family: "monospace";
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                        Text {
+                            text: session.user-agent;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 2;
+                            min-width: 180px;
+                        }
+                        Text {
+                            text: @tr("{}s ago", session.age-seconds.to-fixed(0));
+                            font-size: 11px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            width: 110px;
+                        }
+                        Text {
+                            text: @tr("{}s left", session.expires-in-seconds.to-fixed(0));
+                            font-size: 11px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            width: 110px;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 80px;
+                            alignment: center;
+                            StatusBadge { status: session.current ? "active" : "idle"; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

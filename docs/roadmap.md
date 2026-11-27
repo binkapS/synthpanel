@@ -24,8 +24,8 @@ The phases below describe what each one delivered.
   token auth, best-effort service-status reporting.
 - `synthpanel-web`: axum + rustls (self-signed on first start), argon2
   password hashing, in-memory session store, TOTP (RFC 6238) 2FA, CSRF
-  double-submit, security headers, rate-limited login, embedded Svelte 5
-  SPA, REST API v1.
+  double-submit, security headers, rate-limited login, embedded Slint WASM
+  UI, REST API v1.
 - `synthpanel-cli`: `status`, `metrics`, `metrics:range`, `audit`, `settings`.
 - `synthpanel-installer`: distro detection, package installation, user &
   directory layout, systemd wiring, firewall baseline, admin bootstrap.
@@ -54,7 +54,7 @@ The phases below describe what each one delivered.
   `GET /api/v1/php/versions`.
 - CLI: `sites:list`, `sites:add`, `sites:show`, `sites:delete`,
   `users:list`, `users:create` (the colon naming matches PLAN §8.3).
-- SPA: site list, site detail (SSL + suspend), dashboard with live metrics.
+- Slint UI: site list, site detail (SSL + suspend), dashboard with live metrics.
 
 ## Phase 2 — Data & security (complete)
 
@@ -74,7 +74,7 @@ The phases below describe what each one delivered.
 - REST API: `/api/v1/databases*` and `/api/v1/security/*`.
 - CLI: `db:list`, `db:create`, `db:delete`, `security:firewall`,
   `security:fail2ban`, `security:ssh-keys`.
-- SPA: database list with engine health, security page with the firewall
+- Slint UI: database list with engine health, security page with the firewall
   form, fail2ban jails and SSH key management.
 
 ## Phase 3 — Operations (complete)
@@ -101,7 +101,7 @@ The phases below describe what each one delivered.
   `/api/v1/files*`, `/api/v1/api-keys*`.
 - CLI: `backup:list|run|restore|verify`, `cron:list|add|delete|run|runs`,
   `logs`, `files:list|read|write`, `apikeys:list|create|delete`.
-- SPA: Backups, Cron, Logs and Files pages, plus API-key management in
+- Slint UI: Backups, Cron, Logs and Files pages, plus API-key management in
   Settings.
 - End-to-end smoke test covers backup → delete site → restore, cron run
   history, filtered log reads, file manager traversal rejection, and API-key
@@ -126,8 +126,9 @@ The phases below describe what each one delivered.
 - Docs site: a VitePress site under `docs-site/` with installation,
   quickstart, backups, updating, troubleshooting, CLI, REST API and security
   pages.
-- i18n scaffolding: `$t` store with English as the reference locale, a locale
-  selector in Settings, and translated navigation and login copy.
+- i18n scaffolding: English is the reference locale, page copy lives in the
+  `.slint` sources for future extraction, and a locale selector is stored in
+  Settings. Navigation and login copy are currently English.
 - Accessibility: skip link, `#main` landmark, `aria-label` on navigation,
   `aria-current` on the active route, and labelled form controls.
 
@@ -184,6 +185,43 @@ exist yet).
 
 ---
 
+## CloudPanel parity workstream (in progress)
+
+The following CLI verbs are implemented in `synthpanel-cli` and call the IPC
+methods listed. They are **CLI-first** additions: until the matching core
+handler, REST endpoint and UI screen land, a verb may fail with `unsupported`
+or simply have no browser equivalent. Session revocation is web-only and has no
+CLI verb.
+
+| Feature | CLI verb(s) | IPC method(s) | Status |
+|---|---|---|---|
+| Reverse-proxy site type | `sites:proxy` | `sites.create` with template `proxy` | 🟡 CLI added; vhost renderer landed, IPC/UI in progress |
+| Per-site security controls | `sites:security:get`, `sites:security:set` | `site_security.get`, `site_security.set` | 🟡 CLI added; core store landed, IPC/UI in progress |
+| Per-site SSH users | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | 🟡 CLI added; core store landed, IPC/UI in progress |
+| Custom certificate install | `ssl:cert:install` | `ssl.cert.install` | 🟡 CLI added; core helper landed, IPC/UI in progress |
+| On-demand DB dump/import | `db:dump`, `db:import` | `databases.dump`, `databases.import` | 🟡 CLI added; core and API landed, IPC/UI in progress |
+| Per-site user ACL | `user-sites:list`, `user-sites:set` | `user_sites.list`, `user_sites.set` | 🟡 CLI added; core/UI in progress |
+| Session revocation | none (web-only) | web session store | 🟡 web work in progress |
+
+IPC parameter names used by these verbs, matched to the core modules that are
+landing alongside them (a verb is still not proof of a shipped handler):
+
+- `sites:proxy` → `sites.create`: `domain`, `aliases` (array), `template` =
+  `proxy`, `ssl_mode`, `directives` = `proxy_target <url>;` (the vhost renderer
+  consumes that line), plus a `proxy_pass` alias.
+- `sites:security:get|set` → `site_id`; setters send only the supplied fields:
+  `ip_blocks`, `bot_blocks` (arrays), `basic_auth_enabled` (bool),
+  `basic_auth_user`, `password`/`basic_auth_password`, `cloudflare_only` (bool).
+- `sites:ssh-users:*` → `site_id`, and `username` / `public_key` for add (the
+  system accounts are key-only), `username` for remove.
+- `ssl:cert:install` → `site_id`, `cert` and `key` (PEM contents read from the
+  local files named by `--cert` and `--key`).
+- `db:dump` → `id`; `db:import` → `id` and `data` (raw SQL read from the local
+  file named by `--file`; base64 is accepted by the core as well).
+- `user-sites:*` → `user_id`; set sends `site_ids` (array).
+
+---
+
 ## What is not implemented yet
 
 Everything below is either planned in [PLAN.md](../PLAN.md) or was cut for
@@ -197,9 +235,10 @@ there.
 - DNS zone management, if there is demand for it.
 - An OpenAPI 3.1 document for the REST API.
 - A code editor with syntax highlighting in the file manager.
-- A session list where the active sessions can be revoked.
-- The quota enforcement: the quotas are stored per user, but they are not
-  checked when a site or a database is created.
+- A session list where the active sessions can be revoked (web-only; no CLI
+  verb is planned).
+- Database quota enforcement: the site quota is enforced, the database quota is
+  still being wired.
 - OS security updates (unattended-upgrades) from the UI.
 - phpMyAdmin and pgAdmin as one-click installs.
 - Golden snapshot tests of the generated configurations, and a coverage
@@ -207,6 +246,10 @@ there.
 
 ### Known limitations
 
+- The `maintenance_mode` setting can be read and changed in Settings, but it is
+  not enforced by the panel or the web server yet.
+- The UI only offers the static, PHP and Node site templates. The CLI accepts
+  other template names, but there are no dedicated UI options for them.
 - The web terminal does not support `su` or `sudo` prompts that need a second
   TTY.
 - The SMTP client has no implicit-TLS mode (port 465); use STARTTLS or a local

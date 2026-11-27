@@ -27,6 +27,7 @@ pub struct Stores {
     pub users: users::Users,
     pub sites: sites::Sites,
     pub databases: crate::databases::Databases,
+    pub site_users: crate::site_users::SiteUsers,
 }
 
 pub struct IpcServer {
@@ -48,6 +49,7 @@ impl Clone for IpcServer {
                 users: self.stores.users.clone(),
                 sites: self.stores.sites.clone(),
                 databases: self.stores.databases.clone(),
+                site_users: self.stores.site_users.clone(),
             },
             apply: ApplyPipeline::new(),
             pool: self.pool.clone(),
@@ -326,7 +328,8 @@ impl IpcServer {
                     .map_err(internal)?;
                 match snapshot {
                     Some(snapshot) => {
-                        let (rx_rate, tx_rate) = metrics::network_rates(&self.pool, &self.host).await;
+                        let (rx_rate, tx_rate) =
+                            metrics::network_rates(&self.pool, &self.host).await;
                         let mut value = serde_json::to_value(snapshot).map_err(internal)?;
                         if let serde_json::Value::Object(map) = &mut value {
                             map.insert("net_rx_rate".into(), json!(rx_rate));
@@ -445,7 +448,7 @@ impl IpcServer {
                     .await
                     .map_err(internal)?
                     .ok_or_else(|| Error::new(codes::INTERNAL, "site vanished after insert"))?;
-                let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                let vhost = self.render_site_vhost(&extras).await?;
                 let pool = crate::php::render_pool(&extras);
                 let result = self
                     .apply
@@ -544,7 +547,7 @@ impl IpcServer {
                             .await
                             .map_err(internal)?
                             .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
-                        let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                        let vhost = self.render_site_vhost(&extras).await?;
                         let pool = crate::php::render_pool(&extras);
                         let result = self
                             .apply
@@ -599,7 +602,7 @@ impl IpcServer {
                         .await
                         .map_err(internal)?
                     {
-                        let vhost = crate::nginx::render_vhost(&extras, &self.host);
+                        let vhost = self.render_site_vhost(&extras).await?;
                         let pool = crate::php::render_pool(&extras);
                         let applied = self
                             .apply
@@ -766,6 +769,15 @@ impl IpcServer {
                     .and_then(Value::as_str)
                     .and_then(crate::databases::Privilege::parse)
                     .unwrap_or(crate::databases::Privilege::All);
+
+                // Enforce the per-user database quota before provisioning,
+                // just like the site quota, so a rejected request leaves no
+                // database behind on the host.
+                if let Some(owner) = owner_id.as_deref() {
+                    crate::sites::enforce_db_quota(&self.pool, owner)
+                        .await
+                        .map_err(bad_request)?;
+                }
 
                 // Provision the database on the server first: if that fails
                 // nothing is recorded in the panel state.
@@ -2236,6 +2248,168 @@ impl IpcServer {
                 Ok(json!({ "closed": closed }))
             }
 
+            methods::USER_SITES_LIST => {
+                let user_id = param_str(params, "user_id")?;
+                let ids = crate::site_acl::list_site_ids_for_user(&self.pool, user_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(ids).map_err(internal)?)
+            }
+            methods::USER_SITES_SET => {
+                let user_id = param_str(params, "user_id")?;
+                let site_ids = params
+                    .get("site_ids")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                crate::site_acl::set_sites_for_user(&self.pool, user_id, &site_ids)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true }))
+            }
+            methods::SITE_SECURITY_GET => {
+                let site_id = param_str(params, "site_id")?;
+                let settings = crate::site_security::get_site_security(&self.pool, site_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(settings).map_err(internal)?)
+            }
+            methods::SITE_SECURITY_SET => {
+                let site_id = param_str(params, "site_id")?.to_string();
+                let settings = crate::site_security::SiteSecuritySettings::from_params(params)
+                    .map_err(internal)?;
+                let password = opt_str(params, "basic_auth_password");
+                crate::site_security::set_site_security(&self.pool, &site_id, &settings, password)
+                    .await
+                    .map_err(internal)?;
+                let extras = self
+                    .stores
+                    .sites
+                    .get_with_extras(&site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                let vhost = self.render_site_vhost(&extras).await?;
+                let pool = crate::php::render_pool(&extras);
+                let applied = self
+                    .apply
+                    .apply_site(&extras, &vhost, &pool)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true, "applied": applied }))
+            }
+            methods::SSL_CERT_INSTALL => {
+                let site_id = param_str(params, "site_id")?.to_string();
+                if self
+                    .stores
+                    .sites
+                    .get(&site_id)
+                    .await
+                    .map_err(internal)?
+                    .is_none()
+                {
+                    return Err(Error::new(codes::NOT_FOUND, "site not found"));
+                }
+                let cert = param_str(params, "cert")?;
+                let key = param_str(params, "key")?;
+                let chain = opt_str(params, "chain");
+                let _paths = crate::ssl::install_custom_certificate(&site_id, cert, key, chain)
+                    .map_err(internal)?;
+                let updated = self
+                    .stores
+                    .sites
+                    .update(
+                        &site_id,
+                        crate::sites::SitePatch {
+                            ssl_mode: Some("custom".into()),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(internal)?;
+                if updated.is_none() {
+                    return Err(Error::new(codes::NOT_FOUND, "site not found"));
+                }
+                let extras = self
+                    .stores
+                    .sites
+                    .get_with_extras(&site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                let vhost = self.render_site_vhost(&extras).await?;
+                let pool = crate::php::render_pool(&extras);
+                let applied = self
+                    .apply
+                    .apply_site(&extras, &vhost, &pool)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true, "applied": applied }))
+            }
+            methods::SITE_SSH_USERS_LIST => {
+                let site_id = param_str(params, "site_id")?;
+                let users = self
+                    .stores
+                    .site_users
+                    .list(site_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(users).map_err(internal)?)
+            }
+            methods::SITE_SSH_USER_ADD => {
+                let site_id = param_str(params, "site_id")?;
+                let username = param_str(params, "username")?;
+                let key = param_str(params, "public_key")?;
+                self.stores
+                    .site_users
+                    .add(site_id, username, key)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true }))
+            }
+            methods::SITE_SSH_USER_REMOVE => {
+                let site_id = param_str(params, "site_id")?;
+                let username = param_str(params, "username")?;
+                if !self
+                    .stores
+                    .site_users
+                    .remove(site_id, username)
+                    .await
+                    .map_err(internal)?
+                {
+                    return Err(Error::new(codes::NOT_FOUND, "site SSH user not found"));
+                }
+                Ok(json!({ "ok": true }))
+            }
+            methods::DATABASES_DUMP => {
+                let id = param_str(params, "id")?;
+                let record = self
+                    .stores
+                    .databases
+                    .get(id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "database not found"))?;
+                let result = crate::db_dump::dump(&record, &self.paths).map_err(internal)?;
+                Ok(serde_json::to_value(result).map_err(internal)?)
+            }
+            methods::DATABASES_IMPORT => {
+                let id = param_str(params, "id")?;
+                let data = param_str(params, "data")?;
+                let record = self
+                    .stores
+                    .databases
+                    .get(id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "database not found"))?;
+                crate::db_dump::import(&record, data, &self.paths).map_err(internal)?;
+                Ok(json!({ "ok": true }))
+            }
             other => Err(Error::new(
                 codes::UNSUPPORTED,
                 format!("unknown method `{other}`"),
@@ -2800,6 +2974,16 @@ impl IpcServer {
     /// Read the admin credentials for the local database servers from the
     /// environment. They are optional: without them the panel relies on
     /// socket/peer authentication, which is the default on Ubuntu.
+    /// Render a site's vhost including its stored security restrictions.
+    async fn render_site_vhost(&self, extras: &crate::sites::SiteExtras) -> Result<String, Error> {
+        let settings = crate::site_security::get_site_security(&self.pool, &extras.site.id)
+            .await
+            .map_err(internal)?;
+        Ok(crate::nginx::render_vhost_with_security(
+            extras, &self.host, &settings,
+        ))
+    }
+
     fn database_credentials(&self) -> crate::database::AdminCredentials {
         crate::database::AdminCredentials {
             mysql_root_password: std::env::var("SYNTHPANEL_MYSQL_ROOT_PASSWORD").ok(),
@@ -3108,6 +3292,7 @@ mod tests {
         let users = users::Users::new(pool.clone());
         let sites = sites::Sites::new(pool.clone());
         let databases = crate::databases::Databases::new(pool.clone());
+        let site_users = crate::site_users::SiteUsers::new(pool.clone(), paths.clone());
         let apply = crate::apply::ApplyPipeline::new();
         let server = IpcServer::new(
             paths.clone(),
@@ -3117,6 +3302,7 @@ mod tests {
                 users,
                 sites,
                 databases,
+                site_users,
             },
             apply,
             "testhost".into(),

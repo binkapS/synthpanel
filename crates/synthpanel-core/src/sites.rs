@@ -234,6 +234,33 @@ impl Sites {
     }
 }
 
+/// Check that `owner_id` may create another database.
+///
+/// Mirrors the site quota check in the IPC server. A missing user (for
+/// example a database created by the panel itself) is unrestricted; a user
+/// whose `quota_dbs` has been reached is rejected. Call this before any
+/// database is provisioned on the host.
+///
+/// The error message is written in the same style as the site quota error so
+/// IPC can map it to `bad_request` directly.
+pub async fn enforce_db_quota(pool: &SqlitePool, owner_id: &str) -> Result<()> {
+    let quota: Option<i64> = sqlx::query_scalar("SELECT quota_dbs FROM users WHERE id = ?")
+        .bind(owner_id)
+        .fetch_optional(pool)
+        .await?;
+    let Some(quota) = quota else {
+        return Ok(());
+    };
+    let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM databases WHERE owner_id = ?")
+        .bind(owner_id)
+        .fetch_one(pool)
+        .await?;
+    if used >= quota {
+        anyhow::bail!("the quota of {used} database(s) is reached");
+    }
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SiteExtras {
     pub site: SiteRecord,
@@ -307,5 +334,44 @@ mod tests {
         assert!(sites.delete(&created.id).await.unwrap());
         assert!(sites.get(&created.id).await.unwrap().is_none());
         assert_eq!(sites.count().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn database_quota_is_enforced_per_owner() {
+        use crate::databases::Databases;
+        use crate::users::{CreateUser, Users};
+
+        let pool = test_pool().await;
+        let users = Users::new(pool.clone());
+        let owner = users
+            .create(CreateUser {
+                email: "owner@example.com".into(),
+                name: "Owner".into(),
+                password_hash: "hash".into(),
+                role: "user".into(),
+                quota_sites: 10,
+                quota_dbs: 1,
+            })
+            .await
+            .unwrap();
+
+        // No databases yet: the next one is allowed.
+        enforce_db_quota(&pool, &owner.id).await.unwrap();
+
+        let databases = Databases::new(pool.clone());
+        databases
+            .create("mysql", "shop", Some(owner.id.clone()))
+            .await
+            .unwrap();
+        let error = enforce_db_quota(&pool, &owner.id).await.unwrap_err();
+        assert!(error.to_string().contains("quota"));
+
+        // Other owners, and panel-created databases, are unaffected.
+        enforce_db_quota(&pool, "someone-else").await.unwrap();
+        databases
+            .delete(&databases.list().await.unwrap()[0].id)
+            .await
+            .unwrap();
+        enforce_db_quota(&pool, &owner.id).await.unwrap();
     }
 }

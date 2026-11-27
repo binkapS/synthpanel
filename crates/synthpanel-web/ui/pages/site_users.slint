@@ -1,0 +1,158 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField, TextArea } from "../widgets/field.slint";
+import { SiteUserRow } from "../types.slint";
+
+export component SiteUsersPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("Site users page");
+
+    in property <string> site-id;
+    in-out property <[SiteUserRow]> users;
+    in-out property <string> username;
+    in-out property <string> public-key;
+    in-out property <string> status;
+
+    callback load-users(string);
+    callback add-user(string, string, string);
+    callback remove-user(string, string);
+
+    changed site-id => {
+        if (root.site-id != "") {
+            root.load-users(root.site-id);
+        }
+    }
+
+    VerticalLayout {
+        alignment: start;
+        spacing: 18px;
+
+        PageHeader {
+            title: @tr("Site users");
+            subtitle: @tr("SSH users with access to this site's document root.");
+        }
+
+        if root.status != "" : Notice { text: root.status; }
+
+        HorizontalLayout {
+            spacing: 10px;
+            alignment: end;
+            AppButton {
+                text: @tr("Reload");
+                clicked => { root.load-users(root.site-id); }
+            }
+        }
+
+        Card {
+            title: @tr("Add a site user");
+            VerticalLayout {
+                spacing: 12px;
+                TextField {
+                    label: @tr("Username");
+                    text <=> root.username;
+                    min-width: 160px;
+                    horizontal-stretch: 1;
+                }
+                TextArea {
+                    label: @tr("Public key");
+                    text <=> root.public-key;
+                    lines: 3;
+                }
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: end;
+                    AppButton {
+                        text: @tr("Add user");
+                        primary: true;
+                        enabled: root.username != "" && root.public-key != "";
+                        clicked => {
+                            root.add-user(root.site-id, root.username, root.public-key);
+                            root.username = "";
+                            root.public-key = "";
+                        }
+                    }
+                }
+            }
+        }
+
+        Card {
+            title: @tr("Authorized users");
+            subtitle: @tr("{} total", root.users.length);
+            Flickable {
+                max-height: 460px;
+                VerticalLayout {
+                    alignment: start;
+                    spacing: 0px;
+
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text { text: @tr("Username"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 120px; }
+                        Text { text: @tr("Public key"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 2; min-width: 200px; }
+                        Text { text: @tr("Added"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 120px; }
+                        Rectangle { width: 8px; }
+                        Text { text: @tr("Actions"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 60px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.users.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: @tr("No site users yet.");
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for user in root.users : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: user.username;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 120px;
+                        }
+                        Text {
+                            text: user.public-key;
+                            font-size: 11px;
+                            font-family: "monospace";
+                            color: Theme.muted;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 2;
+                            min-width: 200px;
+                        }
+                        Text {
+                            text: user.created;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                            width: 120px;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 60px;
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("../assets/icons/trash.svg");
+                                tooltip: @tr("Remove site user {}", user.username);
+                                danger: true;
+                                clicked => { root.remove-user(root.site-id, user.username); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

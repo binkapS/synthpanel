@@ -26,6 +26,22 @@ pub struct SessionRecord {
     pub user_agent: Option<String>,
 }
 
+/// What a session looks like to the account that owns it.
+///
+/// The raw token is never returned: `id` is the SHA-256 key under which the
+/// session is stored, which is enough to tell sessions apart but cannot be
+/// used to authenticate. Times are relative to process start because the
+/// store uses `Instant` rather than wall-clock timestamps.
+#[derive(Debug, Clone)]
+pub struct SessionInfo {
+    pub id: String,
+    pub ip: String,
+    pub user_agent: Option<String>,
+    pub age_seconds: u64,
+    pub expires_in_seconds: u64,
+    pub current: bool,
+}
+
 #[derive(Debug, Default)]
 pub struct SessionStore {
     inner: Mutex<HashMap<String, SessionRecord>>,
@@ -87,6 +103,55 @@ impl SessionStore {
     pub fn revoke_all_for_user(&self, user_id: &str) {
         let mut map = self.inner.lock().unwrap();
         map.retain(|_, record| record.user_id != user_id);
+    }
+
+    /// The live sessions of one account, newest first.
+    ///
+    /// `current_token` is the plaintext token from the request; it is hashed
+    /// so the caller can mark the session it arrived on. Passing the token of
+    /// an API key (which has no session) simply marks none of them current.
+    pub fn list_for_user(&self, user_id: &str, current_token: &str) -> Vec<SessionInfo> {
+        let current_key = auth::hash_token(current_token);
+        let now = Instant::now();
+        let mut map = self.inner.lock().unwrap();
+        // An expired session is not worth listing, and dropping it here keeps
+        // the count in `revoke_all_others` honest.
+        map.retain(|_, record| record.expires_at > now);
+        let mut sessions: Vec<SessionInfo> = map
+            .iter()
+            .filter(|(_, record)| record.user_id == user_id)
+            .map(|(key, record)| SessionInfo {
+                id: key.clone(),
+                ip: record.ip.clone(),
+                user_agent: record.user_agent.clone(),
+                age_seconds: now.saturating_duration_since(record.created_at).as_secs(),
+                expires_in_seconds: record.expires_at.saturating_duration_since(now).as_secs(),
+                current: key == &current_key,
+            })
+            .collect();
+        sessions.sort_by_key(|info| info.age_seconds);
+        sessions
+    }
+
+    /// Revoke every session of an account except the one making the call.
+    ///
+    /// Returns the number of sessions that were removed.
+    pub fn revoke_all_others(&self, user_id: &str, current_token: &str) -> usize {
+        let current_key = auth::hash_token(current_token);
+        let now = Instant::now();
+        let mut map = self.inner.lock().unwrap();
+        let before = map
+            .values()
+            .filter(|record| record.user_id == user_id)
+            .count();
+        map.retain(|key, record| {
+            record.expires_at > now && (record.user_id != user_id || key == &current_key)
+        });
+        let after = map
+            .values()
+            .filter(|record| record.user_id == user_id)
+            .count();
+        before - after
     }
 
     pub fn cleanup(&self) {
@@ -168,5 +233,80 @@ impl PendingTwoFactorStore {
         let now = Instant::now();
         let mut map = self.inner.lock().unwrap();
         map.retain(|_, record| record.expires_at > now);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lists_only_the_accounts_sessions_and_marks_the_current_one() {
+        let store = SessionStore::new();
+        let ttl = Duration::from_secs(3600);
+        let current = store.create(
+            "alice".into(),
+            "Alice".into(),
+            "user".into(),
+            "1.2.3.4".into(),
+            Some("browser".into()),
+            ttl,
+            "csrf".into(),
+        );
+        let other = store.create(
+            "alice".into(),
+            "Alice".into(),
+            "user".into(),
+            "5.6.7.8".into(),
+            None,
+            ttl,
+            "csrf".into(),
+        );
+        store.create(
+            "bob".into(),
+            "Bob".into(),
+            "admin".into(),
+            "9.9.9.9".into(),
+            None,
+            ttl,
+            "csrf".into(),
+        );
+
+        let sessions = store.list_for_user("alice", &current);
+        assert_eq!(sessions.len(), 2);
+        assert_eq!(sessions.iter().filter(|s| s.current).count(), 1);
+        assert!(
+            sessions
+                .iter()
+                .any(|s| s.id == auth::hash_token(&current) && s.current)
+        );
+        assert!(
+            sessions
+                .iter()
+                .any(|s| s.id == auth::hash_token(&other) && !s.current)
+        );
+        assert!(sessions.iter().all(|s| s.expires_in_seconds > 0));
+
+        assert_eq!(store.revoke_all_others("alice", &current), 1);
+        let sessions = store.list_for_user("alice", &current);
+        assert_eq!(sessions.len(), 1);
+        assert!(sessions[0].current);
+        assert_eq!(store.len(), 2, "bob's session survives");
+    }
+
+    #[test]
+    fn expired_sessions_are_not_listed_or_counted() {
+        let store = SessionStore::new();
+        store.create(
+            "alice".into(),
+            "Alice".into(),
+            "user".into(),
+            "".into(),
+            None,
+            Duration::ZERO,
+            "csrf".into(),
+        );
+        assert!(store.list_for_user("alice", "unknown-token").is_empty());
+        assert_eq!(store.revoke_all_others("alice", "unknown-token"), 0);
     }
 }

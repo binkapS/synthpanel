@@ -19,6 +19,8 @@ export component SiteDetailPage inherits Rectangle {
 
     callback site-action(string, string);
     callback site-ssl(string);
+    callback open-security(string);
+    callback open-users(string);
     callback back();
 
     Flickable {
@@ -133,6 +135,14 @@ export component SiteDetailPage inherits Rectangle {
                     AppButton {
                         text: root.detail.status == "active" ? "Suspend" : "Unsuspend";
                         clicked => { root.site-action(root.id, root.detail.status == "active" ? "suspend" : "unsuspend"); }
+                    }
+                    AppButton {
+                        text: "Security";
+                        clicked => { root.open-security(root.id); }
+                    }
+                    AppButton {
+                        text: "SSH users";
+                        clicked => { root.open-users(root.id); }
                     }
                     AppButton {
                         text: "Delete site";

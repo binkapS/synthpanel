@@ -56,14 +56,19 @@ fn is_stale(ui_dir: &Path, dist: &Path) -> bool {
 
 fn newest_mtime(path: &Path) -> Option<SystemTime> {
     if path.is_file() {
-        return std::fs::metadata(path).and_then(|meta| meta.modified()).ok();
+        return std::fs::metadata(path)
+            .and_then(|meta| meta.modified())
+            .ok();
     }
     let entries = std::fs::read_dir(path).ok()?;
     entries
         .filter_map(Result::ok)
         .filter_map(|entry| {
             let path = entry.path();
-            if path.file_name().is_some_and(|name| name == "target" || name == "dist") {
+            if path
+                .file_name()
+                .is_some_and(|name| name == "target" || name == "dist")
+            {
                 return None;
             }
             newest_mtime(&path)

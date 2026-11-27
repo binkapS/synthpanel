@@ -4,7 +4,7 @@
 import { Palette } from "std-widgets.slint";
 import { Theme } from "widgets/theme.slint";
 import { AppShell } from "widgets/app_shell.slint";
-import { Page, Session } from "types.slint";
+import { Page, Session, SiteUserRow, PanelSession } from "types.slint";
 import {
     MetricSnapshot,
     Service,
@@ -33,6 +33,8 @@ import {
     ApiKeyRow,
     PanelCertificate,
     UpdateStatus,
+    SiteUserRow,
+    PanelSession,
 
 } from "types.slint";
 import { LoginPage } from "pages/login.slint";
@@ -51,6 +53,9 @@ import { AlertsPage } from "pages/alerts.slint";
 import { TerminalPage } from "pages/terminal.slint";
 import { UsersPage } from "pages/users.slint";
 import { SettingsPage } from "pages/settings.slint";
+import { SiteSecurityPage } from "pages/site_security.slint";
+import { SiteUsersPage } from "pages/site_users.slint";
+import { SessionsPage } from "pages/sessions.slint";
 
 export component AppWindow inherits Window {
     title: "SynthPanel";
@@ -150,6 +155,22 @@ export component AppWindow inherits Window {
     in-out property <string> terminal-status;
     in-out property <[VtLine]> terminal-lines;
 
+    // ---- site security / users / sessions -----------------------------------------------------------------
+    in-out property <string> site-security-id;
+    in-out property <string> security-ip-blocks;
+    in-out property <string> security-bot-blocks;
+    in-out property <bool> security-basic-enabled;
+    in-out property <string> security-basic-user;
+    in-out property <bool> security-cloudflare;
+    in-out property <string> site-security-status;
+    in-out property <[SiteUserRow]> site-users;
+    in-out property <string> site-users-id;
+    in-out property <string> site-users-username;
+    in-out property <string> site-users-key;
+    in-out property <string> site-users-status;
+    in-out property <[PanelSession]> sessions;
+    in-out property <string> sessions-status;
+
     // ---- users -------------------------------------------------------------------------------------------
     in-out property <[UserRow]> users;
     in-out property <string> users-status;
@@ -228,6 +249,16 @@ export component AppWindow inherits Window {
     callback terminal-close();
     callback terminal-input(string);
     callback terminal-resize(int, int);
+
+    callback load-site-security(string);
+    callback save-site-security(string, string, string, bool, string, string, bool);
+    callback load-site-users(string);
+    callback add-site-user(string, string, string);
+    callback remove-site-user(string, string);
+    callback load-sessions();
+    callback revoke-other-sessions();
+    callback dump-database(string);
+    callback import-database(string, string);
 
     callback save-settings(string, string, string, string, string, string, string, bool);
     callback api-key-created(string, string);
@@ -309,6 +340,14 @@ export component AppWindow inherits Window {
             ssl-message <=> root.site-ssl-message;
             site-action(id, action) => { root.site-action(id, action); }
             site-ssl(id) => { root.site-ssl(id); }
+            open-security(id) => {
+                root.site-security-id = id;
+                root.navigate(Page.site-security);
+            }
+            open-users(id) => {
+                root.site-users-id = id;
+                root.navigate(Page.site-users);
+            }
             back() => { root.navigate(Page.sites); }
         }
 
@@ -319,6 +358,8 @@ export component AppWindow inherits Window {
             create-database(name, user, engine) => { root.create-database(name, user, engine); }
             add-db-user(database, user, password, privileges) => { root.add-db-user(database, user, password, privileges); }
             delete-database(id) => { root.delete-database(id); }
+            dump-database(id) => { root.dump-database(id); }
+            import-database(id, data) => { root.import-database(id, data); }
         }
 
         if root.current-page == Page.php : PhpPage {
@@ -416,6 +457,38 @@ export component AppWindow inherits Window {
             status <=> root.users-status;
             create-user(email, name, password, role, sites, dbs) => { root.create-user(email, name, password, role, sites, dbs); }
             update-user(id, email, name, role, status, totp, sites, dbs) => { root.update-user(id, email, name, role, status, totp, sites, dbs); }
+        }
+
+        if root.current-page == Page.site-security : SiteSecurityPage {
+            site-id: root.site-security-id;
+            ip-blocks <=> root.security-ip-blocks;
+            bot-blocks <=> root.security-bot-blocks;
+            basic-auth-enabled <=> root.security-basic-enabled;
+            basic-auth-user <=> root.security-basic-user;
+            cloudflare-only <=> root.security-cloudflare;
+            status <=> root.site-security-status;
+            load-security(site-id) => { root.load-site-security(site-id); }
+            save-security(site-id, ip, bot, enabled, user, password, cloudflare) => {
+                root.save-site-security(site-id, ip, bot, enabled, user, password, cloudflare);
+            }
+        }
+
+        if root.current-page == Page.site-users : SiteUsersPage {
+            site-id: root.site-users-id;
+            users <=> root.site-users;
+            username <=> root.site-users-username;
+            public-key <=> root.site-users-key;
+            status <=> root.site-users-status;
+            load-users(site-id) => { root.load-site-users(site-id); }
+            add-user(site-id, username, key) => { root.add-site-user(site-id, username, key); }
+            remove-user(site-id, username) => { root.remove-site-user(site-id, username); }
+        }
+
+        if root.current-page == Page.sessions : SessionsPage {
+            sessions <=> root.sessions;
+            status <=> root.sessions-status;
+            load-sessions() => { root.load-sessions(); }
+            revoke-others() => { root.revoke-other-sessions(); }
         }
 
         if root.current-page == Page.settings : SettingsPage {

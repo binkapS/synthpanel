@@ -563,6 +563,84 @@ test('terminal page opens a shell through the UI', async ({ page }) => {
   expect(state.currentPage).toBe('terminal');
 });
 
+test('site security settings round-trip', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const domain = `e2e-sec-${Date.now()}.example.com`;
+  const created = await api(page, 'POST', '/api/v1/sites', {
+    domain,
+    aliases: [],
+    template: 'static',
+    ssl_mode: 'none',
+  });
+  expect(created.status).toBe(200);
+  const id = created.body.site?.id;
+  expect(id).toBeTruthy();
+  try {
+    const before = await api(page, 'GET', `/api/v1/sites/${id}/security`);
+    expect(before.status).toBe(200);
+    expect(before.body.ip_blocks).toEqual([]);
+
+    const saved = await api(page, 'POST', `/api/v1/sites/${id}/security`, {
+      ip_blocks: ['127.0.0.1/32'],
+      bot_blocks: ['evilbot'],
+      basic_auth_enabled: false,
+      basic_auth_user: '',
+      cloudflare_only: false,
+    });
+    expect(saved.status).toBe(200);
+
+    const after = await api(page, 'GET', `/api/v1/sites/${id}/security`);
+    expect(after.body.ip_blocks).toContain('127.0.0.1/32');
+    expect(after.body.bot_blocks).toContain('evilbot');
+  } finally {
+    await api(page, 'DELETE', `/api/v1/sites/${id}`);
+  }
+});
+
+test('site SSH users can be added and removed', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const domain = `e2e-ssh-${Date.now()}.example.com`;
+  const created = await api(page, 'POST', '/api/v1/sites', {
+    domain,
+    aliases: [],
+    template: 'static',
+    ssl_mode: 'none',
+  });
+  expect(created.status).toBe(200);
+  const id = created.body.site?.id;
+  const username = `sp_${Date.now()}`;
+  try {
+    expect((await api(page, 'GET', `/api/v1/sites/${id}/ssh-users`)).status).toBe(200);
+    const added = await api(page, 'POST', `/api/v1/sites/${id}/ssh-users`, {
+      username,
+      public_key: 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE2ETestKeyForE2EOnly test@example.com',
+    });
+    expect(added.status).toBe(200);
+    const listed = await api(page, 'GET', `/api/v1/sites/${id}/ssh-users`);
+    expect(listed.status).toBe(200);
+    const rows = Array.isArray(listed.body) ? listed.body : listed.body.users;
+    expect(rows.map((u: any) => u.username)).toContain(username);
+  } finally {
+    await api(page, 'DELETE', `/api/v1/sites/${id}/ssh-users/${username}`);
+    await api(page, 'DELETE', `/api/v1/sites/${id}`);
+  }
+});
+
+test('browser sessions can be listed and other sessions revoked', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const listed = await api(page, 'GET', '/api/v1/auth/sessions');
+  expect(listed.status).toBe(200);
+  expect(Array.isArray(listed.body.sessions)).toBe(true);
+  expect(listed.body.sessions.some((s: any) => s.current)).toBe(true);
+  const revoked = await api(page, 'POST', '/api/v1/auth/sessions/revoke-others');
+  expect(revoked.status).toBe(200);
+  expect(revoked.body).toMatchObject({ ok: true });
+  expect((await api(page, 'GET', '/api/v1/auth/me')).status).toBe(200);
+});
+
 // Guard against forgetting the activation flag when adding new navigations.
 test('e2e harness is inert on a normal URL', async ({ page }) => {
   await page.goto('/');

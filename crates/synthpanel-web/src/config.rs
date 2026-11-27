@@ -115,8 +115,14 @@ mod tests {
         assert!(!config.trusts_proxies());
         if std::env::var_os("SYNTHPANEL_IPC_TOKEN_FILE").is_none() {
             // Must point at the same tmpfs token the core writes.
-            assert_eq!(config.ipc_token_path, PathBuf::from("/run/synthpanel/ipc-token"));
-            assert_eq!(config.core_socket, PathBuf::from("/run/synthpanel/core.sock"));
+            assert_eq!(
+                config.ipc_token_path,
+                PathBuf::from("/run/synthpanel/ipc-token")
+            );
+            assert_eq!(
+                config.core_socket,
+                PathBuf::from("/run/synthpanel/core.sock")
+            );
         }
     }
 }

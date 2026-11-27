@@ -45,6 +45,10 @@ SYNTHPANEL_BACKUP_DIR="$WORK/backups" \
 SYNTHPANEL_NGINX_DIR="$WORK/nginx" \
 SYNTHPANEL_PHP_DIR="$WORK/php" \
 SYNTHPANEL_CRON_DIR="$WORK/cron" \
+SYNTHPANEL_USERADD_BIN=/bin/true \
+SYNTHPANEL_USERDEL_BIN=/bin/true \
+SYNTHPANEL_PASSWD_BIN=/bin/true \
+SYNTHPANEL_CHOWN_BIN=/bin/true \
 RUST_LOG=warn \
   target/release/synthpanel-core > "$CORE_LOG" 2>&1 &
 CORE_PID=$!

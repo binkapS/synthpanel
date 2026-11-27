@@ -1,6 +1,6 @@
 # SynthPanel — Design Document
 
-**Status:** v1.0 implemented · **Last updated:** 2026-11-11 · **Owner:** synthpanel contributors
+**Status:** v1.0 implemented · CloudPanel-parity workstream in progress · **Last updated:** 2026-11-27 · **Owner:** synthpanel contributors
 
 This document describes the design of SynthPanel and, for every feature, whether
 it is **shipped**, **partial** or **planned**. The honest, per-phase status lives
@@ -119,15 +119,18 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Feature | Status |
 |---|---|
 | Create/edit/delete sites: domain, aliases, document root, PHP version, template | ✅ |
-| Templates: static, PHP, Laravel, Symfony, WordPress, Node | ✅ |
+| Templates: static, PHP and Node are offered in the UI; the CLI accepts other names but they have no UI options | 🟡 |
 | Per-site `php.ini` overrides (`memory_limit`, `max_execution_time`, upload size) | 🟡 stored and applied, no editor yet |
 | Custom Nginx directives, validated before they are applied | ✅ |
 | Redirects: www/non-www and HTTP → HTTPS | ✅ |
 | Custom redirect rules | ⬜ |
 | SSL: Let's Encrypt over HTTP-01, issued from the UI | ✅ |
-| Custom certificate upload | ⬜ |
+| Custom certificate upload | 🟡 CLI verb and IPC method added; UI upload in progress |
 | HSTS, OCSP stapling | 🟡 HSTS only |
 | Suspend/unsuspend (the site answers with 503) | ✅ |
+| First-class reverse-proxy site type | 🟡 CLI verb added; core/UI wiring in progress |
+| Per-site security controls (IP/bot blocks, basic auth, Cloudflare-only) | 🟡 CLI verbs and IPC methods added; core/UI wiring in progress |
+| Per-site SSH users | 🟡 CLI verbs and IPC methods added; core/UI wiring in progress |
 | Cloning a site, export/import of a site definition | ⬜ |
 
 ### 4.3 PHP management
@@ -148,8 +151,8 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Engines: MariaDB/MySQL, PostgreSQL, Redis | ✅ |
 | Create/drop databases and users with per-site privileges | ✅ |
 | The database is provisioned on the server *before* the panel records it | ✅ |
-| Connection strings and `.env` snippets | ⬜ |
-| Dump/restore through the UI | ⬜ (the backups include the dumps) |
+| Connection strings and `.env` snippets | ✅ |
+| Dump/restore through the UI | 🟡 scheduled dumps are part of backups; on-demand dump/import CLI verbs and IPC methods are added, UI wiring in progress |
 | One-click phpMyAdmin / pgAdmin | ⬜ |
 
 ### 4.5 Security
@@ -160,9 +163,10 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Fail2ban: jails, ban/unban | ✅ |
 | SSH keys | ✅ |
 | Two-factor authentication: TOTP with a QR code | ✅ |
-| List and revoke the active sessions | ⬜ |
+| List and revoke the active sessions | 🟡 web-only feature in progress; deliberately no CLI verb |
 | Audit log of every mutating action | ✅ |
 | IP allow-list for the panel | ⬜ |
+| Per-site IP/bot/basic-auth/Cloudflare controls | 🟡 see §4.2 |
 | Rate limiting on the login | ✅ |
 | Security headers on the panel itself (CSP, HSTS, X-Frame-Options) | ✅ |
 
@@ -171,8 +175,8 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Feature | Status |
 |---|---|
 | Roles: admin, operator, user | ✅ |
-| Per-user quotas for sites and databases | 🟡 stored, not enforced yet |
-| Per-user SSH/system access toggles | ⬜ |
+| Per-user quotas for sites and databases | 🟡 the site quota is enforced; the database quota is still being wired |
+| Per-user SSH/system access toggles | 🟡 CLI verbs for per-site SSH users are added; UI wiring in progress |
 | Invitation flow | ⬜ |
 
 ### 4.7 Backups
@@ -257,7 +261,7 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Update channel and the signed self-update | ✅ |
 | Panel port, session lifetime, password policy | 🟡 environment variables |
 | OS security updates (unattended-upgrades) | ⬜ |
-| Maintenance mode | ⬜ |
+| Maintenance mode | 🟡 the setting is stored and editable in Settings, but the panel does not enforce it yet |
 
 ### 4.15 Updates
 
@@ -266,6 +270,25 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Self-update: download → verify the signature → back up → apply → restart → health check → roll back | ✅ |
 | A changelog view | ⬜ |
 | OS package updates from the UI | ⬜ |
+
+### 4.16 CloudPanel parity (work in progress)
+
+SynthPanel already matches or exceeds CloudPanel on the LEMP core, backups
+(encrypted, verified, restorable), cron, logs, alerts, Git deployments, the
+browser terminal, signed self-update and the REST API. The remaining parity
+work is being added behind the same IPC contract. A CLI verb is **not** proof
+that the web UI or the REST endpoint is shipped; the per-feature state is in
+[`docs/roadmap.md`](./docs/roadmap.md).
+
+| Parity item | IPC methods | CLI verbs | Status |
+|---|---|---|---|
+| Reverse-proxy site type | `sites.create` (template `proxy`) | `sites:proxy` | 🟡 CLI added; vhost renderer landed, IPC/UI wiring in progress |
+| Per-site security controls | `site_security.get`, `site_security.set` | `sites:security:get`, `sites:security:set` | 🟡 CLI added; core store landed, IPC/UI wiring in progress |
+| Per-site SSH users | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | 🟡 CLI added; core store landed, IPC/UI wiring in progress |
+| Custom certificate install | `ssl.cert.install` | `ssl:cert:install` | 🟡 CLI added; core helper landed, IPC/UI wiring in progress |
+| On-demand DB dump/import | `databases.dump`, `databases.import` | `db:dump`, `db:import` | 🟡 CLI added; core and API landed, IPC/UI wiring in progress |
+| Per-site user ACL | `user_sites.list`, `user_sites.set` | `user-sites:list`, `user-sites:set` | 🟡 CLI added; core and UI in progress |
+| Session revocation | web-only | none | 🟡 web work in progress |
 
 ## 5. Architecture
 
@@ -334,9 +357,9 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | Charts | SVG sparkline path computed in Rust | no chart library; the path is bound to a Slint `Path` element |
 | Terminal | lightweight VT100 renderer in Rust (`ui/src/terminal.rs`) | renders PTY output as styled terminal cells over the existing `/ws/terminal/{id}` protocol |
 
-> **Why Slint + WASM:** the panel ships as a single HTTPS process. Compiling the UI to WASM keeps that property while removing Node/npm from the build pipeline and letting the UI share Rust types and tooling with the rest of the workspace. The trade-off is a larger initial payload than the old Svelte bundle; the WASM artifact is built in release mode and embedded in `synthpanel-web`.
+> **Why Slint + WASM:** the panel ships as a single HTTPS process. Compiling the UI to WASM keeps that property while removing Node/npm from the build pipeline and letting the UI share Rust types and tooling with the rest of the workspace. The trade-off is a larger initial payload than a plain JavaScript bundle; the WASM artifact is built in release mode and embedded in `synthpanel-web`.
 >
-> **Migration note:** the previous Svelte 5 SPA is retained under
+> **Migration note:** the legacy Svelte SPA has been removed from this tree; the port is documented in [`docs/MIGRATION-SVELTE-TO-SLINT.md`](./docs/MIGRATION-SVELTE-TO-SLINT.md).
 
 ### 5.4 Repository layout
 
@@ -368,7 +391,7 @@ synthpanel/
 │   │       ├── update.rs        # the signed self-update
 │   │       ├── metrics.rs       # the collector and the downsampling
 │   │       └── users.rs         # the users and the roles
-│   ├── synthpanel-web/          # the HTTP API and the embedded SPA
+│   ├── synthpanel-web/          # the HTTP API and the embedded Slint WASM UI
 │   │   ├── src/
 │   │   │   ├── api/             # the /api/v1 handlers
 │   │   │   ├── ws.rs            # the dashboard, log and terminal sockets
@@ -664,14 +687,30 @@ API keys  GET|POST /api-keys  DELETE /api-keys/:id
 Realtime  WS /ws/dashboard   WS /ws/logs   WS /ws/terminal/:id
 ```
 
+The CloudPanel-parity endpoints (per-site security, SSH users, user→site ACL,
+custom certificate install, DB dump/import, proxy sites) are being added to this
+surface; see §4.16 and [`docs/roadmap.md`](./docs/roadmap.md). Session
+revocation is web-only and has no CLI verb.
+
 ### 8.3 CLI
 
 ```
 synthpanel status   synthpanel metrics   synthpanel metrics:range   synthpanel audit
 synthpanel settings
 synthpanel sites:list   synthpanel sites:add   synthpanel sites:show   synthpanel sites:delete
+synthpanel sites:proxy example.com --target http://127.0.0.1:3000 [--aliases www.example.com]
+synthpanel sites:security:get --site <site-id>
+synthpanel sites:security:set --site <site-id> [--ip-block 10.0.0.8] [--bot-block wget]
+                             [--basic-auth-user u --basic-auth-password p] [--cloudflare-only]
+synthpanel sites:ssh-users:list --site <site-id>
+synthpanel sites:ssh-users:add --site <site-id> --username deploy --public-key "$(cat id_ed25519.pub)"
+synthpanel sites:ssh-users:remove --site <site-id> --username deploy
+synthpanel ssl:cert:install --site <site-id> --cert site.crt --key site.key
 synthpanel users:list   synthpanel users:create
+synthpanel user-sites:list --user <user-id>
+synthpanel user-sites:set --user <user-id> --sites <id-1,id-2>
 synthpanel db:list   synthpanel db:create   synthpanel db:delete
+synthpanel db:dump <db-id>   synthpanel db:import <db-id> --file dump.sql
 synthpanel security:firewall   synthpanel security:fail2ban   synthpanel security:ssh-keys
 synthpanel backup:list   synthpanel backup:run   synthpanel backup:verify   synthpanel backup:restore
 synthpanel cron:list   synthpanel cron:add   synthpanel cron:run   synthpanel cron:runs   synthpanel cron:delete
@@ -686,7 +725,10 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
 - Talks to the core over the Unix socket; reads the shared token from
   `/run/synthpanel/ipc-token`, so it needs root.
 - `--output json|table|yaml` for scripting.
-- The same operations as the UI, which guarantees the API-first design.
+- The parity verbs use the IPC parameter shapes of the in-progress core
+  handlers; see §4.16 and [`docs/roadmap.md`](./docs/roadmap.md).
+- The older verbs mirror shipped UI operations; the parity verbs above are
+  wired CLI-first and are not yet available everywhere in the UI/API.
 
 ## 9. UI/UX Design
 
@@ -727,8 +769,8 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
   the system preference.
 - **Responsive**: the sidebar collapses on narrow screens; the terminal and
   the tables scroll rather than break.
-- **i18n ready**: the navigation and the login go through the `$t` store, so
-  another locale is a dictionary and an entry in the settings.
+- **i18n ready**: the navigation and the login copy live in the Slint sources,
+  so another locale can be added as a dictionary and a settings entry.
 
 ### 9.3 Frontend architecture (Slint WASM)
 
@@ -751,7 +793,7 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
   WebSocket protocol.
 - **i18n**: page copy is currently English; the Slint layout keeps user-visible
   strings in `.slint` files so locale extraction can be added as a follow-up.
-  the `$t` store. English is the reference locale.
+  A locale selector is stored in Settings. English is the reference locale.
 
 ### 9.4 Key screens
 
@@ -771,7 +813,7 @@ per-phase detail and the remaining gaps live in
 
 | Phase | Scope | Exit criterion | Result |
 |---|---|---|---|
-| **0 — Foundations** | workspace, CI, the IPC protocol, the SQLite schema, the web skeleton, the installer, the SPA | a fresh server → login → the dashboard shows CPU and RAM | ✅ |
+| **0 — Foundations** | workspace, CI, the IPC protocol, the SQLite schema, the web skeleton, the installer, the browser UI | a fresh server → login → the dashboard shows CPU and RAM | ✅ |
 | **1 — Core hosting** | sites, the vhost engine, the apply pipeline with a rollback, SSL issuance, suspend, PHP versions, live metrics | create a site → it serves PHP over HTTPS; a broken config → the panel recovers | ✅ |
 | **2 — Data & security** | MariaDB, PostgreSQL, Redis, the firewall, fail2ban, SSH keys, users and roles, the audit log | the whole stack is manageable end to end | ✅ |
 | **3 — Operations** | backups, cron, the log viewer, the file manager, API keys, the scheduler | backup → delete the site → restore works | ✅ |
@@ -784,7 +826,9 @@ per-phase detail and the remaining gaps live in
 - The multi-server agent and the plugin API need a protocol that does not exist
   yet; the IPC contract was designed with that in mind (§5.10).
 - DNS zone management, if there is demand for it.
-- An OpenAPI document, a code editor, a session list and the quota enforcement.
+- An OpenAPI document and a code editor.
+- Web-only session revocation, database quota enforcement, and the UI wiring for
+  the CloudPanel-parity features in §4.16.
 - An external security audit and reproducible builds.
 
 ## 11. Testing & Quality
@@ -798,7 +842,7 @@ per-phase detail and the remaining gaps live in
 | Upgrade | `tests/update.sh` | a signed release, the apply, the history, a tampered envelope | ✅ |
 | E2E | `e2e/run.sh` (Playwright) | the user journeys through a real browser | ✅ |
 | Security | `cargo audit`, `cargo deny check` | vulnerable and disallowed dependencies | ✅ |
-| Performance | the bundle budget | the SPA stays below 150 kB gzip | ✅ |
+| Performance | the bundle budget | the 150 kB gzip target was met by the previous JS SPA; the WASM UI has no published measurement yet | 🟡 |
 | Golden | insta snapshots of the generated configs | every template | ⬜ |
 | Coverage | a coverage report | the config generation | ⬜ |
 
@@ -859,7 +903,7 @@ is inside its budget, and the changelog is updated.
 | Cold install → the panel is reachable | ≤ 5 min | — |
 | Idle memory (web + core) | < 150 MB | ~32 MB |
 | Create a site → it serves over HTTPS | ≤ 60 s | — |
-| The SPA bundle | < 150 kB gzip | 57 kB (the terminal is a separate, lazy chunk) |
+| The browser bundle | < 150 kB gzip | 57 kB measured for the previous JS SPA; not yet measured for the WASM UI |
 | The core test suite | as much as possible | 106 tests |
 | Known critical CVEs in the dependencies | 0 | `cargo audit` in CI |
 

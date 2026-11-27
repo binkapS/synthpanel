@@ -111,6 +111,9 @@ mod tests {
             content_type("assets/app.js"),
             "text/javascript; charset=utf-8"
         );
-        assert_eq!(content_type("pkg/synthpanel_ui_bg.wasm"), "application/wasm");
+        assert_eq!(
+            content_type("pkg/synthpanel_ui_bg.wasm"),
+            "application/wasm"
+        );
     }
 }

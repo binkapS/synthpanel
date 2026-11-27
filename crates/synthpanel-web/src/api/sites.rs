@@ -258,6 +258,103 @@ fn is_valid_hostname(value: &str) -> bool {
     })
 }
 
+/// CloudPanel parity: per-site security settings.
+#[derive(Debug, Deserialize)]
+pub struct SiteSecurityRequest {
+    #[serde(default)]
+    pub ip_blocks: Vec<String>,
+    #[serde(default)]
+    pub bot_blocks: Vec<String>,
+    #[serde(default)]
+    pub basic_auth_enabled: bool,
+    #[serde(default)]
+    pub basic_auth_user: String,
+    #[serde(default)]
+    pub basic_auth_password: Option<String>,
+    #[serde(default)]
+    pub cloudflare_only: bool,
+}
+
+pub async fn security_get(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let settings: Value = state
+        .core_call(methods::SITE_SECURITY_GET, json!({ "site_id": id }))
+        .await?;
+    Ok(Json(settings))
+}
+
+pub async fn security_set(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<SiteSecurityRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let result: Value = state
+        .core_call(
+            methods::SITE_SECURITY_SET,
+            json!({
+                "site_id": id,
+                "ip_blocks": request.ip_blocks,
+                "bot_blocks": request.bot_blocks,
+                "basic_auth_enabled": request.basic_auth_enabled,
+                "basic_auth_user": request.basic_auth_user,
+                "basic_auth_password": request.basic_auth_password,
+                "cloudflare_only": request.cloudflare_only,
+            }),
+        )
+        .await?;
+    audit(
+        &state,
+        &user.user_id,
+        "",
+        "sites.security.set",
+        &id,
+        &user.ip,
+    )
+    .await;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CertInstallRequest {
+    pub cert: String,
+    pub key: String,
+    #[serde(default)]
+    pub chain: Option<String>,
+}
+
+pub async fn cert_install(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    ApiJson(request): ApiJson<CertInstallRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let result: Value = state
+        .core_call(
+            methods::SSL_CERT_INSTALL,
+            json!({
+                "site_id": id,
+                "cert": request.cert,
+                "key": request.key,
+                "chain": request.chain,
+            }),
+        )
+        .await?;
+    audit(
+        &state,
+        &user.user_id,
+        "",
+        "sites.ssl.install",
+        &id,
+        &user.ip,
+    )
+    .await;
+    Ok(Json(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

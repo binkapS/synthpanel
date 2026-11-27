@@ -241,6 +241,20 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                 b.app.borrow_mut().set_current_page(crate::Page::Settings);
                 load_settings(&b);
             }
+            crate::Page::SiteSecurity => {
+                let id = b.app.borrow().get_site_security_id().to_string();
+                b.app.borrow_mut().set_current_page(crate::Page::SiteSecurity);
+                load_site_security(&b, &id);
+            }
+            crate::Page::SiteUsers => {
+                let id = b.app.borrow().get_site_users_id().to_string();
+                b.app.borrow_mut().set_current_page(crate::Page::SiteUsers);
+                load_site_users(&b, &id);
+            }
+            crate::Page::Sessions => {
+                b.app.borrow_mut().set_current_page(crate::Page::Sessions);
+                load_sessions(&b);
+            }
         }
     });
 
@@ -449,9 +463,9 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
             match http("POST", "/api/v1/security/firewall/rules", Some(body)).await {
                 Ok(_) => {
                     load_security(&b);
-                    b.app.borrow_mut().set_security_status("".into());
+                    b.app.borrow_mut().set_site_security_status("".into());
                 }
-                Err(message) => b.app.borrow_mut().set_security_status(message.into()),
+                Err(message) => b.app.borrow_mut().set_site_security_status(message.into()),
             }
         });
     });
@@ -464,9 +478,9 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
             match http("POST", "/api/v1/security/fail2ban/unban", Some(body)).await {
                 Ok(_) => {
                     load_security(&b);
-                    b.app.borrow_mut().set_security_status("".into());
+                    b.app.borrow_mut().set_site_security_status("".into());
                 }
-                Err(message) => b.app.borrow_mut().set_security_status(message.into()),
+                Err(message) => b.app.borrow_mut().set_site_security_status(message.into()),
             }
         });
     });
@@ -483,9 +497,9 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
             match http("POST", "/api/v1/security/ssh-keys", Some(body)).await {
                 Ok(_) => {
                     load_security(&b);
-                    b.app.borrow_mut().set_security_status("".into());
+                    b.app.borrow_mut().set_site_security_status("".into());
                 }
-                Err(message) => b.app.borrow_mut().set_security_status(message.into()),
+                Err(message) => b.app.borrow_mut().set_site_security_status(message.into()),
             }
         });
     });
@@ -497,9 +511,9 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
             match http("DELETE", &format!("/api/v1/security/ssh-keys/{id}"), None).await {
                 Ok(_) => {
                     load_security(&b);
-                    b.app.borrow_mut().set_security_status("".into());
+                    b.app.borrow_mut().set_site_security_status("".into());
                 }
-                Err(message) => b.app.borrow_mut().set_security_status(message.into()),
+                Err(message) => b.app.borrow_mut().set_site_security_status(message.into()),
             }
         });
     });
@@ -999,6 +1013,118 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         api::socket_send(2, &format!(r#"{{"type":"resize","rows":{rows},"cols":{cols}}}"#));
     });
 
+    // --- Site security, site users and sessions -------------------------------------------------
+    let b = Rc::clone(bridge);
+    app.on_load_site_security(move |site_id| {
+        load_site_security(&b, &site_id);
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_save_site_security(
+        move |site_id, ip_blocks, bot_blocks, enabled, user, password, cloudflare| {
+            save_site_security(
+                &b,
+                &site_id,
+                &ip_blocks,
+                &bot_blocks,
+                enabled,
+                &user,
+                &password,
+                cloudflare,
+            );
+        },
+    );
+
+    let b = Rc::clone(bridge);
+    app.on_load_site_users(move |site_id| {
+        load_site_users(&b, &site_id);
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_add_site_user(move |site_id, username, public_key| {
+        let b = Rc::clone(&b);
+        let site_id = site_id.to_string();
+        let username = username.to_string();
+        let public_key = public_key.to_string();
+        let _ = slint::spawn_local(async move {
+            let body = serde_json::json!({ "username": username, "public_key": public_key });
+            match http("POST", &format!("/api/v1/sites/{site_id}/ssh-users"), Some(body)).await {
+                Ok(_) => {
+                    load_site_users(&b, &site_id);
+                    b.app.borrow_mut().set_site_users_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_site_users_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_remove_site_user(move |site_id, username| {
+        let b = Rc::clone(&b);
+        let site_id = site_id.to_string();
+        let username = username.to_string();
+        let _ = slint::spawn_local(async move {
+            match http(
+                "DELETE",
+                &format!("/api/v1/sites/{site_id}/ssh-users/{username}"),
+                None,
+            )
+            .await
+            {
+                Ok(_) => {
+                    load_site_users(&b, &site_id);
+                    b.app.borrow_mut().set_site_users_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_site_users_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_load_sessions(move || load_sessions(&b));
+
+    let b = Rc::clone(bridge);
+    app.on_revoke_other_sessions(move || {
+        let b = Rc::clone(&b);
+        let _ = slint::spawn_local(async move {
+            match http("POST", "/api/v1/auth/sessions/revoke-others", None).await {
+                Ok(_) => load_sessions(&b),
+                Err(message) => b.app.borrow_mut().set_sessions_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_dump_database(move |id| {
+        let b = Rc::clone(&b);
+        let id = id.to_string();
+        let _ = slint::spawn_local(async move {
+            match http("POST", &format!("/api/v1/databases/{id}/dump"), None).await {
+                Ok(body) => {
+                    let name = body.get("name").and_then(serde_json::Value::as_str).unwrap_or("dump");
+                    b.app.borrow_mut().set_databases_status(
+                        format!("Dump created: {name}").into(),
+                    );
+                }
+                Err(message) => b.app.borrow_mut().set_databases_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_import_database(move |id, data| {
+        let b = Rc::clone(&b);
+        let id = id.to_string();
+        let data = data.to_string();
+        let _ = slint::spawn_local(async move {
+            let body = serde_json::json!({ "data": data });
+            match http("POST", &format!("/api/v1/databases/{id}/import"), Some(body)).await {
+                Ok(_) => load_databases(&b),
+                Err(message) => b.app.borrow_mut().set_databases_status(message.into()),
+            }
+        });
+    });
+
     // --- Settings ------------------------------------------------------------------------------
     let b = Rc::clone(bridge);
     app.on_save_settings(
@@ -1359,7 +1485,7 @@ fn load_security(bridge: &Rc<Bridge>) {
         if let Ok(body) = keys {
             app.set_ssh_keys(model(models::to_ssh_keys(&body)));
         }
-        app.set_security_status("".into());
+        app.set_site_security_status("".into());
     });
 }
 
@@ -1573,6 +1699,139 @@ fn load_settings(bridge: &Rc<Bridge>) {
 }
 
 // ---------------------------------------------------------------------------
+// Site security, site users, sessions
+// ---------------------------------------------------------------------------
+
+fn load_site_security(bridge: &Rc<Bridge>, site_id: &str) {
+    let app = bridge.app.borrow().clone();
+    let site_id = site_id.to_string();
+    let _ = slint::spawn_local(async move {
+        match http("GET", &format!("/api/v1/sites/{site_id}/security"), None).await {
+            Ok(body) => {
+                let ip_blocks: Vec<String> = body
+                    .get("ip_blocks")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let bot_blocks: Vec<String> = body
+                    .get("bot_blocks")
+                    .and_then(serde_json::Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                app.set_security_ip_blocks(ip_blocks.join("\n").into());
+                app.set_security_bot_blocks(bot_blocks.join("\n").into());
+                app.set_security_basic_enabled(
+                    body.get("basic_auth_enabled").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                );
+                app.set_security_basic_user(
+                    body.get("basic_auth_user").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                );
+                app.set_security_cloudflare(
+                    body.get("cloudflare_only").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                );
+                app.set_site_security_status("".into());
+            }
+            Err(message) => app.set_site_security_status(message.into()),
+        }
+    });
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_site_security(
+    bridge: &Rc<Bridge>,
+    site_id: &str,
+    ip_blocks: &str,
+    bot_blocks: &str,
+    enabled: bool,
+    user: &str,
+    password: &str,
+    cloudflare: bool,
+) {
+    let app = bridge.app.borrow().clone();
+    let bridge = Rc::clone(bridge);
+    let site_id = site_id.to_string();
+    let lines = |value: &str| -> Vec<String> {
+        value.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect()
+    };
+    let body = serde_json::json!({
+        "ip_blocks": lines(ip_blocks),
+        "bot_blocks": lines(bot_blocks),
+        "basic_auth_enabled": enabled,
+        "basic_auth_user": user,
+        "basic_auth_password": if password.is_empty() { serde_json::Value::Null } else { serde_json::json!(password) },
+        "cloudflare_only": cloudflare,
+    });
+    let _ = slint::spawn_local(async move {
+        match http("POST", &format!("/api/v1/sites/{site_id}/security"), Some(body)).await {
+            Ok(_) => {
+                load_site_security(&bridge, &site_id);
+                app.set_site_security_status("".into());
+            }
+            Err(message) => app.set_site_security_status(message.into()),
+        }
+    });
+}
+
+fn load_site_users(bridge: &Rc<Bridge>, site_id: &str) {
+    let app = bridge.app.borrow().clone();
+    let site_id = site_id.to_string();
+    let _ = slint::spawn_local(async move {
+        match http("GET", &format!("/api/v1/sites/{site_id}/ssh-users"), None).await {
+            Ok(body) => {
+                let items = body.as_array().cloned().unwrap_or_else(|| {
+                    body.get("users").and_then(serde_json::Value::as_array).cloned().unwrap_or_default()
+                });
+                let rows = items
+                    .iter()
+                    .map(|item| crate::SiteUserRow {
+                        username: item.get("username").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        public_key: item.get("public_key").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        created: item.get("created").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                    })
+                    .collect::<Vec<_>>();
+                app.set_site_users(model(rows));
+                app.set_site_users_status("".into());
+            }
+            Err(message) => app.set_site_users_status(message.into()),
+        }
+    });
+}
+
+fn load_sessions(bridge: &Rc<Bridge>) {
+    let app = bridge.app.borrow().clone();
+    let _ = slint::spawn_local(async move {
+        match http("GET", "/api/v1/auth/sessions", None).await {
+            Ok(body) => {
+                let items = body.get("sessions").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+                let rows = items
+                    .iter()
+                    .map(|item| crate::PanelSession {
+                        id: item.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        ip: item.get("ip").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        user_agent: item.get("user_agent").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        age_seconds: item.get("age_seconds").and_then(serde_json::Value::as_i64).unwrap_or(0) as i32,
+                        expires_in_seconds: item.get("expires_in_seconds").and_then(serde_json::Value::as_i64).unwrap_or(0) as i32,
+                        current: item.get("current").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    })
+                    .collect::<Vec<_>>();
+                app.set_sessions(model(rows));
+                app.set_sessions_status("".into());
+            }
+            Err(message) => app.set_sessions_status(message.into()),
+        }
+    });
+}
+
 // Sockets
 // ---------------------------------------------------------------------------
 
@@ -1779,6 +2038,9 @@ fn page_name(page: crate::Page) -> &'static str {
         crate::Page::Terminal => "terminal",
         crate::Page::Users => "users",
         crate::Page::Settings => "settings",
+        crate::Page::SiteSecurity => "site-security",
+        crate::Page::SiteUsers => "site-users",
+        crate::Page::Sessions => "sessions",
     }
 }
 
@@ -1799,6 +2061,9 @@ fn parse_page(name: &str) -> Option<crate::Page> {
         "terminal" => crate::Page::Terminal,
         "users" => crate::Page::Users,
         "settings" => crate::Page::Settings,
+        "site-security" => crate::Page::SiteSecurity,
+        "site-users" => crate::Page::SiteUsers,
+        "sessions" => crate::Page::Sessions,
         _ => return None,
     })
 }

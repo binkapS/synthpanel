@@ -19,6 +19,9 @@ export enum Page {
     terminal,
     users,
     settings,
+    site-security,
+    site-users,
+    sessions,
 }
 
 export struct Session {
@@ -308,4 +311,19 @@ export struct TerminalLine {
 export struct VtLine {
     cells: [TerminalCell],
     kind: string,
+}
+
+export struct SiteUserRow {
+    username: string,
+    public-key: string,
+    created: string,
+}
+
+export struct PanelSession {
+    id: string,
+    ip: string,
+    user-agent: string,
+    age-seconds: int,
+    expires-in-seconds: int,
+    current: bool,
 }

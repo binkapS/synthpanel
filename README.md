@@ -15,6 +15,7 @@ an unprivileged web process that talks to it over a Unix socket.
 ## Contents
 
 - [What it does](#what-it-does)
+- [CloudPanel parity (work in progress)](#cloudpanel-parity-work-in-progress)
 - [Install](#install)
 - [First steps](#first-steps)
 - [The three interfaces](#the-three-interfaces)
@@ -31,7 +32,7 @@ an unprivileged web process that talks to it over a Unix socket.
 
 | Area | What you get |
 | --- | --- |
-| **Sites** | One domain = one Nginx vhost + one isolated PHP-FPM pool. Templates for static, PHP, Laravel, Symfony, WordPress and Node. Suspend, custom directives, per-site `php.ini` overrides. |
+| **Sites** | One domain = one Nginx vhost + one isolated PHP-FPM pool. The UI offers static, PHP and Node templates (other template names can be passed to the CLI without UI options). Suspend, custom directives, per-site `php.ini` overrides. |
 | **SSL** | Let's Encrypt over HTTP-01 for every site *and* for the panel itself, with expiry warnings. |
 | **Databases** | MariaDB/MySQL, PostgreSQL and Redis. The database is provisioned on the server first, then recorded in the panel — the panel state never drifts from reality. |
 | **Backups** | Full and per-site archives (`.tar.gz` + manifest), optional ChaCha20-Poly1305 encryption, verification and restore, to a local disk, SFTP or an S3-compatible store. |
@@ -46,7 +47,28 @@ an unprivileged web process that talks to it over a Unix socket.
 | **API keys** | `sp_<prefix>_<secret>` bearer tokens with scopes, stored as SHA-256 hashes. |
 | **Browser UI** | A Slint WebAssembly interface served by the panel itself — no Node.js runtime in production. |
 
-Everything above is available in the **UI**, the **REST API** and the **CLI**.
+Everything in the table above is available in the **UI**, the **REST API** and
+the **CLI**.
+
+## CloudPanel parity (work in progress)
+
+SynthPanel already matches or exceeds CloudPanel on the LEMP core, backups
+(encrypted, verified, restorable), cron, logs, alerts, Git deployments, the
+browser terminal, signed self-update and the REST API. The remaining parity
+features are being added behind the same IPC protocol. The CLI verbs below are
+present, but a verb's presence does **not** mean the server-side handler, REST
+endpoint or UI screen has shipped — see [`docs/roadmap.md`](./docs/roadmap.md)
+for the honest per-feature status.
+
+| Feature | CLI verbs |
+| --- | --- |
+| Reverse-proxy site type | `sites:proxy` |
+| Per-site security controls (IP/bot blocks, basic auth, Cloudflare-only) | `sites:security:get`, `sites:security:set` |
+| Per-site SSH users | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` |
+| Custom certificate install | `ssl:cert:install` |
+| On-demand database dump/import | `db:dump`, `db:import` |
+| Per-site user ACL | `user-sites:list`, `user-sites:set` |
+| Session revocation | web-only; no CLI verb |
 
 ## Install
 
@@ -124,7 +146,8 @@ Then:
    the panel itself.
 4. **Sites → Add site** — your first domain gets a vhost and a PHP-FPM pool.
 5. **Users → New user** — invite your team. Roles are `admin`, `operator` and
-   `user`; every account carries a quota for sites and databases.
+   `user`; the per-user site quota is enforced, while the database quota is
+   still being wired.
 
 ## The three interfaces
 
@@ -148,6 +171,15 @@ sudo synthpanel sites:list
 sudo synthpanel backup:run --site <site-id>
 sudo synthpanel logs --type nginx-error --search timeout
 sudo synthpanel update --check
+
+# CloudPanel-parity verbs (server-side wiring in progress)
+sudo synthpanel sites:proxy app.example.com --target http://127.0.0.1:3000
+sudo synthpanel sites:security:set --site <site-id> --ip-block 10.0.0.8 --cloudflare-only
+sudo synthpanel sites:ssh-users:add --site <site-id> --username deploy --public-key "$(cat id_ed25519.pub)"
+sudo synthpanel ssl:cert:install --site <site-id> --cert site.crt --key site.key
+sudo synthpanel db:dump <db-id>
+sudo synthpanel db:import <db-id> --file dump.sql
+sudo synthpanel user-sites:set --user <user-id> --sites <site-id-1>,<site-id-2>
 ```
 
 The full reference lives in the [documentation site](./docs-site) and in
