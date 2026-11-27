@@ -80,6 +80,8 @@ export component AppWindow inherits Window {
     in-out property <bool> loading: true;
     in-out property <bool> authenticated: false;
     in-out property <Session> session;
+    private property <bool> is-admin: root.session.role == "admin";
+    private property <bool> can-manage: root.is-admin || root.session.role == "operator";
     in-out property <Page> current-page: Page.dashboard;
     in-out property <string> site-detail-id;
 
@@ -356,11 +358,12 @@ export component AppWindow inherits Window {
             services <=> root.dash-services;
             audit <=> root.dash-audit;
             status <=> root.dash-status;
+            can-manage: root.can-manage;
             open-site(id) => { root.open-site(id); }
             navigate(page) => { root.navigate(page); }
         }
 
-        if root.current-page == Page.sites : SitesPage {
+        if root.current-page == Page.sites && root.can-manage : SitesPage {
             sites <=> root.sites;
             status <=> root.sites-status;
             create-site(domain, aliases, template, php, ssl, docroot) => { root.create-site(domain, aliases, template, php, ssl, docroot); }
@@ -368,12 +371,13 @@ export component AppWindow inherits Window {
             open-site(id) => { root.open-site(id); }
         }
 
-        if root.current-page == Page.site-detail : SiteDetailPage {
+        if root.current-page == Page.site-detail && root.can-manage : SiteDetailPage {
             id: root.site-detail-id;
             detail <=> root.site-detail;
             ssl <=> root.site-ssl-status;
             error <=> root.site-error;
             ssl-message <=> root.site-ssl-message;
+            can-manage: root.can-manage;
             site-action(id, action) => { root.site-action(id, action); }
             site-ssl(id) => { root.site-ssl(id); }
             open-security(id) => {
@@ -399,7 +403,7 @@ export component AppWindow inherits Window {
             back() => { root.navigate(Page.sites); }
         }
 
-        if root.current-page == Page.databases : DatabasesPage {
+        if root.current-page == Page.databases && root.can-manage : DatabasesPage {
             databases <=> root.databases;
             engines <=> root.database-engines;
             status <=> root.databases-status;
@@ -410,13 +414,13 @@ export component AppWindow inherits Window {
             import-database(id, data) => { root.import-database(id, data); }
         }
 
-        if root.current-page == Page.php : PhpPage {
+        if root.current-page == Page.php && root.can-manage : PhpPage {
             versions <=> root.php-versions;
             installed: root.php-installed;
             status <=> root.php-status;
         }
 
-        if root.current-page == Page.security : SecurityPage {
+        if root.current-page == Page.security && root.is-admin : SecurityPage {
             firewall <=> root.firewall;
             jails <=> root.jails;
             ssh-keys <=> root.ssh-keys;
@@ -427,7 +431,7 @@ export component AppWindow inherits Window {
             remove-ssh-key(id) => { root.remove-ssh-key(id); }
         }
 
-        if root.current-page == Page.backups : BackupsPage {
+        if root.current-page == Page.backups && root.can-manage : BackupsPage {
             backups <=> root.backups;
             schedules <=> root.backup-schedules;
             status <=> root.backups-status;
@@ -440,7 +444,7 @@ export component AppWindow inherits Window {
             set-excludes(patterns) => { root.set-excludes(patterns); }
         }
 
-        if root.current-page == Page.cron : CronPage {
+        if root.current-page == Page.cron && root.can-manage : CronPage {
             jobs <=> root.cron-jobs;
             status <=> root.cron-status;
             create-cron(expression, command, user, site, id) => { root.create-cron(expression, command, user, site, id); }
@@ -457,7 +461,7 @@ export component AppWindow inherits Window {
             search-changed(text) => { root.log-search(text); }
         }
 
-        if root.current-page == Page.files : FilesPage {
+        if root.current-page == Page.files && root.can-manage : FilesPage {
             rows <=> root.file-rows;
             path <=> root.current-file-path;
             status <=> root.files-status;
@@ -473,7 +477,7 @@ export component AppWindow inherits Window {
             file-copy(scope, from, to) => { root.file-copy(scope, from, to); }
         }
 
-        if root.current-page == Page.deployments : DeploymentsPage {
+        if root.current-page == Page.deployments && root.can-manage : DeploymentsPage {
             deployments <=> root.deployments;
             status <=> root.deployments-status;
             create-deployment(site, repo, branch, subdir, build, user, enabled, id) => { root.create-deployment(site, repo, branch, subdir, build, user, enabled, id); }
@@ -481,7 +485,7 @@ export component AppWindow inherits Window {
             delete-deployment(id) => { root.delete-deployment(id); }
         }
 
-        if root.current-page == Page.alerts : AlertsPage {
+        if root.current-page == Page.alerts && root.is-admin : AlertsPage {
             channels <=> root.alert-channels;
             rules <=> root.alert-rules;
             alerts <=> root.alerts;
@@ -493,7 +497,7 @@ export component AppWindow inherits Window {
             test-alert(channel, message) => { root.test-alert(channel, message); }
         }
 
-        if root.current-page == Page.terminal : TerminalPage {
+        if root.current-page == Page.terminal && root.is-admin : TerminalPage {
             id <=> root.terminal-id;
             shell <=> root.terminal-shell;
             status <=> root.terminal-status;
@@ -504,14 +508,14 @@ export component AppWindow inherits Window {
             terminal-resize(rows, cols) => { root.terminal-resize(rows, cols); }
         }
 
-        if root.current-page == Page.users : UsersPage {
+        if root.current-page == Page.users && root.is-admin : UsersPage {
             users <=> root.users;
             status <=> root.users-status;
             create-user(email, name, password, role, q_sites, q_dbs, sites) => { root.create-user(email, name, password, role, q_sites, q_dbs, sites); }
             update-user(id, email, name, role, status, totp, q_sites, q_dbs, sites) => { root.update-user(id, email, name, role, status, totp, q_sites, q_dbs, sites); }
         }
 
-        if root.current-page == Page.site-security : SiteSecurityPage {
+        if root.current-page == Page.site-security && root.can-manage : SiteSecurityPage {
             site-id: root.site-security-id;
             ip-blocks <=> root.security-ip-blocks;
             bot-blocks <=> root.security-bot-blocks;
@@ -525,7 +529,7 @@ export component AppWindow inherits Window {
             }
         }
 
-        if root.current-page == Page.site-users : SiteUsersPage {
+        if root.current-page == Page.site-users && root.can-manage : SiteUsersPage {
             site-id: root.site-users-id;
             users <=> root.site-users;
             username <=> root.site-users-username;
@@ -536,7 +540,7 @@ export component AppWindow inherits Window {
             remove-user(site-id, username) => { root.remove-site-user(site-id, username); }
         }
 
-        if root.current-page == Page.site-app : SiteAppPage {
+        if root.current-page == Page.site-app && root.can-manage : SiteAppPage {
             site-id: root.site-app-id;
             app-type <=> root.site-app-type;
             app-port <=> root.site-app-port;
@@ -549,7 +553,7 @@ export component AppWindow inherits Window {
             stop-app(id) => { root.stop-site-app(id); }
         }
 
-        if root.current-page == Page.site-cert : SiteCertPage {
+        if root.current-page == Page.site-cert && root.can-manage : SiteCertPage {
             site-id: root.site-cert-id;
             cert <=> root.site-cert-content;
             key <=> root.site-cert-key;
@@ -558,7 +562,7 @@ export component AppWindow inherits Window {
             install-cert(site, cert, key, chain) => { root.install-site-cert(site, cert, key, chain); }
         }
 
-        if root.current-page == Page.wordpress : WordPressPage {
+        if root.current-page == Page.wordpress && root.can-manage : WordPressPage {
             site-id: root.wordpress-site-id;
             admin-user <=> root.wordpress-admin-user;
             admin-password <=> root.wordpress-admin-password;
@@ -567,7 +571,7 @@ export component AppWindow inherits Window {
             install-wordpress(id, user, password, email) => { root.install-wordpress(id, user, password, email); }
         }
 
-        if root.current-page == Page.remote-db : RemoteDbPage {
+        if root.current-page == Page.remote-db && root.can-manage : RemoteDbPage {
             servers <=> root.remote-servers;
             status <=> root.remote-db-status;
             load-remote() => { root.load-remote(); }
@@ -582,7 +586,7 @@ export component AppWindow inherits Window {
             revoke-others() => { root.revoke-other-sessions(); }
         }
 
-        if root.current-page == Page.settings : SettingsPage {
+        if root.current-page == Page.settings && root.is-admin : SettingsPage {
             settings-json: root.settings-json;
             hostname <=> root.hostname;
             timezone <=> root.timezone;

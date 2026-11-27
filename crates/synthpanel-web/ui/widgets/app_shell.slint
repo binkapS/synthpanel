@@ -78,6 +78,10 @@ export component AppShell inherits Rectangle {
     in-out property <Page> current-page: Page.dashboard;
     in property <Session> session;
     in-out property <bool> dark: false;
+    // Capabilities derived from the authenticated role. The backend enforces
+    // the same boundaries; hiding navigation keeps the UI honest.
+    private property <bool> is-admin: root.session.role == "admin";
+    private property <bool> can-manage: root.is-admin || root.session.role == "operator";
     callback navigate(Page);
     callback toggle-theme();
     callback logout();
@@ -155,20 +159,20 @@ export component AppShell inherits Rectangle {
                         alignment: start;
 
                         NavItem { label: @tr("Dashboard"); icon: @image-url("../assets/icons/dashboard.svg"); active: root.current-page == Page.dashboard; clicked => root.navigate(Page.dashboard); }
-                        NavItem { label: @tr("Sites"); icon: @image-url("../assets/icons/globe.svg"); active: root.current-page == Page.sites || root.current-page == Page.site-detail; clicked => root.navigate(Page.sites); }
-                        NavItem { label: @tr("Databases"); icon: @image-url("../assets/icons/database.svg"); active: root.current-page == Page.databases; clicked => root.navigate(Page.databases); }
-                        NavItem { label: @tr("PHP"); icon: @image-url("../assets/icons/server.svg"); active: root.current-page == Page.php; clicked => root.navigate(Page.php); }
-                        NavItem { label: @tr("Security"); icon: @image-url("../assets/icons/shield.svg"); active: root.current-page == Page.security; clicked => root.navigate(Page.security); }
-                        NavItem { label: @tr("Backups"); icon: @image-url("../assets/icons/archive.svg"); active: root.current-page == Page.backups; clicked => root.navigate(Page.backups); }
-                        NavItem { label: @tr("Cron"); icon: @image-url("../assets/icons/clock.svg"); active: root.current-page == Page.cron; clicked => root.navigate(Page.cron); }
+                        if root.can-manage : NavItem { label: @tr("Sites"); icon: @image-url("../assets/icons/globe.svg"); active: root.current-page == Page.sites || root.current-page == Page.site-detail; clicked => root.navigate(Page.sites); }
+                        if root.can-manage : NavItem { label: @tr("Databases"); icon: @image-url("../assets/icons/database.svg"); active: root.current-page == Page.databases; clicked => root.navigate(Page.databases); }
+                        if root.can-manage : NavItem { label: @tr("PHP"); icon: @image-url("../assets/icons/server.svg"); active: root.current-page == Page.php; clicked => root.navigate(Page.php); }
+                        if root.is-admin : NavItem { label: @tr("Security"); icon: @image-url("../assets/icons/shield.svg"); active: root.current-page == Page.security; clicked => root.navigate(Page.security); }
+                        if root.can-manage : NavItem { label: @tr("Backups"); icon: @image-url("../assets/icons/archive.svg"); active: root.current-page == Page.backups; clicked => root.navigate(Page.backups); }
+                        if root.can-manage : NavItem { label: @tr("Cron"); icon: @image-url("../assets/icons/clock.svg"); active: root.current-page == Page.cron; clicked => root.navigate(Page.cron); }
                         NavItem { label: @tr("Logs"); icon: @image-url("../assets/icons/scroll.svg"); active: root.current-page == Page.logs; clicked => root.navigate(Page.logs); }
-                        NavItem { label: @tr("Files"); icon: @image-url("../assets/icons/folder.svg"); active: root.current-page == Page.files; clicked => root.navigate(Page.files); }
-                        NavItem { label: @tr("Deployments"); icon: @image-url("../assets/icons/git-branch.svg"); active: root.current-page == Page.deployments; clicked => root.navigate(Page.deployments); }
-                        NavItem { label: @tr("Alerts"); icon: @image-url("../assets/icons/bell.svg"); active: root.current-page == Page.alerts; clicked => root.navigate(Page.alerts); }
-                        NavItem { label: @tr("Terminal"); icon: @image-url("../assets/icons/terminal.svg"); active: root.current-page == Page.terminal; clicked => root.navigate(Page.terminal); }
-                        NavItem { label: @tr("Users"); icon: @image-url("../assets/icons/users.svg"); active: root.current-page == Page.users; clicked => root.navigate(Page.users); }
-                        NavItem { label: @tr("Settings"); icon: @image-url("../assets/icons/settings.svg"); active: root.current-page == Page.settings; clicked => root.navigate(Page.settings); }
-                        NavItem { label: @tr("Remote DBs"); icon: @image-url("../assets/icons/database.svg"); active: root.current-page == Page.remote-db; clicked => root.navigate(Page.remote-db); }
+                        if root.can-manage : NavItem { label: @tr("Files"); icon: @image-url("../assets/icons/folder.svg"); active: root.current-page == Page.files; clicked => root.navigate(Page.files); }
+                        if root.can-manage : NavItem { label: @tr("Deployments"); icon: @image-url("../assets/icons/git-branch.svg"); active: root.current-page == Page.deployments; clicked => root.navigate(Page.deployments); }
+                        if root.is-admin : NavItem { label: @tr("Alerts"); icon: @image-url("../assets/icons/bell.svg"); active: root.current-page == Page.alerts; clicked => root.navigate(Page.alerts); }
+                        if root.is-admin : NavItem { label: @tr("Terminal"); icon: @image-url("../assets/icons/terminal.svg"); active: root.current-page == Page.terminal; clicked => root.navigate(Page.terminal); }
+                        if root.is-admin : NavItem { label: @tr("Users"); icon: @image-url("../assets/icons/users.svg"); active: root.current-page == Page.users; clicked => root.navigate(Page.users); }
+                        if root.is-admin : NavItem { label: @tr("Settings"); icon: @image-url("../assets/icons/settings.svg"); active: root.current-page == Page.settings; clicked => root.navigate(Page.settings); }
+                        if root.can-manage : NavItem { label: @tr("Remote DBs"); icon: @image-url("../assets/icons/database.svg"); active: root.current-page == Page.remote-db; clicked => root.navigate(Page.remote-db); }
                         NavItem { label: @tr("Sessions"); icon: @image-url("../assets/icons/key.svg"); active: root.current-page == Page.sessions; clicked => root.navigate(Page.sessions); }
                     }
                 }

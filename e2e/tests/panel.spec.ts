@@ -30,6 +30,9 @@ type Snapshot = {
   loading?: boolean;
   currentPage: string;
   sessionEmail?: string;
+  role?: string;
+  isAdmin?: boolean;
+  canManage?: boolean;
   dashboardStatus?: string;
   sites?: string[];
   sitesStatus?: string;
@@ -763,6 +766,51 @@ test('API keys can be restricted to specific sites', async ({ page }) => {
     await api(page, 'DELETE', `/api/v1/api-keys/${key.body.id}`);
     await api(page, 'DELETE', `/api/v1/sites/${siteId}`);
   }
+});
+
+test('role-based UI hides and denies admin features', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+
+  const domain = `e2e-role-${Date.now()}.example.com`;
+  const site = await api(page, 'POST', '/api/v1/sites', {
+    domain, aliases: [], template: 'static', ssl_mode: 'none',
+  });
+  expect(site.status).toBe(200);
+  const siteId = site.body.site?.id;
+  const email = `role-${Date.now()}@example.com`;
+  const password = 'hunter2password-77';
+  const created = await api(page, 'POST', '/api/v1/users', {
+    email, name: 'Restricted user', password, role: 'user', sites: siteId,
+  });
+  expect(created.status).toBe(200);
+
+  // Switch this browser context to the restricted account.
+  const login = await page.evaluate(async ({ email, password }) => {
+    const r = await fetch('/api/v1/auth/login', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify({ email, password }),
+    });
+    return r.status;
+  }, { email, password });
+  expect(login).toBe(200);
+  await page.reload({ waitUntil: 'load' });
+  await page.evaluate(async () => window.synthpanel_e2e!.waitForReady(20_000));
+
+  const state = await snapshot(page);
+  expect(state.role).toBe('user');
+  expect(state.isAdmin).toBe(false);
+  expect(state.canManage).toBe(false);
+
+  // Even if navigation is invoked directly, admin pages redirect to dashboard.
+  await navigate(page, 'settings');
+  expect((await snapshot(page)).currentPage).toBe('dashboard');
+
+  const settings = await api(page, 'GET', '/api/v1/settings');
+  expect(settings.status).toBe(403);
+  const sites = await api(page, 'GET', '/api/v1/sites');
+  expect(sites.status).toBe(200);
+  expect(sites.body.sites.map((s: any) => s.id)).toEqual([siteId]);
 });
 
 // Guard against forgetting the activation flag when adding new navigations.

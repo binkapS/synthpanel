@@ -16,6 +16,7 @@ export component SiteDetailPage inherits Rectangle {
     in-out property <SslStatus> ssl;
     in-out property <string> error;
     in-out property <string> ssl-message;
+    in property <bool> can-manage: true;
 
     callback site-action(string, string);
     callback site-ssl(string);
@@ -130,7 +131,7 @@ export component SiteDetailPage inherits Rectangle {
                 }
             }
 
-            Card {
+            if root.can-manage : Card {
                 title: "Lifecycle";
                 HorizontalLayout {
                     spacing: 10px;

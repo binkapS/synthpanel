@@ -53,9 +53,27 @@ pub struct UpdateSiteRequest {
 
 pub async fn list(
     State(state): State<Arc<AppState>>,
-    _user: AuthUser,
+    user: AuthUser,
 ) -> Result<Json<Value>, ApiError> {
     let sites: Vec<Value> = state.core_call(methods::SITES_LIST, json!({})).await?;
+    // A plain user may only see sites assigned to their account. Operators
+    // and administrators see the full list, matching authz.rs.
+    if user.role == "user" {
+        let response: Value = state
+            .core_call(methods::USER_SITES_LIST, json!({ "user_id": user.user_id }))
+            .await?;
+        let allowed = crate::authz::assigned_site_ids(&response);
+        let sites = sites
+            .into_iter()
+            .filter(|site| {
+                site.get("id")
+                    .and_then(Value::as_str)
+                    .map(|id| allowed.iter().any(|value| value == id))
+                    .unwrap_or(false)
+            })
+            .collect::<Vec<_>>();
+        return Ok(Json(json!({ "sites": sites })));
+    }
     Ok(Json(json!({ "sites": sites })))
 }
 

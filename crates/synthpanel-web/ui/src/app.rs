@@ -175,6 +175,12 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_navigate(move |page| {
         let b = Rc::clone(&b);
+        let role = b.app.borrow().get_session().role.to_string();
+        let page = if page_allowed(&role, &page) {
+            page
+        } else {
+            crate::Page::Dashboard
+        };
         // The tail is only useful while the Logs page is visible. `load_logs`
         // reopens it on entry; every other page tears it down.
         if !matches!(&page, crate::Page::Logs) {
@@ -2262,6 +2268,33 @@ fn percent_encode(input: &str) -> String {
 // to a canvas, so Playwright cannot use DOM selectors; these hooks expose
 // semantic actions and a state snapshot to the test harness.
 
+/// UI capability check mirroring `authz.rs`: admin-only pages, then pages
+/// that require an operator for mutations. Sessions are intentionally visible
+/// to every role (each account can manage its own sessions).
+fn page_allowed(role: &str, page: &crate::Page) -> bool {
+    use crate::Page;
+    let admin = role == "admin";
+    let can_manage = admin || role == "operator";
+    match page {
+        Page::Security | Page::Alerts | Page::Terminal | Page::Users | Page::Settings => admin,
+        Page::Sites
+        | Page::SiteDetail
+        | Page::Databases
+        | Page::Php
+        | Page::Backups
+        | Page::Cron
+        | Page::Files
+        | Page::Deployments
+        | Page::RemoteDb
+        | Page::SiteSecurity
+        | Page::SiteUsers
+        | Page::SiteApp
+        | Page::SiteCert
+        | Page::Wordpress => can_manage,
+        Page::Dashboard | Page::Logs | Page::Sessions => true,
+    }
+}
+
 fn page_name(page: crate::Page) -> &'static str {
     match page {
         crate::Page::Dashboard => "dashboard",
@@ -2354,6 +2387,9 @@ fn register_e2e_hooks(app: &Rc<AppWindow>) {
                 "loading": loading,
                 "currentPage": page_name(snap_app.get_current_page()),
                 "sessionEmail": snap_app.get_session().email.to_string(),
+                "role": snap_app.get_session().role.to_string(),
+                "isAdmin": snap_app.get_session().role == "admin",
+                "canManage": matches!(snap_app.get_session().role.as_str(), "admin" | "operator"),
                 "dashboardStatus": snap_app.get_dash_status().to_string(),
                 "sites": snap_app.get_sites().iter().map(|s| s.domain.to_string()).collect::<Vec<_>>(),
                 "sitesStatus": snap_app.get_sites_status().to_string(),
