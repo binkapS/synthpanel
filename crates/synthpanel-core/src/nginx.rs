@@ -30,6 +30,101 @@ impl<'a> AppProxy<'a> {
     }
 }
 
+/// Optional vhost features. Both are off by default; the existing renderers
+/// produce byte-for-byte identical output unless one is explicitly enabled.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct VhostOptions {
+    /// Emit `listen 443 quic reuseport;` and advertise `Alt-Svc: h3`.
+    pub http3: bool,
+    /// Emit PageSpeed and NGINX cache directives.
+    pub pagespeed: bool,
+}
+
+impl VhostOptions {
+    /// Read `SYNTHPANEL_HTTP3` / `SYNTHPANEL_PAGESPEED`.
+    pub fn from_env() -> Self {
+        Self {
+            http3: env_flag("SYNTHPANEL_HTTP3"),
+            pagespeed: env_flag("SYNTHPANEL_PAGESPEED"),
+        }
+    }
+
+    /// Environment defaults, overridden by top-level `synthpanel_http3` and
+    /// `synthpanel_pagespeed` markers in the site's custom directives.
+    pub fn for_site(site: &SiteExtras) -> Self {
+        let mut options = Self::from_env();
+        if let Some(text) = site.nginx.as_deref() {
+            options.apply_directives(text);
+        }
+        options
+    }
+
+    /// Apply `on`/`off` markers. An explicit marker wins over the env default.
+    pub fn apply_directives(&mut self, text: &str) {
+        let (_, (http3, pagespeed)) = extract_feature_flags(text);
+        if let Some(value) = http3 {
+            self.http3 = value;
+        }
+        if let Some(value) = pagespeed {
+            self.pagespeed = value;
+        }
+    }
+}
+
+/// Interpret a boolean env value. Only explicit opt-ins enable a feature.
+pub fn flag_value(value: Option<&str>) -> bool {
+    matches!(
+        value.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+fn env_flag(name: &str) -> bool {
+    flag_value(std::env::var(name).ok().as_deref())
+}
+
+fn parse_on_off(value: &str, fallback: bool) -> bool {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "on" | "1" | "true" | "yes" => true,
+        "off" | "0" | "false" | "no" => false,
+        _ => fallback,
+    }
+}
+
+/// Remove top-level feature markers from custom directives and report the
+/// site-level overrides. Lines inside blocks are left untouched.
+fn extract_feature_flags(text: &str) -> (String, (Option<bool>, Option<bool>)) {
+    let mut kept: Vec<&str> = Vec::new();
+    let mut depth = 0i32;
+    let mut http3 = None;
+    let mut pagespeed = None;
+    for line in text.lines() {
+        if depth == 0 {
+            let trimmed = line.trim();
+            if let Some(value) = directive_value(trimmed, "synthpanel_http3") {
+                http3 = Some(parse_on_off(value, true));
+                continue;
+            }
+            if let Some(value) = directive_value(trimmed, "synthpanel_pagespeed") {
+                pagespeed = Some(parse_on_off(value, true));
+                continue;
+            }
+        }
+        depth += brace_delta(line);
+        kept.push(line);
+    }
+    (kept.join("\n"), (http3, pagespeed))
+}
+
+/// HTTP-context cache zone required by the optional PageSpeed/NGINX cache
+/// snippet. It is deliberately not emitted into a vhost (where `proxy_cache_path`
+/// would be invalid); callers may write it to a snippets directory.
+pub fn render_cache_http_snippet() -> String {
+    "# Optional NGINX cache zone for SYNTHPANEL_PAGESPEED=1\n\
+     proxy_cache_path /var/cache/nginx/synthpanel_cache levels=1:2 keys_zone=synthpanel:10m inactive=60m max_size=1g;\n"
+        .to_string()
+}
+
 /// Validate a block of custom Nginx directives before they are applied.
 ///
 /// The linter rejects unbalanced braces and reserved directives that the
@@ -119,6 +214,24 @@ pub fn render_vhost_with_app(
     security: &SiteSecuritySettings,
     app: Option<AppProxy<'_>>,
 ) -> String {
+    render_vhost_with_options(
+        site,
+        panel_hostname,
+        security,
+        app,
+        VhostOptions::for_site(site),
+    )
+}
+
+/// Render a vhost with explicit control over the optional HTTP/3 and
+/// PageSpeed/cache snippets.
+pub fn render_vhost_with_options(
+    site: &SiteExtras,
+    panel_hostname: &str,
+    security: &SiteSecuritySettings,
+    app: Option<AppProxy<'_>>,
+    mut options: VhostOptions,
+) -> String {
     let extras = site;
     let site = &extras.site;
     let app = app.filter(AppProxy::is_supported);
@@ -126,13 +239,26 @@ pub fn render_vhost_with_app(
     // Proxy sites carry their target through the existing custom directive
     // field (see `extract_proxy_target`); the site table has no such column.
     let (directives, proxy_target) = extract_proxy_target(extras.nginx.as_deref());
+    let directives = directives.map(|text| {
+        let (kept, (http3, pagespeed)) = extract_feature_flags(&text);
+        if let Some(value) = http3 {
+            options.http3 = value;
+        }
+        if let Some(value) = pagespeed {
+            options.pagespeed = value;
+        }
+        kept
+    });
     let mut server_names: Vec<String> = site.all_server_names();
     server_names.sort();
     server_names.dedup();
     let server_name = server_names;
 
+    // HTTP/3 always needs TLS, so the QUIC listener is only added to TLS
+    // vhosts. With the flags off this is exactly the previous output.
     let ssl_listen = match ssl_mode {
         "none" => "listen 80;".to_string(),
+        _ if options.http3 => "listen 443 ssl;\n    listen 443 quic reuseport;".to_string(),
         _ => "listen 443 ssl;".to_string(),
     };
     let http_redirect = match ssl_mode {
@@ -203,6 +329,24 @@ pub fn render_vhost_with_app(
     out.push_str(&http_redirect);
     out.push_str(&security_block);
     out.push_str(&ssl_block);
+    if options.http3 && ssl_mode != "none" {
+        out.push_str(
+            "    # HTTP/3 advertisement\n\
+             \x20   add_header Alt-Svc 'h3=\":443\"; ma=86400' always;\n\n",
+        );
+    }
+    if options.pagespeed {
+        out.push_str(
+            "    # PageSpeed + NGINX cache (optional)\n\
+             \x20   pagespeed on;\n\
+             \x20   pagespeed FileCachePath /var/cache/nginx/synthpanel-pagespeed;\n\
+             \x20   pagespeed EnableFilters collapse_whitespace,remove_comments;\n\
+             \x20   proxy_cache synthpanel;\n\
+             \x20   proxy_cache_valid 200 10m;\n\
+             \x20   proxy_cache_use_stale error timeout updating;\n\
+             \x20   add_header X-Cache-Status $upstream_cache_status always;\n\n",
+        );
+    }
     out.push_str(&php_block);
     out.push_str(&content_location);
     out.push_str(&acme_block);
@@ -695,5 +839,139 @@ mod tests {
         let mut names = site.all_server_names();
         names.sort();
         assert_eq!(names, vec!["example.com", "mail", "www"]);
+    }
+
+    #[test]
+    fn optional_features_are_off_by_default() {
+        assert_eq!(
+            VhostOptions::default(),
+            VhostOptions {
+                http3: false,
+                pagespeed: false
+            }
+        );
+        assert!(!flag_value(None));
+        assert!(!flag_value(Some("")));
+        assert!(!flag_value(Some("0")));
+        assert!(!flag_value(Some("maybe")));
+        assert!(flag_value(Some("1")));
+        assert!(flag_value(Some(" TRUE ")));
+        assert!(flag_value(Some("on")));
+    }
+
+    #[tokio::test]
+    async fn default_options_match_the_legacy_renderer_byte_for_byte() {
+        let site = make_site(vec![], "php", "le").await;
+        let legacy = render_vhost(&site, "panel.local");
+        let explicit = render_vhost_with_options(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            None,
+            VhostOptions::default(),
+        );
+        assert_eq!(legacy, explicit);
+        assert!(!legacy.contains("quic"));
+        assert!(!legacy.contains("pagespeed"));
+        assert!(!legacy.contains("Alt-Svc"));
+    }
+
+    #[tokio::test]
+    async fn http3_and_pagespeed_snippets_are_emitted_when_enabled() {
+        let site = make_site(vec![], "php", "le").await;
+        let text = render_vhost_with_options(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            None,
+            VhostOptions {
+                http3: true,
+                pagespeed: true,
+            },
+        );
+        assert!(text.contains("listen 443 ssl;\n    listen 443 quic reuseport;"));
+        assert!(text.contains(r#"add_header Alt-Svc 'h3=":443"; ma=86400' always;"#));
+        assert!(text.contains("pagespeed on;"));
+        assert!(text.contains("proxy_cache synthpanel;"));
+        assert!(text.contains("proxy_cache_use_stale error timeout updating;"));
+        assert!(text.contains("add_header X-Cache-Status $upstream_cache_status always;"));
+    }
+
+    #[tokio::test]
+    async fn http3_is_never_emitted_without_tls() {
+        let site = make_site(vec![], "static", "none").await;
+        let text = render_vhost_with_options(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            None,
+            VhostOptions {
+                http3: true,
+                pagespeed: false,
+            },
+        );
+        assert!(text.contains("listen 80;"));
+        assert!(!text.contains("quic"));
+        assert!(!text.contains("Alt-Svc"));
+    }
+
+    #[test]
+    fn site_directives_can_enable_and_disable_features() {
+        let (kept, (http3, pagespeed)) = extract_feature_flags(
+            "synthpanel_http3 on;\nsynthpanel_pagespeed off;\nadd_header X-Test yes;",
+        );
+        assert_eq!(http3, Some(true));
+        assert_eq!(pagespeed, Some(false));
+        assert!(kept.contains("add_header X-Test yes;"));
+        assert!(!kept.contains("synthpanel_"));
+
+        // Markers nested in a block are ordinary directives, not panel flags.
+        let (kept, (http3, pagespeed)) =
+            extract_feature_flags("location / {\n    synthpanel_http3 off;\n}\n");
+        assert_eq!((http3, pagespeed), (None, None));
+        assert!(kept.contains("synthpanel_http3 off;"));
+
+        let mut options = VhostOptions {
+            http3: true,
+            pagespeed: false,
+        };
+        options.apply_directives("synthpanel_http3 off;\nsynthpanel_pagespeed on;");
+        assert_eq!(
+            options,
+            VhostOptions {
+                http3: false,
+                pagespeed: true
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn site_markers_are_stripped_and_applied_to_the_vhost() {
+        let site = make_site_with(
+            vec![],
+            "static",
+            "le",
+            "synthpanel_http3 on;\nsynthpanel_pagespeed on;\nadd_header X-Test yes;",
+        )
+        .await;
+        let text = render_vhost_with_options(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            None,
+            VhostOptions::default(),
+        );
+        assert!(text.contains("listen 443 quic reuseport;"));
+        assert!(text.contains("pagespeed on;"));
+        assert!(text.contains("add_header X-Test yes;"));
+        assert!(!text.contains("synthpanel_http3"));
+        assert!(!text.contains("synthpanel_pagespeed"));
+    }
+
+    #[test]
+    fn cache_snippet_declares_the_http_context_zone() {
+        let snippet = render_cache_http_snippet();
+        assert!(snippet.contains("proxy_cache_path"));
+        assert!(snippet.contains("keys_zone=synthpanel:10m"));
     }
 }

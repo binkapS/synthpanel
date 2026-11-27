@@ -17,7 +17,9 @@
 //! trusted proxy.
 
 use crate::error::ApiError;
-use crate::extract::{AuthUser, SESSION_COOKIE, cookie_value};
+use crate::extract::{
+    AuthUser, SESSION_COOKIE, api_key_site_allowed, api_key_site_ids, cookie_value,
+};
 use crate::state::AppState;
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderMap, Method};
@@ -137,6 +139,8 @@ pub struct AuthContext {
     pub scopes: Vec<String>,
     /// Whether the request was authenticated with an API key.
     pub api_key: bool,
+    /// Explicit site assignments of an API key; empty means no key-level limit.
+    pub site_ids: Vec<String>,
 }
 
 impl AuthContext {
@@ -247,7 +251,7 @@ pub async fn require_site_access(
         _ => Vec::new(),
     };
 
-    if site_access_allowed(&user.role, site_id, &assigned) {
+    if api_key_site_allowed(&user.role, site_id, &user.site_ids, &assigned) {
         Ok(())
     } else {
         Err(ApiError::forbidden("the account may not access this site"))
@@ -274,7 +278,7 @@ pub async fn require_site_access_ctx(
         }
         _ => Vec::new(),
     };
-    if site_access_allowed(&context.role, site_id, &assigned) {
+    if api_key_site_allowed(&context.role, site_id, &context.site_ids, &assigned) {
         Ok(())
     } else {
         Err(ApiError::forbidden("the account may not access this site"))
@@ -361,6 +365,7 @@ pub async fn resolve_actor(
                 ip,
                 scopes,
                 api_key: true,
+                site_ids: api_key_site_ids(&record),
             }));
         }
     }
@@ -386,6 +391,7 @@ pub async fn resolve_actor(
         ip: if record.ip.is_empty() { ip } else { record.ip },
         scopes: Vec::new(),
         api_key: false,
+        site_ids: Vec::new(),
     }))
 }
 

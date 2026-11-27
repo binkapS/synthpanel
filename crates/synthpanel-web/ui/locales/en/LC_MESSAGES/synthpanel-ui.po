@@ -7,6 +7,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "3306"
+msgstr ""
+
 msgid "Actions"
 msgstr ""
 
@@ -16,13 +19,22 @@ msgstr ""
 msgid "Active sessions"
 msgstr ""
 
+msgid "Add a remote server"
+msgstr ""
+
 msgid "Add a site user"
+msgstr ""
+
+msgid "Add server"
 msgstr ""
 
 msgid "Add user"
 msgstr ""
 
 msgid "Added"
+msgstr ""
+
+msgid "Administrator"
 msgstr ""
 
 msgid "Alerts"
@@ -44,6 +56,9 @@ msgid "Authentication code"
 msgstr ""
 
 msgid "Authorized users"
+msgstr ""
+
+msgid "Backup excludes"
 msgstr ""
 
 msgid "Backups"
@@ -70,7 +85,16 @@ msgstr ""
 msgid "Cloudflare only"
 msgstr ""
 
+msgid "Comma-separated paths applied to every site. Leave empty to remove all global excludes."
+msgstr ""
+
+msgid "Comma-separated site IDs assigned to this user. Leave empty for none."
+msgstr ""
+
 msgid "Configuration"
+msgstr ""
+
+msgid "Configured servers"
 msgstr ""
 
 msgid "Cron"
@@ -80,6 +104,9 @@ msgid "Custom certificate"
 msgstr ""
 
 msgid "Dashboard"
+msgstr ""
+
+msgid "Database"
 msgstr ""
 
 msgid "Databases"
@@ -97,16 +124,28 @@ msgstr ""
 msgid "Email"
 msgstr ""
 
+msgid "Engine"
+msgstr ""
+
 msgid "Enter the 6-digit code from your authenticator app."
 msgstr ""
 
+msgid "Exclude patterns"
+msgstr ""
+
 msgid "Expires"
+msgstr ""
+
+msgid "External MySQL/MariaDB and PostgreSQL servers."
 msgstr ""
 
 msgid "Files"
 msgstr ""
 
 msgid "HTTP authentication"
+msgstr ""
+
+msgid "Host"
 msgstr ""
 
 msgid "IP address"
@@ -124,10 +163,19 @@ msgstr ""
 msgid "Import a database dump"
 msgstr ""
 
+msgid "Install WordPress"
+msgstr ""
+
+msgid "Install WordPress in this site's document root."
+msgstr ""
+
 msgid "Install a certificate, private key and optional chain for this site."
 msgstr ""
 
 msgid "Install certificate"
+msgstr ""
+
+msgid "Installation downloads WordPress, writes wp-config.php and creates the administrator account. An existing installation is not overwritten."
 msgstr ""
 
 msgid "Live server overview"
@@ -142,7 +190,13 @@ msgstr ""
 msgid "Manage your server from a single place."
 msgstr ""
 
+msgid "Name"
+msgstr ""
+
 msgid "No active sessions."
+msgstr ""
+
+msgid "No remote servers yet."
 msgstr ""
 
 msgid "No site users yet."
@@ -169,7 +223,13 @@ msgstr ""
 msgid "Paste the contents of an SQL dump. Existing objects with the same name are overwritten."
 msgstr ""
 
+msgid "Paths skipped while archiving site files."
+msgstr ""
+
 msgid "Please wait…"
+msgstr ""
+
+msgid "Port"
 msgstr ""
 
 msgid "Private key"
@@ -185,6 +245,18 @@ msgid "Python"
 msgstr ""
 
 msgid "Reload"
+msgstr ""
+
+msgid "Remote DBs"
+msgstr ""
+
+msgid "Remote databases"
+msgstr ""
+
+msgid "Remote databases page"
+msgstr ""
+
+msgid "Require TLS"
 msgstr ""
 
 msgid "Require a password"
@@ -206,6 +278,9 @@ msgid "SSL cert"
 msgstr ""
 
 msgid "Save configuration"
+msgstr ""
+
+msgid "Save excludes"
 msgstr ""
 
 msgid "Save security settings"
@@ -283,10 +358,16 @@ msgstr ""
 msgid "SynthPanel · self-hosted server control panel"
 msgstr ""
 
+msgid "TLS"
+msgstr ""
+
 msgid "Terminal"
 msgstr ""
 
 msgid "The code changes every 30 seconds."
+msgstr ""
+
+msgid "The credential used for the WordPress administrator account."
 msgstr ""
 
 msgid "Trust Cloudflare IPs and reject requests that bypass it."
@@ -298,6 +379,9 @@ msgstr ""
 msgid "Use a different account"
 msgstr ""
 
+msgid "User"
+msgstr ""
+
 msgid "Username"
 msgstr ""
 
@@ -305,5 +389,26 @@ msgid "Users"
 msgstr ""
 
 msgid "Verify"
+msgstr ""
+
+msgid "WordPress"
+msgstr ""
+
+msgid "WordPress install page"
+msgstr ""
+
+msgid "admin"
+msgstr ""
+
+msgid "admin@example.com"
+msgstr ""
+
+msgid "no"
+msgstr ""
+
+msgid "node_modules, .git, cache"
+msgstr ""
+
+msgid "yes"
 msgstr ""
 

@@ -16,6 +16,10 @@ pub struct CreateKeyRequest {
     pub name: String,
     #[serde(default)]
     pub scopes: Option<Value>,
+    /// Sites the key is restricted to. Omitting the field keeps the legacy
+    /// behaviour (no key-level site restriction).
+    #[serde(default)]
+    pub site_ids: Option<Vec<String>>,
 }
 
 pub async fn list(
@@ -41,6 +45,38 @@ pub async fn create(
         params["scopes"] = scopes.clone();
     }
     let result: Value = state.core_call(methods::API_KEYS_CREATE, params).await?;
+
+    if let Some(site_ids) = &body.site_ids {
+        let id = result
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ApiError::internal("the core did not return an API key id"))?;
+        if let Err(error) = state
+            .core_call::<Value>(
+                methods::API_KEYS_SET_SITES,
+                json!({ "id": id, "site_ids": site_ids }),
+            )
+            .await
+        {
+            // A key without its site restriction must not survive: delete it
+            // before reporting the failure, otherwise the caller would hold
+            // an unrestricted key while believing it was scoped.
+            let _ = state
+                .core_call::<Value>(methods::API_KEYS_DELETE, json!({ "id": id }))
+                .await;
+            return Err(error.into());
+        }
+        audit(
+            &state,
+            &user.user_id,
+            id,
+            "api_keys.set_sites",
+            &format!("{} site(s)", site_ids.len()),
+            &user.ip,
+        )
+        .await;
+    }
+
     audit(
         &state,
         &user.user_id,

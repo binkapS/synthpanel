@@ -7,6 +7,9 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
+msgid "3306"
+msgstr ""
+
 msgid "Actions"
 msgstr "Acciones"
 
@@ -16,14 +19,23 @@ msgstr "Sesiones activas del panel en todos los dispositivos."
 msgid "Active sessions"
 msgstr "Sesiones activas"
 
+msgid "Add a remote server"
+msgstr ""
+
 msgid "Add a site user"
 msgstr "Añadir un usuario del sitio"
+
+msgid "Add server"
+msgstr ""
 
 msgid "Add user"
 msgstr "Añadir usuario"
 
 msgid "Added"
 msgstr "Añadido"
+
+msgid "Administrator"
+msgstr ""
 
 msgid "Alerts"
 msgstr "Alertas"
@@ -45,6 +57,9 @@ msgstr "Código de autenticación"
 
 msgid "Authorized users"
 msgstr "Usuarios autorizados"
+
+msgid "Backup excludes"
+msgstr ""
 
 msgid "Backups"
 msgstr "Copias de seguridad"
@@ -70,7 +85,16 @@ msgstr "Cloudflare"
 msgid "Cloudflare only"
 msgstr "Solo Cloudflare"
 
+msgid "Comma-separated paths applied to every site. Leave empty to remove all global excludes."
+msgstr ""
+
+msgid "Comma-separated site IDs assigned to this user. Leave empty for none."
+msgstr ""
+
 msgid "Configuration"
+msgstr ""
+
+msgid "Configured servers"
 msgstr ""
 
 msgid "Cron"
@@ -81,6 +105,9 @@ msgstr ""
 
 msgid "Dashboard"
 msgstr "Panel de control"
+
+msgid "Database"
+msgstr ""
 
 msgid "Databases"
 msgstr "Bases de datos"
@@ -97,17 +124,29 @@ msgstr "Volcado"
 msgid "Email"
 msgstr "Correo electrónico"
 
+msgid "Engine"
+msgstr ""
+
 msgid "Enter the 6-digit code from your authenticator app."
 msgstr "Introduce el código de 6 dígitos de tu aplicación de autenticación."
 
+msgid "Exclude patterns"
+msgstr ""
+
 msgid "Expires"
 msgstr "Caduca"
+
+msgid "External MySQL/MariaDB and PostgreSQL servers."
+msgstr ""
 
 msgid "Files"
 msgstr "Archivos"
 
 msgid "HTTP authentication"
 msgstr "Autenticación HTTP"
+
+msgid "Host"
+msgstr ""
 
 msgid "IP address"
 msgstr "Dirección IP"
@@ -124,10 +163,19 @@ msgstr "Importar"
 msgid "Import a database dump"
 msgstr "Importar un volcado de base de datos"
 
+msgid "Install WordPress"
+msgstr ""
+
+msgid "Install WordPress in this site's document root."
+msgstr ""
+
 msgid "Install a certificate, private key and optional chain for this site."
 msgstr ""
 
 msgid "Install certificate"
+msgstr ""
+
+msgid "Installation downloads WordPress, writes wp-config.php and creates the administrator account. An existing installation is not overwritten."
 msgstr ""
 
 msgid "Live server overview"
@@ -142,8 +190,14 @@ msgstr ""
 msgid "Manage your server from a single place."
 msgstr "Gestiona tu servidor desde un solo lugar."
 
+msgid "Name"
+msgstr ""
+
 msgid "No active sessions."
 msgstr "No hay sesiones activas."
+
+msgid "No remote servers yet."
+msgstr ""
 
 msgid "No site users yet."
 msgstr "Aún no hay usuarios del sitio."
@@ -169,7 +223,13 @@ msgstr "Contraseña"
 msgid "Paste the contents of an SQL dump. Existing objects with the same name are overwritten."
 msgstr ""
 
+msgid "Paths skipped while archiving site files."
+msgstr ""
+
 msgid "Please wait…"
+msgstr ""
+
+msgid "Port"
 msgstr ""
 
 msgid "Private key"
@@ -185,6 +245,18 @@ msgid "Python"
 msgstr ""
 
 msgid "Reload"
+msgstr ""
+
+msgid "Remote DBs"
+msgstr ""
+
+msgid "Remote databases"
+msgstr ""
+
+msgid "Remote databases page"
+msgstr ""
+
+msgid "Require TLS"
 msgstr ""
 
 msgid "Require a password"
@@ -206,6 +278,9 @@ msgid "SSL cert"
 msgstr ""
 
 msgid "Save configuration"
+msgstr ""
+
+msgid "Save excludes"
 msgstr ""
 
 msgid "Save security settings"
@@ -283,10 +358,16 @@ msgstr ""
 msgid "SynthPanel · self-hosted server control panel"
 msgstr ""
 
+msgid "TLS"
+msgstr ""
+
 msgid "Terminal"
 msgstr ""
 
 msgid "The code changes every 30 seconds."
+msgstr ""
+
+msgid "The credential used for the WordPress administrator account."
 msgstr ""
 
 msgid "Trust Cloudflare IPs and reject requests that bypass it."
@@ -298,6 +379,9 @@ msgstr ""
 msgid "Use a different account"
 msgstr ""
 
+msgid "User"
+msgstr ""
+
 msgid "Username"
 msgstr ""
 
@@ -305,5 +389,26 @@ msgid "Users"
 msgstr ""
 
 msgid "Verify"
+msgstr ""
+
+msgid "WordPress"
+msgstr ""
+
+msgid "WordPress install page"
+msgstr ""
+
+msgid "admin"
+msgstr ""
+
+msgid "admin@example.com"
+msgstr ""
+
+msgid "no"
+msgstr ""
+
+msgid "node_modules, .git, cache"
+msgstr ""
+
+msgid "yes"
 msgstr ""
 

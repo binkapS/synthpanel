@@ -255,6 +255,15 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                 b.app.borrow_mut().set_current_page(crate::Page::Sessions);
                 load_sessions(&b);
             }
+            crate::Page::Wordpress => {
+                let id = b.app.borrow().get_wordpress_site_id().to_string();
+                b.app.borrow_mut().set_current_page(crate::Page::Wordpress);
+                let _ = id;
+            }
+            crate::Page::RemoteDb => {
+                b.app.borrow_mut().set_current_page(crate::Page::RemoteDb);
+                load_remote(&b);
+            }
             crate::Page::SiteApp => {
                 let id = b.app.borrow().get_site_app_id().to_string();
                 b.app.borrow_mut().set_current_page(crate::Page::SiteApp);
@@ -415,15 +424,16 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
 
     // --- Users ----------------------------------------------------------------
     let b = Rc::clone(bridge);
-    app.on_create_user(move |email, name, password, role, sites, dbs| {
+    app.on_create_user(move |email, name, password, role, q_sites, q_dbs, sites| {
         let b = Rc::clone(&b);
         let body = serde_json::json!({
             "email": email.as_str(),
             "name": name.as_str(),
             "password": password.as_str(),
             "role": role.as_str(),
-            "quota_sites": sites,
-            "quota_dbs": dbs
+            "quota_sites": q_sites,
+            "quota_dbs": q_dbs,
+            "sites": sites.as_str(),
         });
         let _ = slint::spawn_local(async move {
             match http("POST", "/api/v1/users", Some(body)).await {
@@ -437,7 +447,7 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     });
 
     let b = Rc::clone(bridge);
-    app.on_update_user(move |id, email, name, role, status, totp, sites, dbs| {
+    app.on_update_user(move |id, email, name, role, status, totp, q_sites, q_dbs, sites| {
         let b = Rc::clone(&b);
         let body = serde_json::json!({
             "email": email.as_str(),
@@ -445,8 +455,9 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
             "role": role.as_str(),
             "status": status.as_str(),
             "totp_enabled": totp.as_str() == "on",
-            "quota_sites": sites,
-            "quota_dbs": dbs
+            "quota_sites": q_sites,
+            "quota_dbs": q_dbs,
+            "sites": sites.as_str(),
         });
         let _ = slint::spawn_local(async move {
             match http("PATCH", &format!("/api/v1/users/{id}"), Some(body)).await {
@@ -1058,6 +1069,78 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     app.on_terminal_resize(move |rows, cols| {
         let _ = &b;
         api::socket_send(2, &format!(r#"{{"type":"resize","rows":{rows},"cols":{cols}}}"#));
+    });
+
+    // --- WordPress, remote databases and backup excludes -----------------------------------------
+    let b = Rc::clone(bridge);
+    app.on_install_wordpress(move |site_id, admin_user, admin_password, admin_email| {
+        let b = Rc::clone(&b);
+        let site_id = site_id.to_string();
+        let body = serde_json::json!({
+            "admin_user": admin_user.as_str(),
+            "admin_password": admin_password.as_str(),
+            "admin_email": admin_email.as_str(),
+        });
+        let _ = slint::spawn_local(async move {
+            match http("POST", &format!("/api/v1/sites/{site_id}/wordpress/install"), Some(body)).await {
+                Ok(_) => b.app.borrow_mut().set_wordpress_status("WordPress installed".into()),
+                Err(message) => b.app.borrow_mut().set_wordpress_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_load_remote(move || load_remote(&b));
+    let b = Rc::clone(bridge);
+    app.on_add_remote(move |name, engine, host, port, db, user, pass, tls| {
+        let b = Rc::clone(&b);
+        let mut body = serde_json::json!({
+            "name": name.as_str(), "engine": engine.as_str(), "host": host.as_str(),
+            "database": db.as_str(), "username": user.as_str(), "password": pass.as_str(),
+            "tls": tls,
+        });
+        if !port.is_empty() {
+            if let Ok(value) = port.parse::<u16>() {
+                if let serde_json::Value::Object(map) = &mut body {
+                    map.insert("port".into(), serde_json::json!(value));
+                }
+            }
+        }
+        let _ = slint::spawn_local(async move {
+            match http("POST", "/api/v1/databases/remote", Some(body)).await {
+                Ok(_) => load_remote(&b),
+                Err(message) => b.app.borrow_mut().set_remote_db_status(message.into()),
+            }
+        });
+    });
+    let b = Rc::clone(bridge);
+    app.on_delete_remote(move |id| {
+        let b = Rc::clone(&b);
+        let id = id.to_string();
+        let _ = slint::spawn_local(async move {
+            match http("DELETE", &format!("/api/v1/databases/remote/{id}"), None).await {
+                Ok(_) => load_remote(&b),
+                Err(message) => b.app.borrow_mut().set_remote_db_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_set_excludes(move |patterns| {
+        let b = Rc::clone(&b);
+        let items = patterns
+            .split(|c| c == ',' || c == '\n')
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        let body = serde_json::json!({ "patterns": items });
+        let _ = slint::spawn_local(async move {
+            match http("POST", "/api/v1/backups/excludes", Some(body)).await {
+                Ok(_) => b.app.borrow_mut().set_backups_status("".into()),
+                Err(message) => b.app.borrow_mut().set_backups_status(message.into()),
+            }
+        });
     });
 
     // --- Site apps and custom certificates -------------------------------------------------------
@@ -1806,6 +1889,33 @@ fn load_settings(bridge: &Rc<Bridge>) {
 // Site security, site users, sessions
 // ---------------------------------------------------------------------------
 
+fn load_remote(bridge: &Rc<Bridge>) {
+    let app = bridge.app.borrow().clone();
+    let _ = slint::spawn_local(async move {
+        match http("GET", "/api/v1/databases/remote", None).await {
+            Ok(body) => {
+                let rows = body.get("servers").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+                let rows = rows
+                    .iter()
+                    .map(|item| crate::RemoteServerRow {
+                        id: item.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        name: item.get("name").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        engine: item.get("engine").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        host: item.get("host").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        port: item.get("port").and_then(serde_json::Value::as_i64).unwrap_or(0) as i32,
+                        database: item.get("database").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        username: item.get("username").and_then(serde_json::Value::as_str).unwrap_or_default().into(),
+                        tls: item.get("tls").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                    })
+                    .collect::<Vec<_>>();
+                app.set_remote_servers(model(rows));
+                app.set_remote_db_status("".into());
+            }
+            Err(message) => app.set_remote_db_status(message.into()),
+        }
+    });
+}
+
 fn load_site_app(bridge: &Rc<Bridge>, site_id: &str) {
     let app = bridge.app.borrow().clone();
     let site_id = site_id.to_string();
@@ -2174,6 +2284,8 @@ fn page_name(page: crate::Page) -> &'static str {
         crate::Page::Sessions => "sessions",
         crate::Page::SiteApp => "site-app",
         crate::Page::SiteCert => "site-cert",
+        crate::Page::Wordpress => "wordpress",
+        crate::Page::RemoteDb => "remote-db",
     }
 }
 
@@ -2199,6 +2311,8 @@ fn parse_page(name: &str) -> Option<crate::Page> {
         "sessions" => crate::Page::Sessions,
         "site-app" => crate::Page::SiteApp,
         "site-cert" => crate::Page::SiteCert,
+        "wordpress" => crate::Page::Wordpress,
+        "remote-db" => crate::Page::RemoteDb,
         _ => return None,
     })
 }

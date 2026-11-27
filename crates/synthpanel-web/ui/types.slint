@@ -23,6 +23,8 @@ export enum Page {
     site-users,
     site-app,
     site-cert,
+    wordpress,
+    remote-db,
     sessions,
 }
 
@@ -104,6 +106,18 @@ export struct UserRow {
     status: string,
     totp: string,
     last-login: string,
+    sites: string,
+}
+
+export struct RemoteServerRow {
+    id: string,
+    name: string,
+    engine: string,
+    host: string,
+    port: int,
+    database: string,
+    username: string,
+    tls: bool,
 }
 
 export struct DatabaseRow {

@@ -548,6 +548,16 @@ pub enum Command {
         /// Key id.
         id: String,
     },
+    /// Restrict an API key to specific sites (empty list clears the restriction).
+    #[command(name = "apikey:sites:set")]
+    ApiKeySitesSet {
+        /// API key id.
+        #[arg(long)]
+        id: String,
+        /// Comma separated site ids (empty string clears the list).
+        #[arg(long, default_value = "")]
+        sites: String,
+    },
     /// Create a panel user.
     #[command(name = "users:create")]
     UsersCreate {
@@ -627,6 +637,24 @@ pub enum Command {
         /// Comma separated glob patterns, e.g. 'cache,*.log,storage/**'.
         #[arg(long)]
         patterns: String,
+    },
+    /// List the available application templates.
+    #[command(name = "templates:list")]
+    TemplatesList,
+    /// Install an application template into a site.
+    // The global `propagate_version` adds an auto `--version`; the template
+    // version flag takes precedence here.
+    #[command(name = "templates:install", disable_version_flag = true)]
+    TemplatesInstall {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// Template id (see `templates:list`).
+        #[arg(long)]
+        template: String,
+        /// Optional template version, e.g. 11.4.0.
+        #[arg(long)]
+        version: Option<String>,
     },
 }
 
@@ -1508,6 +1536,16 @@ async fn main() -> Result<()> {
             println!("{}", global.as_json(&result));
             Ok(())
         }
+        Command::ApiKeySitesSet { id, sites } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::API_KEYS_SET_SITES,
+                    json!({ "id": id, "site_ids": split_list(&sites) }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
         Command::UsersList => {
             let users: Vec<Value> = global
                 .call(synthpanel_ipc::methods::USERS_LIST, json!({}))
@@ -1656,6 +1694,33 @@ async fn main() -> Result<()> {
             }
             let result: Value = global
                 .call(synthpanel_ipc::methods::BACKUP_EXCLUDES_SET, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::TemplatesList => {
+            let templates: Vec<Value> = global
+                .call(synthpanel_ipc::methods::TEMPLATES_LIST, json!({}))
+                .await?;
+            for template in &templates {
+                println!("{}", global.as_json(template));
+            }
+            if templates.is_empty() {
+                eprintln!("no templates available");
+            }
+            Ok(())
+        }
+        Command::TemplatesInstall {
+            site,
+            template,
+            version,
+        } => {
+            let mut params = json!({ "site_id": site, "template": template });
+            if let Some(version) = version {
+                params["version"] = json!(version);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::TEMPLATES_INSTALL, params)
                 .await?;
             println!("{}", global.as_json(&result));
             Ok(())
@@ -1904,6 +1969,26 @@ mod tests {
     }
 
     #[test]
+    fn cli_parses_api_key_site_verb() {
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "apikey:sites:set",
+            "--id",
+            "key-id",
+            "--sites",
+            "site-1,site-2",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::ApiKeySitesSet { id, sites } => {
+                assert_eq!(id, "key-id");
+                assert_eq!(split_list(&sites), vec!["site-1", "site-2"]);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
     fn cli_parses_remote_db_verbs() {
         let cli = Cli::try_parse_from(["synthpanel", "db:remote:list"]).unwrap();
         assert!(matches!(cli.command, Command::DbRemoteList));
@@ -1955,5 +2040,53 @@ mod tests {
             Command::DbRemoteDelete { id } => assert_eq!(id, "remote-id"),
             other => panic!("wrong command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn cli_parses_template_verbs() {
+        let cli = Cli::try_parse_from(["synthpanel", "templates:list"]).unwrap();
+        assert!(matches!(cli.command, Command::TemplatesList));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "templates:install",
+            "--site",
+            "site-id",
+            "--template",
+            "laravel",
+            "--version",
+            "11.4.0",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::TemplatesInstall {
+                site,
+                template,
+                version,
+            } => {
+                assert_eq!(site, "site-id");
+                assert_eq!(template, "laravel");
+                assert_eq!(version.as_deref(), Some("11.4.0"));
+            }
+            other => panic!("wrong command: {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "templates:install",
+            "--site",
+            "site-id",
+            "--template",
+            "wordpress",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::TemplatesInstall { version, .. } => assert_eq!(version, None),
+            other => panic!("wrong command: {other:?}"),
+        }
+
+        assert!(
+            Cli::try_parse_from(["synthpanel", "templates:install", "--site", "site-id"]).is_err()
+        );
     }
 }

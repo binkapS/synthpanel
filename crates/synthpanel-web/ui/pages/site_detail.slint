@@ -23,6 +23,7 @@ export component SiteDetailPage inherits Rectangle {
     callback open-users(string);
     callback open-app(string);
     callback open-cert(string);
+    callback open-wordpress(string);
     callback back();
 
     Flickable {
@@ -153,6 +154,10 @@ export component SiteDetailPage inherits Rectangle {
                     AppButton {
                         text: @tr("SSL cert");
                         clicked => { root.open-cert(root.id); }
+                    }
+                    AppButton {
+                        text: @tr("WordPress");
+                        clicked => { root.open-wordpress(root.id); }
                     }
                     AppButton {
                         text: "Delete site";

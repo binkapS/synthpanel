@@ -5,6 +5,7 @@
 //! by `synthpanel-web` and `synthpanel-cli`.
 
 pub mod alerts;
+pub mod api_keys;
 pub mod app_process;
 pub mod apply;
 pub mod audit;
@@ -35,6 +36,7 @@ pub mod site_users;
 pub mod sites;
 pub mod ssl;
 pub mod stores;
+pub mod templates;
 pub mod terminal;
 pub mod update;
 pub mod users;

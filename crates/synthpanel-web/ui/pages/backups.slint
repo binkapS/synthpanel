@@ -26,11 +26,15 @@ export component BackupsPage inherits Rectangle {
     private property <string> sched-path: "";
     private property <string> sched-site: "";
 
+    // Global backup exclude patterns, comma-separated for editing.
+    in-out property <string> exclude-patterns: "";
+
     callback run-backup(string, string, string);
     callback backup-action(string, string, string);
     callback delete-backup(string);
     callback create-schedule(string, string, string, string, string);
     callback delete-schedule(string);
+    callback set-excludes(string);
 
     Flickable {
         VerticalLayout {
@@ -284,6 +288,29 @@ export component BackupsPage inherits Rectangle {
                                 danger: true;
                                 clicked => { root.delete-schedule(schedule.id); }
                             }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                title: @tr("Backup excludes");
+                subtitle: @tr("Paths skipped while archiving site files.");
+                VerticalLayout {
+                    spacing: 12px;
+                    TextField {
+                        label: @tr("Exclude patterns");
+                        text <=> root.exclude-patterns;
+                        placeholder: @tr("node_modules, .git, cache");
+                        hint: @tr("Comma-separated paths applied to every site. Leave empty to remove all global excludes.");
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Save excludes");
+                            primary: true;
+                            clicked => { root.set-excludes(root.exclude-patterns); }
                         }
                     }
                 }

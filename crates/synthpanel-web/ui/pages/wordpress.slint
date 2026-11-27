@@ -1,0 +1,82 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { TextField } from "../widgets/field.slint";
+
+export component WordPressPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("WordPress install page");
+
+    in property <string> site-id;
+    in-out property <string> admin-user;
+    in-out property <string> admin-password;
+    in-out property <string> admin-email;
+    in-out property <string> status;
+
+    // site-id, admin-user, admin-password, admin-email
+    callback install-wordpress(string, string, string, string);
+
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+
+            PageHeader {
+                title: @tr("WordPress");
+                subtitle: @tr("Install WordPress in this site's document root.");
+            }
+
+            if root.status != "" : Notice { text: root.status; }
+
+            Card {
+                title: @tr("Administrator");
+                subtitle: root.site-id;
+                VerticalLayout {
+                    spacing: 12px;
+
+                    TextField {
+                        label: @tr("Username");
+                        text <=> root.admin-user;
+                        placeholder: @tr("admin");
+                        min-width: 180px;
+                    }
+                    TextField {
+                        label: @tr("Password");
+                        text <=> root.admin-password;
+                        password: true;
+                        hint: @tr("The credential used for the WordPress administrator account.");
+                        min-width: 180px;
+                    }
+                    TextField {
+                        label: @tr("Email");
+                        text <=> root.admin-email;
+                        placeholder: @tr("admin@example.com");
+                        min-width: 180px;
+                    }
+                    Text {
+                        text: @tr("Installation downloads WordPress, writes wp-config.php and creates the administrator account. An existing installation is not overwritten.");
+                        font-size: 11px;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Install WordPress");
+                            primary: true;
+                            enabled: root.site-id != "" && root.admin-user != "" && root.admin-password != "" && root.admin-email != "";
+                            clicked => {
+                                root.install-wordpress(root.site-id, root.admin-user, root.admin-password, root.admin-email);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

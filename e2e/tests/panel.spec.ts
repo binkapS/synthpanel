@@ -719,6 +719,52 @@ test('backup exclude patterns can be stored and cleared', async ({ page }) => {
   expect(cleared.status).toBe(200);
 });
 
+test('framework templates are listed', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const listed = await api(page, 'GET', '/api/v1/templates');
+  expect(listed.status).toBe(200);
+  const items = Array.isArray(listed.body) ? listed.body : listed.body.templates;
+  expect(items.map((t: any) => t.id)).toContain('laravel');
+  expect(items.map((t: any) => t.id)).toContain('wordpress');
+});
+
+test('API keys can be restricted to specific sites', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const domain = `e2e-key-${Date.now()}.example.com`;
+  const created = await api(page, 'POST', '/api/v1/sites', {
+    domain, aliases: [], template: 'static', ssl_mode: 'none',
+  });
+  expect(created.status).toBe(200);
+  const siteId = created.body.site?.id;
+  const key = await api(page, 'POST', '/api/v1/api-keys', {
+    name: `e2e-${Date.now()}`, scopes: ['write'], site_ids: [siteId],
+  });
+  expect(key.status).toBe(200);
+  const token = key.body.key ?? key.body.token;
+  expect(token).toBeTruthy();
+  try {
+    const allowed = await page.evaluate(async ({ token, id }) => {
+      const r = await fetch(`/api/v1/sites/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return r.status;
+    }, { token, id: siteId });
+    expect(allowed).toBe(200);
+    const denied = await page.evaluate(async (token) => {
+      const r = await fetch('/api/v1/sites/00000000-0000-0000-0000-000000000000', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      return r.status;
+    }, token);
+    expect(denied).toBe(403);
+  } finally {
+    await api(page, 'DELETE', `/api/v1/api-keys/${key.body.id}`);
+    await api(page, 'DELETE', `/api/v1/sites/${siteId}`);
+  }
+});
+
 // Guard against forgetting the activation flag when adding new navigations.
 test('e2e harness is inert on a normal URL', async ({ page }) => {
   await page.goto('/');

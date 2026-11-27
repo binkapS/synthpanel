@@ -33,6 +33,7 @@ import {
     ApiKeyRow,
     PanelCertificate,
     UpdateStatus,
+    RemoteServerRow,
     SiteUserRow,
     PanelSession,
 
@@ -58,6 +59,8 @@ import { SiteUsersPage } from "pages/site_users.slint";
 import { SessionsPage } from "pages/sessions.slint";
 import { SiteAppPage } from "pages/site_app.slint";
 import { SiteCertPage } from "pages/site_cert.slint";
+import { WordPressPage } from "pages/wordpress.slint";
+import { RemoteDbPage } from "pages/remote_db.slint";
 
 export component AppWindow inherits Window {
     title: "SynthPanel";
@@ -181,6 +184,14 @@ export component AppWindow inherits Window {
     in-out property <string> site-cert-key;
     in-out property <string> site-cert-chain;
     in-out property <string> site-cert-status;
+    in-out property <string> wordpress-site-id;
+    in-out property <string> wordpress-admin-user;
+    in-out property <string> wordpress-admin-password;
+    in-out property <string> wordpress-admin-email;
+    in-out property <string> wordpress-status;
+    in-out property <[RemoteServerRow]> remote-servers;
+    in-out property <string> remote-db-status;
+    in-out property <string> backup-excludes;
     in-out property <[PanelSession]> sessions;
     in-out property <string> sessions-status;
 
@@ -219,8 +230,8 @@ export component AppWindow inherits Window {
     callback delete-database(string);
     callback add-db-user(string, string, string, string);
 
-    callback create-user(string, string, string, string, int, int);
-    callback update-user(string, string, string, string, string, string, int, int);
+    callback create-user(string, string, string, string, int, int, string);
+    callback update-user(string, string, string, string, string, string, int, int, string);
 
     callback firewall-apply(string, string, string, string, string);
     callback unban(string, string);
@@ -275,6 +286,11 @@ export component AppWindow inherits Window {
     callback start-site-app(string);
     callback stop-site-app(string);
     callback install-site-cert(string, string, string, string);
+    callback install-wordpress(string, string, string, string);
+    callback load-remote();
+    callback add-remote(string, string, string, string, string, string, string, bool);
+    callback delete-remote(string);
+    callback set-excludes(string);
     callback load-sessions();
     callback revoke-other-sessions();
     callback dump-database(string);
@@ -376,6 +392,10 @@ export component AppWindow inherits Window {
                 root.site-cert-id = id;
                 root.navigate(Page.site-cert);
             }
+            open-wordpress(id) => {
+                root.wordpress-site-id = id;
+                root.navigate(Page.wordpress);
+            }
             back() => { root.navigate(Page.sites); }
         }
 
@@ -416,6 +436,8 @@ export component AppWindow inherits Window {
             delete-backup(id) => { root.delete-backup(id); }
             create-schedule(name, cron, type, path, site) => { root.create-schedule(name, cron, type, path, site); }
             delete-schedule(id) => { root.delete-schedule(id); }
+            exclude-patterns <=> root.backup-excludes;
+            set-excludes(patterns) => { root.set-excludes(patterns); }
         }
 
         if root.current-page == Page.cron : CronPage {
@@ -485,8 +507,8 @@ export component AppWindow inherits Window {
         if root.current-page == Page.users : UsersPage {
             users <=> root.users;
             status <=> root.users-status;
-            create-user(email, name, password, role, sites, dbs) => { root.create-user(email, name, password, role, sites, dbs); }
-            update-user(id, email, name, role, status, totp, sites, dbs) => { root.update-user(id, email, name, role, status, totp, sites, dbs); }
+            create-user(email, name, password, role, q_sites, q_dbs, sites) => { root.create-user(email, name, password, role, q_sites, q_dbs, sites); }
+            update-user(id, email, name, role, status, totp, q_sites, q_dbs, sites) => { root.update-user(id, email, name, role, status, totp, q_sites, q_dbs, sites); }
         }
 
         if root.current-page == Page.site-security : SiteSecurityPage {
@@ -534,6 +556,23 @@ export component AppWindow inherits Window {
             chain <=> root.site-cert-chain;
             status <=> root.site-cert-status;
             install-cert(site, cert, key, chain) => { root.install-site-cert(site, cert, key, chain); }
+        }
+
+        if root.current-page == Page.wordpress : WordPressPage {
+            site-id: root.wordpress-site-id;
+            admin-user <=> root.wordpress-admin-user;
+            admin-password <=> root.wordpress-admin-password;
+            admin-email <=> root.wordpress-admin-email;
+            status <=> root.wordpress-status;
+            install-wordpress(id, user, password, email) => { root.install-wordpress(id, user, password, email); }
+        }
+
+        if root.current-page == Page.remote-db : RemoteDbPage {
+            servers <=> root.remote-servers;
+            status <=> root.remote-db-status;
+            load-remote() => { root.load-remote(); }
+            add-remote(name, engine, host, port, db, user, pass, tls) => { root.add-remote(name, engine, host, port, db, user, pass, tls); }
+            delete-remote(id) => { root.delete-remote(id); }
         }
 
         if root.current-page == Page.sessions : SessionsPage {

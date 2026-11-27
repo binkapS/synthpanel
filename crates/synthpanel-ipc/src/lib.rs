@@ -268,6 +268,9 @@ pub mod methods {
     pub const DATABASES_REMOTE_DELETE: &str = "databases.remote.delete";
     pub const BACKUP_EXCLUDES_SET: &str = "backups.excludes.set";
     pub const SITES_APP_CONTROL: &str = "sites.app.control";
+    pub const TEMPLATES_LIST: &str = "templates.list";
+    pub const TEMPLATES_INSTALL: &str = "templates.install";
+    pub const API_KEYS_SET_SITES: &str = "api_keys.set_sites";
 }
 
 /// Well-known error codes.

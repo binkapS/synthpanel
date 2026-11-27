@@ -18,6 +18,7 @@ pub mod security;
 pub mod sessions;
 pub mod site_users;
 pub mod sites;
+pub mod templates;
 pub mod terminal;
 pub mod update;
 pub mod wordpress;
@@ -116,6 +117,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/sites/{id}/suspend", post(sites::suspend))
         .route("/api/v1/sites/{id}/unsuspend", post(sites::unsuspend))
+        .route("/api/v1/templates", get(templates::list))
+        .route("/api/v1/sites/{id}/templates", post(templates::install))
         .route("/api/v1/php/versions", get(sites::php_versions))
         .route("/api/v1/php/status", get(sites::php_status))
         .route(

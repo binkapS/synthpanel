@@ -1743,7 +1743,28 @@ impl IpcServer {
                 let token = param_str(params, "token")?;
                 let record = self.verify_api_key(token).await?;
                 match record {
-                    Some(row) => Ok(api_key_value(&row)),
+                    Some(row) => {
+                        let mut value = api_key_value(&row);
+                        if let serde_json::Value::Object(map) = &mut value {
+                            map.insert(
+                                "site_ids".into(),
+                                json!(
+                                    crate::api_keys::list_site_ids_for_key(&self.pool, &row.id)
+                                        .await
+                                        .map_err(internal)?
+                                ),
+                            );
+                            let owner = crate::users::Users::new(self.pool.clone());
+                            let role = owner
+                                .get(&row.user_id)
+                                .await
+                                .map_err(internal)?
+                                .map(|user| user.role)
+                                .unwrap_or_else(|| "user".to_string());
+                            map.insert("role".into(), json!(role));
+                        }
+                        Ok(value)
+                    }
                     None => Err(Error::new(codes::UNAUTHORIZED, "invalid API key")),
                 }
             }
@@ -2569,6 +2590,30 @@ impl IpcServer {
                     }
                 }
                 Ok(json!({ "ok": true }))
+            }
+            methods::API_KEYS_SET_SITES => {
+                let id = param_str(params, "id")?;
+                let site_ids = crate::api_keys::parse_site_ids(params.get("site_ids"));
+                crate::api_keys::set_sites_for_key(&self.pool, id, &site_ids)
+                    .await
+                    .map_err(bad_request)?;
+                Ok(json!({ "ok": true }))
+            }
+            methods::TEMPLATES_LIST => {
+                Ok(serde_json::to_value(crate::templates::list()).map_err(internal)?)
+            }
+            methods::TEMPLATES_INSTALL => {
+                let result = crate::templates::install(
+                    &self.pool,
+                    crate::templates::InstallRequest {
+                        site_id: param_str(params, "site_id")?,
+                        template: param_str(params, "template")?,
+                        version: opt_str(params, "version"),
+                    },
+                )
+                .await
+                .map_err(internal)?;
+                Ok(json!({ "ok": result.ok, "template": result.template }))
             }
             other => Err(Error::new(
                 codes::UNSUPPORTED,

@@ -513,6 +513,7 @@ pub fn to_users(body: &Value) -> Vec<UserRow> {
             status: str_(item, "status"),
             totp: if bool_(item, "totp_enabled") { "on" } else { "off" }.to_string().into(),
             last_login: opt_str(item, "last_login_at"),
+            sites: opt_str(item, "sites"),
         })
         .collect()
 }

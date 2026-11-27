@@ -67,7 +67,18 @@ pub async fn users_list(
 ) -> Result<Json<Value>, ApiError> {
     require_admin(&state, &user).await?;
     let users: Vec<Value> = state.core_call(methods::USERS_LIST, json!({})).await?;
-    let sanitized: Vec<Value> = users.iter().map(sanitize_user).collect();
+    let mut sanitized: Vec<Value> = users.iter().map(sanitize_user).collect();
+    for record in &mut sanitized {
+        let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
+        let assignments: Value = state
+            .core_call(methods::USER_SITES_LIST, json!({ "user_id": id }))
+            .await
+            .unwrap_or(Value::Null);
+        let sites = crate::authz::assigned_site_ids(&assignments);
+        if let serde_json::Value::Object(map) = record {
+            map.insert("sites".into(), json!(sites.join(",")));
+        }
+    }
     Ok(Json(json!({ "users": sanitized })))
 }
 

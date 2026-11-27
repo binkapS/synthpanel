@@ -1,0 +1,239 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { RemoteServerRow } from "../types.slint";
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton, IconButton } from "../widgets/button.slint";
+import { TextField, SelectField, Toggle } from "../widgets/field.slint";
+
+// Local mirror of the server objects returned by GET /api/v1/databases/remote.
+// Passwords are never returned by the API and are absent here too.
+export component RemoteDbPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("Remote databases page");
+
+    in-out property <[RemoteServerRow]> servers;
+    in-out property <string> status;
+
+    private property <string> new-name: "";
+    private property <string> new-engine: "mysql";
+    private property <string> new-host: "";
+    private property <string> new-port: "";
+    private property <string> new-database: "";
+    private property <string> new-username: "";
+    private property <string> new-password: "";
+    private property <bool> new-tls: false;
+
+    callback load-remote();
+    // name, engine, host, port, database, username, password, tls
+    callback add-remote(string, string, string, string, string, string, string, bool);
+    callback delete-remote(string);
+
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+
+            PageHeader {
+                title: @tr("Remote databases");
+                subtitle: @tr("External MySQL/MariaDB and PostgreSQL servers.");
+            }
+
+            if root.status != "" : Notice { text: root.status; }
+
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                AppButton {
+                    text: @tr("Reload");
+                    clicked => { root.load-remote(); }
+                }
+            }
+
+            Card {
+                title: @tr("Add a remote server");
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: @tr("Name");
+                            text <=> root.new-name;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                        SelectField {
+                            label: @tr("Engine");
+                            options: ["mysql", "postgresql"];
+                            selected(value) => { root.new-engine = value; }
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: @tr("Host");
+                            text <=> root.new-host;
+                            horizontal-stretch: 2;
+                            min-width: 160px;
+                        }
+                        TextField {
+                            label: @tr("Port");
+                            text <=> root.new-port;
+                            placeholder: @tr("3306");
+                            horizontal-stretch: 1;
+                            min-width: 80px;
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 12px;
+                        TextField {
+                            label: @tr("Database");
+                            text <=> root.new-database;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                        TextField {
+                            label: @tr("Username");
+                            text <=> root.new-username;
+                            horizontal-stretch: 1;
+                            min-width: 130px;
+                        }
+                    }
+                    TextField {
+                        label: @tr("Password");
+                        text <=> root.new-password;
+                        password: true;
+                        min-width: 180px;
+                    }
+                    Toggle {
+                        label: @tr("Require TLS");
+                        checked <=> root.new-tls;
+                    }
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Add server");
+                            primary: true;
+                            enabled: root.new-name != "" && root.new-engine != "" && root.new-host != "" && root.new-database != "" && root.new-username != "" && root.new-password != "";
+                            clicked => {
+                                root.add-remote(root.new-name, root.new-engine, root.new-host, root.new-port, root.new-database, root.new-username, root.new-password, root.new-tls);
+                                root.new-name = "";
+                                root.new-password = "";
+                            }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                title: @tr("Configured servers");
+                subtitle: @tr("{} total", root.servers.length);
+                VerticalLayout {
+                    spacing: 0px;
+
+                    HorizontalLayout {
+                        padding-bottom: 8px;
+                        spacing: 12px;
+                        Text { text: @tr("Name"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 120px; }
+                        Text { text: @tr("Engine"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 100px; }
+                        Text { text: @tr("Host"); font-size: 11px; font-weight: 600; color: Theme.muted; horizontal-stretch: 1; min-width: 140px; }
+                        Text { text: @tr("Port"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 70px; }
+                        Text { text: @tr("Database"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 120px; }
+                        Text { text: @tr("User"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 120px; }
+                        Text { text: @tr("TLS"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 50px; }
+                        Rectangle { width: 8px; }
+                        Text { text: @tr("Actions"); font-size: 11px; font-weight: 600; color: Theme.muted; width: 60px; horizontal-alignment: center; }
+                    }
+                    Rectangle { height: 1px; background: Theme.border; }
+
+                    if root.servers.length == 0 : HorizontalLayout {
+                        padding-top: 12px;
+                        Text {
+                            text: @tr("No remote servers yet.");
+                            font-size: 12px;
+                            color: Theme.muted;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    for server in root.servers : HorizontalLayout {
+                        min-height: 40px;
+                        spacing: 12px;
+                        Text {
+                            text: server.name;
+                            font-size: 13px;
+                            font-weight: 500;
+                            color: Theme.text;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 120px;
+                        }
+                        Text {
+                            text: server.engine;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 100px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: server.host;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            overflow: elide;
+                            vertical-alignment: center;
+                            horizontal-stretch: 1;
+                            min-width: 140px;
+                        }
+                        Text {
+                            text: "\{server.port}";
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 70px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: server.database;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            overflow: elide;
+                            width: 120px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: server.username;
+                            font-size: 11px;
+                            color: Theme.muted;
+                            overflow: elide;
+                            width: 120px;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: server.tls ? @tr("yes") : @tr("no");
+                            font-size: 11px;
+                            color: Theme.muted;
+                            width: 50px;
+                            vertical-alignment: center;
+                        }
+                        Rectangle { width: 8px; }
+                        HorizontalLayout {
+                            width: 60px;
+                            alignment: center;
+                            IconButton {
+                                icon: @image-url("../assets/icons/trash.svg");
+                                tooltip: @tr("Delete remote server {}", server.name);
+                                danger: true;
+                                clicked => { root.delete-remote(server.id); }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

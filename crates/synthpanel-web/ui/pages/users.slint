@@ -14,6 +14,8 @@ export component UsersPage inherits Rectangle {
 
     in-out property <[UserRow]> users;
     in-out property <string> status;
+    // Comma-separated site ids assigned to the user (the API "sites" field).
+    in-out property <string> sites: "";
 
     private property <bool> show-form: false;
     private property <string> edit-id: "";
@@ -24,8 +26,10 @@ export component UsersPage inherits Rectangle {
     private property <string> new-status: "active";
     private property <string> new-totp: "off";
 
-    callback create-user(string, string, string, string, int, int);
-    callback update-user(string, string, string, string, string, string, int, int);
+    // email, name, password, role, quota-sites, quota-dbs, sites (csv)
+    callback create-user(string, string, string, string, int, int, string);
+    // id, email, name, role, status, totp, quota-sites, quota-dbs, sites (csv)
+    callback update-user(string, string, string, string, string, string, int, int, string);
 
     vertical-stretch: 0;
 
@@ -52,6 +56,7 @@ export component UsersPage inherits Rectangle {
                     root.new-name = "";
                     root.new-password = "";
                     root.new-role = "operator";
+                    root.sites = "";
                     root.show-form = !root.show-form;
                 }
             }
@@ -97,6 +102,12 @@ export component UsersPage inherits Rectangle {
                         horizontal-stretch: 1;
                     }
                 }
+                TextField {
+                    label: @tr("Sites");
+                    text <=> root.sites;
+                    hint: @tr("Comma-separated site IDs assigned to this user. Leave empty for none.");
+                    horizontal-stretch: 1;
+                }
                 HorizontalLayout {
                     alignment: end;
                     spacing: 10px;
@@ -108,7 +119,7 @@ export component UsersPage inherits Rectangle {
                         text: "Create";
                         primary: true;
                         clicked => {
-                            root.create-user(root.new-email, root.new-name, root.new-password, root.new-role, 10, 10);
+                            root.create-user(root.new-email, root.new-name, root.new-password, root.new-role, 10, 10, root.sites);
                             root.show-form = false;
                         }
                     }
@@ -116,7 +127,7 @@ export component UsersPage inherits Rectangle {
                         text: "Save";
                         primary: true;
                         clicked => {
-                            root.update-user(root.edit-id, root.new-email, root.new-name, root.new-role, root.new-status, root.new-totp, 10, 10);
+                            root.update-user(root.edit-id, root.new-email, root.new-name, root.new-role, root.new-status, root.new-totp, 10, 10, root.sites);
                             root.show-form = false;
                         }
                     }
@@ -172,6 +183,7 @@ export component UsersPage inherits Rectangle {
                                 root.new-role = user.role;
                                 root.new-status = user.status;
                                 root.new-totp = user.totp;
+                                root.sites = user.sites;
                                 root.show-form = true;
                             }
                         }
