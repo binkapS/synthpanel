@@ -227,6 +227,40 @@ impl Sandbox {
         Ok(())
     }
 
+    /// Copy a file or a directory tree.
+    ///
+    /// Both paths go through [`Self::resolve`], so traversal and sensitive
+    /// names are rejected on the source *and* on the destination. Existing
+    /// destinations are never overwritten: callers must pick a free name.
+    pub fn copy(&self, from: &str, to: &str) -> Result<()> {
+        let source = self.resolve(from)?;
+        let destination = self.resolve(to)?;
+        if !source.exists() {
+            bail!("the source does not exist");
+        }
+        // `exists()` follows symlinks and reports false for a dangling one;
+        // writing through such a link would escape the sandbox.
+        if std::fs::symlink_metadata(&destination).is_ok() {
+            bail!("the destination already exists");
+        }
+        if source.is_dir() && destination.starts_with(&source) {
+            bail!("a directory cannot be copied into itself");
+        }
+        if let Some(parent) = destination.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        if let Err(error) = copy_tree(&source, &destination) {
+            // Do not leave half a copy behind when a nested entry fails.
+            if destination.is_dir() {
+                let _ = std::fs::remove_dir_all(&destination);
+            } else {
+                let _ = std::fs::remove_file(&destination);
+            }
+            return Err(error);
+        }
+        Ok(())
+    }
+
     /// Delete a file or (recursively) a directory.
     pub fn delete(&self, path: &str) -> Result<bool> {
         let resolved = self.resolve(path)?;
@@ -351,6 +385,28 @@ impl Sandbox {
 pub enum ArchiveFormat {
     Zip,
     TarGz,
+}
+
+/// Copy one entry, recursing into directories.
+///
+/// Symlinks are refused: following one could make the panel copy data from
+/// outside the sandbox. Permissions are carried over from the source.
+fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(source)?;
+    if metadata.file_type().is_symlink() {
+        bail!("symbolic links cannot be copied");
+    }
+    if metadata.is_dir() {
+        std::fs::create_dir(destination)?;
+        for entry in std::fs::read_dir(source)? {
+            let entry = entry?;
+            copy_tree(&entry.path(), &destination.join(entry.file_name()))?;
+        }
+    } else {
+        std::fs::copy(source, destination)?;
+    }
+    std::fs::set_permissions(destination, metadata.permissions())?;
+    Ok(())
 }
 
 fn format_mode(metadata: &std::fs::Metadata) -> String {
@@ -524,6 +580,63 @@ mod tests {
         box_.rename("a.txt", "b.txt").unwrap();
         assert!(root.join("b.txt").exists());
         assert!(!root.join("a.txt").exists());
+    }
+
+    #[test]
+    fn copies_files_and_directories() {
+        let (box_, root) = sandbox();
+        std::fs::create_dir_all(root.join("data/sub")).unwrap();
+        std::fs::write(root.join("data/a.txt"), b"hello").unwrap();
+        std::fs::write(root.join("data/sub/b.txt"), b"world").unwrap();
+
+        box_.copy("data", "backup/data").unwrap();
+        assert_eq!(box_.read_file("backup/data/a.txt").unwrap(), b"hello");
+        assert_eq!(box_.read_file("backup/data/sub/b.txt").unwrap(), b"world");
+        assert!(root.join("backup/data").is_dir());
+
+        box_.copy("backup/data/a.txt", "copy.txt").unwrap();
+        assert_eq!(box_.read_file("copy.txt").unwrap(), b"hello");
+    }
+
+    #[test]
+    fn copy_refuses_overwrite_and_missing_source() {
+        let (box_, root) = sandbox();
+        std::fs::write(root.join("a.txt"), b"x").unwrap();
+        std::fs::write(root.join("b.txt"), b"y").unwrap();
+        assert!(box_.copy("a.txt", "b.txt").is_err());
+        assert_eq!(box_.read_file("b.txt").unwrap(), b"y");
+        assert!(box_.copy("missing.txt", "c.txt").is_err());
+        assert!(!root.join("c.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_refuses_a_dangling_symlink_destination() {
+        let (box_, root) = sandbox();
+        std::fs::write(root.join("a.txt"), b"x").unwrap();
+        std::os::unix::fs::symlink(root.join("outside.txt"), root.join("link.txt")).unwrap();
+        assert!(box_.copy("a.txt", "link.txt").is_err());
+        assert!(!root.join("outside.txt").exists());
+    }
+
+    #[test]
+    fn copy_applies_sandbox_rules_to_both_paths() {
+        let (box_, root) = sandbox();
+        std::fs::write(root.join("a.txt"), b"x").unwrap();
+        assert!(box_.copy("../etc/passwd", "out.txt").is_err());
+        assert!(box_.copy("a.txt", "../out.txt").is_err());
+        assert!(box_.copy("a.txt", "secret.key").is_err());
+        assert!(box_.copy("ipc-token", "out.txt").is_err());
+        assert!(!root.join("out.txt").exists());
+    }
+
+    #[test]
+    fn copy_refuses_a_recursive_directory_target() {
+        let (box_, root) = sandbox();
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(root.join("data/a.txt"), b"x").unwrap();
+        assert!(box_.copy("data", "data/nested").is_err());
+        assert!(!root.join("data/nested").exists());
     }
 
     #[test]

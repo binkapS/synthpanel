@@ -1,6 +1,6 @@
 # Installation
 
-SynthPanel targets Debian 12 and Ubuntu 22.04/24.04 on a fresh server.
+SynthPanel targets Debian 12/13 and Ubuntu 22.04/24.04/26.04 on a fresh server.
 
 ## Requirements
 

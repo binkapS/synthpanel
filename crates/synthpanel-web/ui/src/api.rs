@@ -93,6 +93,28 @@ pub fn apply_theme(theme: &str) {
     let _ = call("apply_theme", &[JsValue::from_str(theme)]);
 }
 
+/// Upload a file through the browser bridge. An empty `base64` makes the JS
+/// side open a file picker; the returned promise resolves once the upload
+/// finished (or the picker was cancelled).
+pub async fn upload_file(scope: &str, path: &str, base64: &str) -> Result<(), String> {
+    let value = call(
+        "upload_file",
+        &[
+            JsValue::from_str(scope),
+            JsValue::from_str(path),
+            JsValue::from_str(base64),
+        ],
+    )
+    .ok_or_else(|| "missing synthpanel_api.upload_file".to_string())?;
+    let promise = value
+        .dyn_into::<js_sys::Promise>()
+        .map_err(|_| "synthpanel_api.upload_file did not return a promise".to_string())?;
+    wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(|error| format!("upload failed: {error:?}"))?;
+    Ok(())
+}
+
 /// Open a WebSocket handled by the JS bridge. `id` is an arbitrary handle.
 pub fn socket_open(id: u32, path: &str) {
     let _ = call("socket_open", &[JsValue::from(id), JsValue::from_str(path)]);

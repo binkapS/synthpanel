@@ -2410,6 +2410,51 @@ impl IpcServer {
                 crate::db_dump::import(&record, data, &self.paths).map_err(internal)?;
                 Ok(json!({ "ok": true }))
             }
+            methods::SITES_APP_CONFIGURE => {
+                let site_id = param_str(params, "site_id")?.to_string();
+                let app_type = param_str(params, "app_type")?;
+                let app_port = param_i64(params, "app_port", 0)?;
+                let app_command = param_str(params, "app_command")?;
+                crate::app_process::configure(
+                    &self.pool,
+                    &self.paths,
+                    &site_id,
+                    app_type,
+                    app_port,
+                    app_command,
+                )
+                .await
+                .map_err(internal)?;
+                let extras = self
+                    .stores
+                    .sites
+                    .get_with_extras(&site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                let vhost = self.render_site_vhost(&extras).await?;
+                let pool = crate::php::render_pool(&extras);
+                let applied = self
+                    .apply
+                    .apply_site(&extras, &vhost, &pool)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true, "applied": applied }))
+            }
+            methods::SITES_APP_STATUS => {
+                let site_id = param_str(params, "site_id")?;
+                let status = crate::app_process::status(&self.pool, &self.paths, site_id)
+                    .await
+                    .map_err(internal)?;
+                Ok(serde_json::to_value(status).map_err(internal)?)
+            }
+            methods::FILES_COPY => {
+                let from = param_str(params, "path")?;
+                let to = param_str(params, "target")?;
+                let sandbox = self.file_sandbox(params)?;
+                sandbox.copy(from, to).map_err(file_error)?;
+                Ok(json!({ "ok": true }))
+            }
             other => Err(Error::new(
                 codes::UNSUPPORTED,
                 format!("unknown method `{other}`"),
@@ -2921,6 +2966,7 @@ fn is_allowed_unit(unit: &str) -> bool {
             | "php8.2-fpm"
             | "php8.3-fpm"
             | "php8.4-fpm"
+            | "php8.5-fpm"
             | "mariadb"
             | "mysql"
             | "postgresql"
@@ -2979,8 +3025,14 @@ impl IpcServer {
         let settings = crate::site_security::get_site_security(&self.pool, &extras.site.id)
             .await
             .map_err(internal)?;
-        Ok(crate::nginx::render_vhost_with_security(
-            extras, &self.host, &settings,
+        let app = crate::app_process::get_app(&self.pool, &extras.site.id)
+            .await
+            .map_err(internal)?;
+        Ok(crate::nginx::render_vhost_with_app(
+            extras,
+            &self.host,
+            &settings,
+            app.as_ref().map(crate::app_process::SiteApp::proxy),
         ))
     }
 

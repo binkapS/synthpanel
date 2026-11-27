@@ -8,6 +8,7 @@ export default defineConfig({
     nav: [
       { text: 'Guide', link: '/guide/installation' },
       { text: 'Reference', link: '/reference/cli' },
+      { text: 'OpenAPI', link: '/openapi.json' },
     ],
     sidebar: {
       '/guide/': [
@@ -23,6 +24,7 @@ export default defineConfig({
             { text: 'Terminal', link: '/guide/terminal' },
             { text: 'PHP', link: '/guide/php' },
             { text: 'Panel certificate', link: '/guide/panel-certificate' },
+            { text: 'SynthPanel vs CloudPanel', link: '/guide/cloudpanel-comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],
         },
@@ -33,6 +35,7 @@ export default defineConfig({
           items: [
             { text: 'CLI', link: '/reference/cli' },
             { text: 'REST API', link: '/reference/api' },
+            { text: 'OpenAPI 3.1 (JSON)', link: '/openapi.json' },
             { text: 'Security model', link: '/reference/security' },
           ],
         },

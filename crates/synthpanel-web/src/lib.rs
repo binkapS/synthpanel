@@ -46,6 +46,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         ))
         .layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state),
+            middleware::panel_gate,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            Arc::clone(&state),
             middleware::security_headers,
         ))
 }

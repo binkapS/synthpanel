@@ -12,12 +12,97 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 /// The engines the panel manages.
+///
+/// This enum is the wire-level vocabulary: the `databases.engines` IPC method
+/// serializes `EngineStatus` with one of these three names. Newer releases of
+/// MySQL/MariaDB are catalogue entries that map onto `Engine::Mysql`, so the
+/// payload shape never changes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Engine {
     Mysql,
     Postgres,
     Redis,
+}
+
+/// A known engine release from the catalogue.
+///
+/// Entries are informational: they describe what the panel can talk to, not
+/// what is installed on this server. The client binary is only a conventional
+/// default; callers may override it through the environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EngineVersion {
+    /// Wire-level engine this release belongs to.
+    pub engine: Engine,
+    /// Stable identifier, e.g. `mariadb-12.1`.
+    pub id: &'static str,
+    /// Human-readable label, e.g. `MariaDB 12.x`.
+    pub label: &'static str,
+    /// Conventional client binary (no package is assumed to be installed).
+    pub client: &'static str,
+    /// Default local port.
+    pub port: u16,
+}
+
+/// Engine releases the panel recognises, including MariaDB 12.x and MySQL 8.4.
+pub const ENGINE_VERSIONS: &[EngineVersion] = &[
+    EngineVersion {
+        engine: Engine::Mysql,
+        id: "mysql-8.0",
+        label: "MySQL 8.0",
+        client: "mysql",
+        port: 3306,
+    },
+    EngineVersion {
+        engine: Engine::Mysql,
+        id: "mysql-8.4",
+        label: "MySQL 8.4",
+        client: "mysql",
+        port: 3306,
+    },
+    EngineVersion {
+        engine: Engine::Mysql,
+        id: "mariadb-10.11",
+        label: "MariaDB 10.11",
+        client: "mysql",
+        port: 3306,
+    },
+    EngineVersion {
+        engine: Engine::Mysql,
+        id: "mariadb-11.4",
+        label: "MariaDB 11.4",
+        client: "mysql",
+        port: 3306,
+    },
+    EngineVersion {
+        engine: Engine::Mysql,
+        id: "mariadb-12",
+        label: "MariaDB 12.x",
+        client: "mysql",
+        port: 3306,
+    },
+    EngineVersion {
+        engine: Engine::Postgres,
+        id: "postgres-16",
+        label: "PostgreSQL 16",
+        client: "psql",
+        port: 5432,
+    },
+    EngineVersion {
+        engine: Engine::Redis,
+        id: "redis-7",
+        label: "Redis 7",
+        client: "redis-cli",
+        port: 6379,
+    },
+];
+
+/// Look up a catalogue entry by identifier or label (case-insensitive).
+pub fn engine_version(value: &str) -> Option<&'static EngineVersion> {
+    let value = value.trim();
+    ENGINE_VERSIONS.iter().find(|entry| {
+        entry.id.eq_ignore_ascii_case(value) || entry.label.eq_ignore_ascii_case(value)
+    })
 }
 
 impl Engine {
@@ -30,11 +115,21 @@ impl Engine {
     }
 
     pub fn parse(value: &str) -> Option<Self> {
-        match value.to_ascii_lowercase().as_str() {
+        match value.trim().to_ascii_lowercase().as_str() {
             "mysql" | "mariadb" => Some(Engine::Mysql),
             "postgres" | "postgresql" | "pgsql" => Some(Engine::Postgres),
             "redis" => Some(Engine::Redis),
-            _ => None,
+            other => {
+                // Accept both catalogue ids and patch-level names such as
+                // `mariadb-12.1` or `mysql-8.4.2` without adding wire values.
+                engine_version(other)
+                    .or_else(|| {
+                        other
+                            .rsplit_once('.')
+                            .and_then(|(line, _)| engine_version(line))
+                    })
+                    .map(|entry| entry.engine)
+            }
         }
     }
 
@@ -484,6 +579,36 @@ mod tests {
         assert_eq!(Engine::parse("postgresql"), Some(Engine::Postgres));
         assert_eq!(Engine::parse("redis"), Some(Engine::Redis));
         assert_eq!(Engine::parse("oracle"), None);
+    }
+
+    #[test]
+    fn catalogue_has_current_releases_without_new_wire_values() {
+        let mariadb = engine_version("mariadb-12").unwrap();
+        assert_eq!(mariadb.engine, Engine::Mysql);
+        assert_eq!(mariadb.label, "MariaDB 12.x");
+        let mysql = engine_version("mysql-8.4").unwrap();
+        assert_eq!(mysql.engine, Engine::Mysql);
+        assert_eq!(mysql.client, "mysql");
+        // The catalogue never introduces a new serialized engine name.
+        assert!(ENGINE_VERSIONS.iter().all(|entry| matches!(
+            entry.engine,
+            Engine::Mysql | Engine::Postgres | Engine::Redis
+        )));
+    }
+
+    #[test]
+    fn parses_versioned_engine_names() {
+        assert_eq!(
+            Engine::parse("mariadb-12.1").map(|e| e.as_str()),
+            Some("mysql")
+        );
+        assert_eq!(
+            Engine::parse("MySQL 8.4").map(|e| e.as_str()),
+            Some("mysql")
+        );
+        assert_eq!(Engine::parse("MariaDB 12.x"), Some(Engine::Mysql));
+        assert_eq!(Engine::parse("postgres-16"), Some(Engine::Postgres));
+        assert_eq!(Engine::parse("oracle-21"), None);
     }
 
     #[test]

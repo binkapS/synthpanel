@@ -641,6 +641,46 @@ test('browser sessions can be listed and other sessions revoked', async ({ page 
   expect((await api(page, 'GET', '/api/v1/auth/me')).status).toBe(200);
 });
 
+test('file manager copies and uploads files', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const name = `e2e-${Date.now()}.txt`;
+  const copy = `${name}-copy`;
+  try {
+    expect((await api(page, 'PUT', '/api/v1/files/content', {
+      scope: 'www', path: name, content: 'hello synthpanel',
+    })).status).toBe(200);
+    expect((await api(page, 'POST', '/api/v1/files/copy', {
+      scope: 'www', path: name, target: copy,
+    })).status).toBe(200);
+    const copied = await api(page, 'GET', `/api/v1/files/content?scope=www&path=${encodeURIComponent(copy)}`);
+    expect(copied.body.content).toBe('hello synthpanel');
+
+    const uploaded = await api(page, 'POST', '/api/v1/files/upload', {
+      scope: 'www', path: `upload-${name}`,
+      content_base64: Buffer.from('uploaded bytes').toString('base64'),
+    });
+    expect(uploaded.status).toBe(200);
+    const read = await api(page, 'GET', `/api/v1/files/content?scope=www&path=${encodeURIComponent(`upload-${name}`)}`);
+    expect(read.body.content).toBe('uploaded bytes');
+  } finally {
+    await api(page, 'DELETE', `/api/v1/files?scope=www&path=${encodeURIComponent(name)}`);
+    await api(page, 'DELETE', `/api/v1/files?scope=www&path=${encodeURIComponent(copy)}`);
+    await api(page, 'DELETE', `/api/v1/files?scope=www&path=${encodeURIComponent(`upload-${name}`)}`);
+  }
+});
+
+test('panel access gates expose non-secret status', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const access = await api(page, 'GET', '/api/v1/panel/access');
+  expect(access.status).toBe(200);
+  expect(access.body).toMatchObject({
+    panel_basic_auth: false,
+    maintenance_mode: false,
+  });
+});
+
 // Guard against forgetting the activation flag when adding new navigations.
 test('e2e harness is inert on a normal URL', async ({ page }) => {
   await page.goto('/');

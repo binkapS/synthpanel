@@ -140,6 +140,29 @@ pub enum Command {
         /// Site id.
         id: String,
     },
+    /// Configure the supervised Node.js/Python application of a site.
+    #[command(name = "sites:app:configure")]
+    SitesAppConfigure {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// Application type: node or python.
+        #[arg(long, value_parser = ["node", "python"])]
+        app_type: String,
+        /// Loopback port the application listens on.
+        #[arg(long)]
+        app_port: i64,
+        /// Command that starts the application; may include env assignments.
+        #[arg(long)]
+        app_command: String,
+    },
+    /// Show a site's application configuration and process status.
+    #[command(name = "sites:app:status")]
+    SitesAppStatus {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+    },
     /// Show the security controls of a site.
     #[command(name = "sites:security:get")]
     SitesSecurityGet {
@@ -780,6 +803,34 @@ async fn main() -> Result<()> {
         Command::SitesShow { id } => {
             let result: Value = global
                 .call(synthpanel_ipc::methods::SITES_GET, json!({ "id": id }))
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesAppConfigure {
+            site,
+            app_type,
+            app_port,
+            app_command,
+        } => {
+            let params = json!({
+                "site_id": site,
+                "app_type": app_type,
+                "app_port": app_port,
+                "app_command": app_command,
+            });
+            let result: Value = global
+                .call(synthpanel_ipc::methods::SITES_APP_CONFIGURE, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SitesAppStatus { site } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::SITES_APP_STATUS,
+                    json!({ "site_id": site }),
+                )
                 .await?;
             println!("{}", global.as_json(&result));
             Ok(())
@@ -1581,6 +1632,53 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(cli.command, Command::SitesProxy { .. }));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "sites:app:configure",
+            "--site",
+            "site-id",
+            "--app-type",
+            "node",
+            "--app-port",
+            "3000",
+            "--app-command",
+            "PORT=3000 npm start",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::SitesAppConfigure {
+                site,
+                app_type,
+                app_port,
+                app_command,
+            } => {
+                assert_eq!(site, "site-id");
+                assert_eq!(app_type, "node");
+                assert_eq!(app_port, 3000);
+                assert_eq!(app_command, "PORT=3000 npm start");
+            }
+            other => panic!("wrong command: {other:?}"),
+        }
+
+        let cli =
+            Cli::try_parse_from(["synthpanel", "sites:app:status", "--site", "site-id"]).unwrap();
+        assert!(matches!(cli.command, Command::SitesAppStatus { .. }));
+        assert!(
+            Cli::try_parse_from([
+                "synthpanel",
+                "sites:app:configure",
+                "--site",
+                "site-id",
+                "--app-type",
+                "ruby",
+                "--app-port",
+                "3000",
+                "--app-command",
+                "ruby app.rb",
+            ])
+            .is_err()
+        );
 
         let cli =
             Cli::try_parse_from(["synthpanel", "sites:security:get", "--site", "site-id"]).unwrap();

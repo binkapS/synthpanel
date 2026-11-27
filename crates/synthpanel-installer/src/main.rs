@@ -79,60 +79,109 @@ fn require_root() -> Result<()> {
     Ok(())
 }
 
+/// Ubuntu releases the installer knows how to bootstrap.
+pub const UBUNTU_VERSIONS: &[&str] = &["22.04", "24.04", "26.04"];
+/// Debian releases the installer knows how to bootstrap.
+pub const DEBIAN_VERSIONS: &[&str] = &["12", "13"];
+
+/// Read `ID` and `VERSION_ID` from an os-release file body.
+fn parse_os_release(text: &str) -> (String, String) {
+    fn value(text: &str, key: &str) -> String {
+        text.lines()
+            .find(|line| line.starts_with(key))
+            .map(|line| line.trim_start_matches(key).trim_matches('"').to_string())
+            .unwrap_or_default()
+    }
+    (value(text, "ID="), value(text, "VERSION_ID="))
+}
+
+fn check_distro(id: &str, version: &str) -> Result<()> {
+    let supported = match id {
+        "ubuntu" => UBUNTU_VERSIONS.contains(&version),
+        "debian" => DEBIAN_VERSIONS.contains(&version),
+        _ => false,
+    };
+    if !supported {
+        bail!(
+            "unsupported distro `{id} {version}`; SynthPanel supports Ubuntu {} and Debian {}",
+            UBUNTU_VERSIONS.join("/"),
+            DEBIAN_VERSIONS.join("/")
+        );
+    }
+    Ok(())
+}
+
 fn detect_distro() -> Result<String> {
     let output = Command::new("cat")
         .arg("/etc/os-release")
         .output()
         .context("cannot read /etc/os-release")?;
     let text = String::from_utf8_lossy(&output.stdout);
-    let id = text
-        .lines()
-        .find(|line| line.starts_with("ID="))
-        .map(|line| line.trim_start_matches("ID=").trim_matches('"').to_string())
-        .unwrap_or_default();
-    let version = text
-        .lines()
-        .find(|line| line.starts_with("VERSION_ID="))
-        .map(|line| {
-            line.trim_start_matches("VERSION_ID=")
-                .trim_matches('"')
-                .to_string()
-        })
-        .unwrap_or_default();
-    if !matches!(id.as_str(), "ubuntu" | "debian") {
-        bail!("unsupported distro `{id}`; SynthPanel supports Ubuntu LTS and Debian 12+");
-    }
-    if id == "ubuntu" && !matches!(version.as_str(), "22.04" | "24.04") {
-        bail!("Ubuntu `{version}` is not an LTS release; use 22.04 or 24.04");
-    }
+    let (id, version) = parse_os_release(&text);
+    check_distro(&id, &version)?;
     Ok(format!("{id}-{version}"))
 }
 
-fn install_packages(skip: bool) -> Result<()> {
+/// Packages shared by every supported release. The unversioned `php-fpm`
+/// meta package is used on purpose: a specific PHP package may not exist on
+/// every distro, and the panel discovers FPM binaries at runtime instead.
+const BASE_PACKAGES: &[&str] = &[
+    "nginx",
+    "php-fpm",
+    "php-mysql",
+    "php-cli",
+    "mariadb-server",
+    "redis-server",
+    "ufw",
+    "fail2ban",
+    "ca-certificates",
+];
+
+/// Per-distro package lists. Newer releases currently share the base list;
+/// versioned PHP/DB packages are intentionally excluded so an install never
+/// fails because a package is unavailable on a given release.
+pub fn base_packages(distro: &str) -> Vec<&'static str> {
+    match distro {
+        "ubuntu-22.04" | "ubuntu-24.04" | "ubuntu-26.04" | "debian-12" | "debian-13" => {
+            BASE_PACKAGES.to_vec()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Parse the optional `SYNTHPANEL_EXTRA_PACKAGES` override (space or comma
+/// separated). It is never required; an empty value adds nothing.
+fn parse_extra_packages(value: &str) -> Vec<String> {
+    value
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+fn extra_packages() -> Vec<String> {
+    parse_extra_packages(&std::env::var("SYNTHPANEL_EXTRA_PACKAGES").unwrap_or_default())
+}
+
+fn install_packages(skip: bool, distro: &str) -> Result<()> {
     if skip {
         info!("skipping package installation");
         return Ok(());
     }
-    info!("installing base packages");
+    let mut packages: Vec<String> = base_packages(distro)
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+    if packages.is_empty() {
+        bail!("no package list for distro `{distro}`");
+    }
+    packages.extend(extra_packages());
+    info!(distro, "installing base packages");
     run("apt-get", &["update", "-qq"])?;
-    run(
-        "apt-get",
-        &[
-            "-y",
-            "-qq",
-            "install",
-            "--no-install-recommends",
-            "nginx",
-            "php-fpm",
-            "php-mysql",
-            "php-cli",
-            "mariadb-server",
-            "redis-server",
-            "ufw",
-            "fail2ban",
-            "ca-certificates",
-        ],
-    )?;
+    let borrowed: Vec<&str> = packages.iter().map(String::as_str).collect();
+    let mut args: Vec<&str> = vec!["-y", "-qq", "install", "--no-install-recommends", "--"];
+    args.extend(borrowed);
+    run("apt-get", &args)?;
     info!("base packages installed");
     Ok(())
 }
@@ -252,14 +301,31 @@ WantedBy=multi-user.target
     Ok(())
 }
 
-fn generate_daemon_env() -> String {
-    let token = generate_secure_token(32);
-    let key = generate_secure_token(32);
+/// Reuse an existing secret when present so re-running the installer does not
+/// invalidate the token or key of a live installation.
+fn read_or_create_secret(path: &Path, bytes: usize) -> String {
+    if let Ok(existing) = std::fs::read_to_string(path) {
+        let existing = existing.trim();
+        if !existing.is_empty() {
+            return existing.to_string();
+        }
+    }
+    let generated = generate_secure_token(bytes);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
     // The token is the master credential of the core: it lives in the run
     // directory, which is a tmpfs and not one of the file-manager scopes.
-    std::fs::create_dir_all("/run/synthpanel").ok();
-    std::fs::write("/run/synthpanel/ipc-token", token.clone()).ok();
-    std::fs::write("/var/lib/synthpanel/secret.key", key).ok();
+    std::fs::write(path, &generated).ok();
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)).ok();
+    generated
+}
+
+fn generate_daemon_env() -> String {
+    // Ensure both secrets exist before the units are enabled; the values are
+    // read from these files at runtime, not embedded in the env file.
+    read_or_create_secret(Path::new("/run/synthpanel/ipc-token"), 32);
+    read_or_create_secret(Path::new("/var/lib/synthpanel/secret.key"), 32);
     concat!(
         "SYNTHPANEL_ETC_DIR=/etc/synthpanel\n",
         "SYNTHPANEL_LIB_DIR=/var/lib/synthpanel\n",
@@ -287,7 +353,11 @@ fn generate_secure_token(bytes: usize) -> String {
     hex::encode(buf)
 }
 
-fn apply_baseline_security() -> Result<()> {
+fn apply_baseline_security(skip_packages: bool) -> Result<()> {
+    if skip_packages {
+        info!("skipping firewall baseline because packages were skipped");
+        return Ok(());
+    }
     info!("applying firewall baseline");
     run("ufw", &["default", "deny", "incoming"])?;
     run("ufw", &["allow", "22/tcp"])?;
@@ -423,11 +493,11 @@ async fn main() -> Result<()> {
     let distro = detect_distro()?;
     info!(distro, "supported distro detected");
 
-    install_packages(args.skip_packages)?;
+    install_packages(args.skip_packages, &distro)?;
     create_layout()?;
     install_binaries()?;
     write_systemd_units(args.skip_systemd)?;
-    apply_baseline_security()?;
+    apply_baseline_security(args.skip_packages)?;
 
     let email = create_admin(&args).await?;
     show_summary(&email, &args.admin_password);
@@ -442,4 +512,64 @@ fn init_tracing() {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .try_init();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recognizes_current_releases() {
+        for (release, expected) in [
+            ("ID=ubuntu\nVERSION_ID=\"22.04\"\n", "ubuntu-22.04"),
+            ("ID=ubuntu\nVERSION_ID=\"24.04\"\n", "ubuntu-24.04"),
+            ("ID=ubuntu\nVERSION_ID=\"26.04\"\n", "ubuntu-26.04"),
+            ("ID=debian\nVERSION_ID=\"12\"\n", "debian-12"),
+            ("ID=debian\nVERSION_ID=\"13\"\n", "debian-13"),
+        ] {
+            let (id, version) = parse_os_release(release);
+            check_distro(&id, &version).unwrap();
+            assert_eq!(format!("{id}-{version}"), expected);
+        }
+    }
+
+    #[test]
+    fn rejects_other_releases() {
+        assert!(check_distro("ubuntu", "25.10").is_err());
+        assert!(check_distro("debian", "11").is_err());
+        assert!(check_distro("fedora", "42").is_err());
+    }
+
+    #[test]
+    fn every_supported_distro_has_a_safe_package_list() {
+        for distro in [
+            "ubuntu-22.04",
+            "ubuntu-24.04",
+            "ubuntu-26.04",
+            "debian-12",
+            "debian-13",
+        ] {
+            let packages = base_packages(distro);
+            assert!(packages.contains(&"nginx"));
+            assert!(packages.contains(&"php-fpm"));
+            assert!(packages.contains(&"mariadb-server"));
+            // Neither a cache nor an MTA is part of the base install.
+            assert!(!packages.iter().any(|p| p.contains("varnish")));
+            assert!(
+                !packages
+                    .iter()
+                    .any(|p| p.contains("mail") || p.contains("postfix"))
+            );
+        }
+        assert!(base_packages("fedora-42").is_empty());
+    }
+
+    #[test]
+    fn optional_extra_packages() {
+        assert!(parse_extra_packages("").is_empty());
+        assert_eq!(
+            parse_extra_packages(" php-curl,php-xml  php-mbstring,"),
+            ["php-curl", "php-xml", "php-mbstring"]
+        );
+    }
 }

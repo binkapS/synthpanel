@@ -5,6 +5,31 @@ use crate::sites::{SiteExtras, SiteRecord};
 use anyhow::Result;
 use regex::Regex;
 
+/// The local application upstream to proxy to, when a site is configured as
+/// a Node.js or Python app site.
+///
+/// Sites without one keep their static/PHP vhost. This type intentionally
+/// lives here so the renderer has no dependency on the process supervisor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AppProxy<'a> {
+    pub app_type: &'a str,
+    pub app_port: u16,
+}
+
+impl<'a> AppProxy<'a> {
+    pub fn new(app_type: &'a str, app_port: u16) -> Self {
+        Self { app_type, app_port }
+    }
+
+    /// Only `node` and `python` app sites get a proxy vhost.
+    pub fn is_supported(&self) -> bool {
+        matches!(
+            self.app_type.trim().to_ascii_lowercase().as_str(),
+            "node" | "nodejs" | "python" | "python3"
+        )
+    }
+}
+
 /// Validate a block of custom Nginx directives before they are applied.
 ///
 /// The linter rejects unbalanced braces and reserved directives that the
@@ -83,8 +108,20 @@ pub fn render_vhost_with_security(
     panel_hostname: &str,
     security: &SiteSecuritySettings,
 ) -> String {
+    render_vhost_with_app(site, panel_hostname, security, None)
+}
+
+/// Render a vhost, optionally replacing the static/PHP content location with
+/// a reverse proxy to a supervised Node.js/Python application.
+pub fn render_vhost_with_app(
+    site: &SiteExtras,
+    panel_hostname: &str,
+    security: &SiteSecuritySettings,
+    app: Option<AppProxy<'_>>,
+) -> String {
     let extras = site;
     let site = &extras.site;
+    let app = app.filter(AppProxy::is_supported);
     let ssl_mode = site.ssl_mode.as_str();
     // Proxy sites carry their target through the existing custom directive
     // field (see `extract_proxy_target`); the site table has no such column.
@@ -105,26 +142,34 @@ pub fn render_vhost_with_security(
 
     let ssl_block = render_ssl_block(site, ssl_mode);
 
-    let php_block = match site.template.as_str() {
-        "static" | "node" | "nextjs" | "proxy" => String::new(),
-        _ => {
-            let php_version = site.php_version.as_deref().unwrap_or("8.3");
-            format!(
-                "    location ~ \\.php$ {{\n\
-                 {indent}fastcgi_pass unix:/run/php/php{ver}-sp-{id}.sock;\n\
-                 {indent}include /etc/nginx/snippets/fastcgi-php.conf;\n\
-                 {indent}}}\n",
-                ver = php_version,
-                id = site.id,
-                indent = "        "
-            )
+    let php_block = if app.is_some() {
+        // An app site is served by its process, never by PHP-FPM.
+        String::new()
+    } else {
+        match site.template.as_str() {
+            "static" | "node" | "nextjs" | "proxy" => String::new(),
+            _ => {
+                let php_version = site.php_version.as_deref().unwrap_or("8.3");
+                format!(
+                    "    location ~ \\.php$ {{\n\
+                     {indent}fastcgi_pass unix:/run/php/php{ver}-sp-{id}.sock;\n\
+                     {indent}include /etc/nginx/snippets/fastcgi-php.conf;\n\
+                     {indent}}}\n",
+                    ver = php_version,
+                    id = site.id,
+                    indent = "        "
+                )
+            }
         }
     };
 
-    let content_location = match site.template.as_str() {
-        "proxy" => render_proxy_location(proxy_target.as_deref()),
-        _ => "    # Static files\n    location / {\n        try_files $uri $uri/ =404;\n    }\n\n"
-            .to_string(),
+    let content_location = match app {
+        Some(app) => render_app_location(&app),
+        None => match site.template.as_str() {
+            "proxy" => render_proxy_location(proxy_target.as_deref()),
+            _ => "    # Static files\n    location / {\n        try_files $uri $uri/ =404;\n    }\n\n"
+                .to_string(),
+        },
     };
 
     let security_block = crate::site_security::render_security_block(security, &site.id);
@@ -220,6 +265,22 @@ fn render_ssl_block(site: &SiteRecord, ssl_mode: &str) -> String {
 /// being emitted twice. Without a target the vhost stays valid and returns
 /// 503 rather than emitting an incomplete `proxy_pass`.
 fn render_proxy_location(target: Option<&str>) -> String {
+    render_proxy_location_labeled(target, "# Reverse proxy")
+}
+
+/// The location block of a supervised app site. The upstream is always the
+/// loopback port of the app process; custom directives cannot redirect it.
+fn render_app_location(app: &AppProxy<'_>) -> String {
+    let upstream = format!("http://127.0.0.1:{}", app.app_port);
+    let label = match app.app_type.trim().to_ascii_lowercase().as_str() {
+        "node" | "nodejs" => "# Node.js application (managed by SynthPanel)",
+        "python" | "python3" => "# Python application (managed by SynthPanel)",
+        _ => "# Application (managed by SynthPanel)",
+    };
+    render_proxy_location_labeled(Some(&upstream), label)
+}
+
+fn render_proxy_location_labeled(target: Option<&str>, label: &str) -> String {
     let Some(target) = target.filter(|value| safe_proxy_target(value)) else {
         return "    # Reverse proxy without a target: set `proxy_target <url>;` in the\n\
                 \x20   # site's custom directives (or use a top-level `proxy_pass <url>;`).\n\
@@ -227,7 +288,7 @@ fn render_proxy_location(target: Option<&str>) -> String {
             .to_string();
     };
     format!(
-        "    # Reverse proxy\n\
+        "    {label}\n\
          {indent}location / {{\n\
          {indent}    proxy_pass {target};\n\
          {indent}    proxy_http_version 1.1;\n\
@@ -418,6 +479,68 @@ mod tests {
         let site = make_site(vec![], "node", "none").await;
         let text = render_vhost(&site, "panel.local");
         assert!(!text.contains("fastcgi_pass"));
+    }
+
+    #[tokio::test]
+    async fn app_site_proxies_to_the_supervised_loopback_port() {
+        let site = make_site(vec![], "node", "none").await;
+        let text = render_vhost_with_app(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            Some(AppProxy::new("node", 3100)),
+        );
+        assert!(text.contains("# Node.js application (managed by SynthPanel)"));
+        assert!(text.contains("proxy_pass http://127.0.0.1:3100;"));
+        assert!(text.contains("proxy_http_version 1.1;"));
+        assert!(text.contains("proxy_set_header Host $host;"));
+        assert!(text.contains("proxy_set_header X-Real-IP $remote_addr;"));
+        assert!(text.contains("proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;"));
+        assert!(text.contains("proxy_set_header X-Forwarded-Proto $scheme;"));
+        assert!(text.contains("proxy_set_header Upgrade $http_upgrade;"));
+        assert!(text.contains("proxy_set_header Connection \"upgrade\";"));
+        assert!(!text.contains("try_files $uri $uri/ =404;"));
+        assert!(!text.contains("return 503;"));
+    }
+
+    #[tokio::test]
+    async fn app_override_replaces_php_and_static_content_locations() {
+        let site = make_site(vec![], "php", "le").await;
+        let text = render_vhost_with_app(
+            &site,
+            "panel.local",
+            &SiteSecuritySettings::default(),
+            Some(AppProxy::new("python", 8000)),
+        );
+        assert!(text.contains("# Python application (managed by SynthPanel)"));
+        assert!(text.contains("proxy_pass http://127.0.0.1:8000;"));
+        assert!(!text.contains("fastcgi_pass"));
+        assert!(!text.contains("# Static files"));
+        // TLS and security rendering is unaffected.
+        assert!(text.contains("listen 443 ssl;"));
+        assert!(text.contains("ssl_certificate "));
+    }
+
+    #[tokio::test]
+    async fn sites_without_app_config_keep_their_plain_vhost() {
+        let node = make_site(vec![], "node", "none").await;
+        let text =
+            render_vhost_with_app(&node, "panel.local", &SiteSecuritySettings::default(), None);
+        assert!(text.contains("try_files $uri $uri/ =404;"));
+        assert!(!text.contains("proxy_pass"));
+        assert!(!text.contains("fastcgi_pass"));
+
+        let php = make_site(vec![], "php", "none").await;
+        let text = render_vhost(&php, "panel.local");
+        assert!(text.contains("fastcgi_pass unix:/run/php/php8.3-sp-"));
+        assert!(text.contains("try_files $uri $uri/ =404;"));
+    }
+
+    #[test]
+    fn unsupported_app_types_fall_back_to_the_plain_vhost() {
+        assert!(!AppProxy::new("ruby", 3000).is_supported());
+        assert!(AppProxy::new("node", 3000).is_supported());
+        assert!(AppProxy::new("python", 3000).is_supported());
     }
 
     #[tokio::test]

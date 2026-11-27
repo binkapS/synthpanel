@@ -355,6 +355,44 @@ pub async fn cert_install(
     Ok(Json(result))
 }
 
+/// Configure a Node.js or Python app for a site.
+pub async fn app_configure(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    ApiJson(body): ApiJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let mut params = body;
+    if let serde_json::Value::Object(map) = &mut params {
+        map.insert("site_id".into(), json!(id));
+    }
+    let result: Value = state
+        .core_call(methods::SITES_APP_CONFIGURE, params)
+        .await?;
+    audit(
+        &state,
+        &user.user_id,
+        "",
+        "sites.app.configure",
+        &id,
+        &user.ip,
+    )
+    .await;
+    Ok(Json(result))
+}
+
+/// Report the supervised app's status for a site.
+pub async fn app_status(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let status: Value = state
+        .core_call(methods::SITES_APP_STATUS, json!({ "site_id": id }))
+        .await?;
+    Ok(Json(status))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

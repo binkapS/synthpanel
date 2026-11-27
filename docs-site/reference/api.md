@@ -2,12 +2,22 @@
 
 Base URL: `https://<panel>:8443/api/v1`
 
+A machine-readable OpenAPI 3.1 document covering every route registered in
+`crates/synthpanel-web/src/api/mod.rs` is available at
+[`/openapi.json`](/openapi.json). It includes request schemas with optional
+fields, role/scope requirements and the WebSocket upgrade paths as info
+extensions.
+
 ## Authentication
 
-- Browser: session cookie plus the `x-csrf-token` header on mutations
-- Scripts: `Authorization: Bearer sp_<prefix>_<secret>`
+- Browser: `synthpanel_session` cookie plus the `x-csrf-token` header (echoing
+  the `synthpanel_csrf` cookie) on mutations
+- Scripts: `Authorization: Bearer sp_<prefix>_<secret>`. A Bearer key takes
+  precedence over the cookie and is exempt from CSRF.
 
-API keys are created in **Settings → API keys** or with
+`/auth/login` and `/auth/2fa/verify` are public; every other endpoint needs one
+of the credentials above. Roles and API-key scopes are listed per operation in
+the OpenAPI document. API keys are created in **Settings → API keys** or with
 `synthpanel apikeys:create`. Only the SHA-256 hash is stored.
 
 ## Errors
@@ -23,6 +33,9 @@ API keys are created in **Settings → API keys** or with
 | POST | `/auth/login` | Sign in |
 | POST | `/auth/logout` | Sign out |
 | GET | `/auth/me` | Current user |
+| POST | `/auth/2fa/setup` · `/auth/2fa/enable` · `/auth/2fa/verify` · `/auth/2fa/disable` | TOTP setup and login flow |
+| GET | `/auth/sessions` | List browser sessions (session cookie only) |
+| POST | `/auth/sessions/revoke-others` | Revoke every other browser session |
 | GET | `/metrics/snapshot` | Live metrics |
 | GET | `/metrics/range?range=24h` | Metrics history |
 | GET | `/services` | Service status |
@@ -32,11 +45,20 @@ API keys are created in **Settings → API keys** or with
 | GET/PATCH/DELETE | `/sites/{id}` | Site detail |
 | POST | `/sites/{id}/ssl/issue` | Issue a certificate |
 | GET | `/sites/{id}/ssl/status` | Certificate status |
+| POST | `/sites/{id}/ssl/cert` | Install a custom certificate (PEM `cert`/`key`, optional `chain`) |
+| GET/POST | `/sites/{id}/security` | Per-site IP/bot blocks, basic auth, Cloudflare-only |
+| GET/POST | `/sites/{id}/ssh-users` | Per-site SSH users |
+| DELETE | `/sites/{id}/ssh-users/{username}` | Remove a per-site SSH user |
 | POST | `/sites/{id}/suspend` | Suspend a site |
 | POST | `/sites/{id}/unsuspend` | Resume a site |
+| GET | `/php/versions` · `/php/status` | PHP versions and installation status |
 | GET | `/databases` | List databases |
 | POST | `/databases` | Create a database |
-| DELETE | `/databases/{id}` | Drop a database |
+| GET/DELETE | `/databases/{id}` | Database detail / drop |
+| POST | `/databases/{id}/dump` | Dump a database on demand |
+| POST | `/databases/{id}/import` | Import a dump (`data`: base64 or raw SQL) |
+| GET/POST | `/databases/{id}/users` | Database users |
+| DELETE | `/databases/users/{id}` | Delete a database user |
 | GET | `/security/firewall` | Firewall rules |
 | GET | `/backups` | Archives and schedules |
 | POST | `/backups/run` | Run a backup |

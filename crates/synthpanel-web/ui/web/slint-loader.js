@@ -122,6 +122,44 @@ function applyTheme(theme) {
   document.documentElement.style.colorScheme = theme;
 }
 
+/** Upload a file. Empty base64 opens a picker; resolves when done/cancelled. */
+function uploadFile(scope, path, base64) {
+  if (base64) {
+    return request('POST', '/api/v1/files/upload',
+      JSON.stringify({ scope, path, content_base64: base64 })).then(() => undefined);
+  }
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+    input.addEventListener('change', async () => {
+      try {
+        const file = input.files && input.files[0];
+        if (file) {
+          if (file.size > 8 * 1024 * 1024) throw new Error('file is larger than 8 MiB');
+          const data = await new Promise((done, fail) => {
+            const reader = new FileReader();
+            reader.onload = () => done(String(reader.result).split(',')[1] || '');
+            reader.onerror = () => fail(reader.error);
+            reader.readAsDataURL(file);
+          });
+          const dir = path.replace(/\/$/, '');
+          const target = `${dir}/${file.name}`;
+          await request('POST', '/api/v1/files/upload',
+            JSON.stringify({ scope, path: target, content_base64: data }));
+        }
+      } catch (error) {
+        console.error('SynthPanel upload failed', error);
+      } finally {
+        input.remove();
+        resolve(undefined);
+      }
+    });
+    input.click();
+  });
+}
+
 window.synthpanel_api = {
   request,
   socket_open: socketOpen,
@@ -130,6 +168,7 @@ window.synthpanel_api = {
   storage_get: (key) => window.localStorage.getItem(key),
   storage_set: (key, value) => window.localStorage.setItem(key, value),
   apply_theme: applyTheme,
+  upload_file: uploadFile,
 };
 
 // ---------------------------------------------------------------------------

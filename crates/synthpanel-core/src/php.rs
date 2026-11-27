@@ -71,10 +71,67 @@ fn format_overrides(overrides: &PhpOverrides) -> String {
 }
 
 /// PHP versions managed by the panel.
-pub const PHP_VERSIONS: &[&str] = &["8.1", "8.2", "8.3", "8.4"];
+///
+/// The catalogue tracks major/minor releases; patch releases of a line (for
+/// example 8.4.x) use the corresponding major/minor entry. The binary is
+/// discovered at runtime so a version can be present without its package
+/// being installed.
+pub const PHP_VERSIONS: &[&str] = &["8.1", "8.2", "8.3", "8.4", "8.5"];
+
+/// Environment variable prefix for overriding a version's FPM binary.
+///
+/// The suffix is the version with dots replaced by underscores, e.g.
+/// `SYNTHPANEL_PHP_FPM_8_5=/opt/php/bin/php-fpm8.5`. The override is optional;
+/// when absent the binary is looked up on `PATH`.
+pub const PHP_FPM_BINARY_ENV_PREFIX: &str = "SYNTHPANEL_PHP_FPM_";
 
 pub fn is_supported_version(version: &str) -> bool {
     PHP_VERSIONS.contains(&version)
+}
+
+/// The env key used to override the FPM binary of a version.
+pub fn php_fpm_binary_env_key(version: &str) -> String {
+    format!("{PHP_FPM_BINARY_ENV_PREFIX}{}", version.replace('.', "_"))
+}
+
+/// Candidate FPM binary names for a version, in lookup order.
+///
+/// Debian and Ubuntu use both spellings (`php-fpm84` and `php-fpm8.4`)
+/// depending on the release, so neither is assumed to exist.
+pub fn php_fpm_binary_names(version: &str) -> [String; 2] {
+    [
+        format!("php-fpm{}", version.replace('.', "")),
+        format!("php-fpm{version}"),
+    ]
+}
+
+/// Resolve the FPM binary for a version: explicit env override first, then
+/// the conventional names on `PATH`. Returns `None` when nothing is installed.
+pub fn php_fpm_binary(version: &str) -> Option<PathBuf> {
+    let key = php_fpm_binary_env_key(version);
+    if let Some(path) = std::env::var_os(&key).filter(|value| !value.is_empty()) {
+        return Some(PathBuf::from(path));
+    }
+    for name in php_fpm_binary_names(version) {
+        if let Some(path) = which(&name) {
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// Pool directory for a version. `Paths` only knows the historically
+/// supported versions, so newer catalogue entries fall back to the same
+/// `SYNTHPANEL_PHP_DIR` override that `Paths::from_env` uses.
+fn pool_root(paths: &crate::apply::Paths, version: &str, index: usize) -> PathBuf {
+    if let Some(path) = paths.php_pools.get(index) {
+        return path.clone();
+    }
+    let php_dir = std::env::var_os("SYNTHPANEL_PHP_DIR")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("/etc/synthpanel/php"));
+    php_dir.join(version)
 }
 
 /// What the panel knows about the PHP installation of this server.
@@ -116,13 +173,8 @@ pub async fn status(pool: &sqlx::SqlitePool) -> Result<PhpStatus> {
     let mut installed = Vec::new();
 
     for (index, version) in PHP_VERSIONS.iter().enumerate() {
-        let binary = which(&format!("php-fpm{}", version.replace('.', "")))
-            .map(|path| path.to_string_lossy().to_string());
-        let pool_dir = paths
-            .php_pools
-            .get(index)
-            .cloned()
-            .unwrap_or_else(|| PathBuf::from("."));
+        let binary = php_fpm_binary(version).map(|path| path.to_string_lossy().to_string());
+        let pool_dir = pool_root(&paths, version, index);
         let pool_root = pool_dir.join("fpm/pool.d");
         let mut pools = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&pool_root) {
@@ -171,12 +223,18 @@ struct PhpSiteRow {
     version: String,
 }
 
-/// Find a binary on the PATH.
+/// Find an executable binary on the PATH.
 fn which(binary: &str) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
     let path = std::env::var_os("PATH").unwrap_or_default();
     for dir in std::env::split_paths(&path) {
         let candidate = dir.join(binary);
-        if candidate.exists() {
+        if candidate.is_file()
+            && candidate
+                .metadata()
+                .map(|meta| meta.permissions().mode() & 0o111 != 0)
+                .unwrap_or(false)
+        {
             return Some(candidate);
         }
     }
@@ -211,8 +269,8 @@ mod tests {
             .unwrap();
 
         let status = status(&pool).await.unwrap();
-        assert_eq!(status.versions, vec!["8.1", "8.2", "8.3", "8.4"]);
-        assert_eq!(status.installed.len(), 4);
+        assert_eq!(status.versions, vec!["8.1", "8.2", "8.3", "8.4", "8.5"]);
+        assert_eq!(status.installed.len(), PHP_VERSIONS.len());
         assert_eq!(status.sites.len(), 1);
         assert_eq!(status.sites[0].domain, "example.com");
         assert_eq!(status.sites[0].version, "8.2");
@@ -275,8 +333,28 @@ mod tests {
     #[test]
     fn supports_expected_php_versions() {
         assert!(is_supported_version("8.3"));
+        assert!(is_supported_version("8.4"));
+        assert!(is_supported_version("8.5"));
         assert!(!is_supported_version("7.4"));
-        assert_eq!(PHP_VERSIONS.len(), 4);
+        assert_eq!(PHP_VERSIONS.len(), 5);
+    }
+
+    #[test]
+    fn fpm_binary_lookup_is_overridable() {
+        assert_eq!(php_fpm_binary_env_key("8.5"), "SYNTHPANEL_PHP_FPM_8_5");
+        assert_eq!(php_fpm_binary_env_key("8.4"), "SYNTHPANEL_PHP_FPM_8_4");
+        assert_eq!(php_fpm_binary_names("8.4"), ["php-fpm84", "php-fpm8.4"]);
+        assert_eq!(php_fpm_binary_names("8.5"), ["php-fpm85", "php-fpm8.5"]);
+    }
+
+    #[test]
+    fn newer_versions_get_a_pool_dir() {
+        let paths = crate::apply::Paths::from_env();
+        let base = std::env::var_os("SYNTHPANEL_PHP_DIR")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/etc/synthpanel/php"));
+        assert_eq!(pool_root(&paths, "8.5", 4), base.join("8.5"));
     }
 
     #[test]

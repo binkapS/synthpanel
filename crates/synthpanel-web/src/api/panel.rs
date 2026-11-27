@@ -58,3 +58,23 @@ pub async fn issue(
     .await;
     Ok(Json(result))
 }
+
+/// Report which panel-level gates are active.
+///
+/// This is deliberately configuration-only: it never returns the Basic Auth
+/// username, password hash or the individual allow-list entries.
+pub async fn access(
+    State(state): State<Arc<AppState>>,
+    _user: AuthUser,
+) -> Result<Json<Value>, ApiError> {
+    let maintenance: Value = state
+        .core_call(methods::SETTINGS_GET, json!({ "key": "maintenance_mode" }))
+        .await?;
+    Ok(Json(json!({
+        "panel_basic_auth": state.config.panel_basic_auth.is_some(),
+        "ip_allow_list": state.config.ip_allow_list_enabled(),
+        "ip_allow_list_entries": state.config.panel_allow_ips.len(),
+        "trusted_proxies": state.config.trusted_proxies,
+        "maintenance_mode": crate::middleware::setting_flag(Some(&maintenance)),
+    })))
+}

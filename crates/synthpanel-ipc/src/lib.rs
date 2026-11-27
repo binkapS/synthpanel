@@ -259,6 +259,9 @@ pub mod methods {
     pub const SSL_CERT_INSTALL: &str = "ssl.cert.install";
     pub const DATABASES_DUMP: &str = "databases.dump";
     pub const DATABASES_IMPORT: &str = "databases.import";
+    pub const SITES_APP_CONFIGURE: &str = "sites.app.configure";
+    pub const SITES_APP_STATUS: &str = "sites.app.status";
+    pub const FILES_COPY: &str = "files.copy";
 }
 
 /// Well-known error codes.

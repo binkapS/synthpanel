@@ -34,6 +34,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/auth/2fa/enable", post(auth::totp_enable))
         .route("/api/v1/auth/2fa/verify", post(auth::totp_verify))
         .route("/api/v1/auth/2fa/disable", post(auth::totp_disable))
+        .route("/api/v1/panel/access", get(panel::access))
         .route("/api/v1/auth/sessions", get(sessions::list))
         .route(
             "/api/v1/auth/sessions/revoke-others",
@@ -93,6 +94,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/ws/logs", get(crate::ws::logs_ws))
         .route("/api/v1/sites/{id}/ssl/issue", post(sites::issue_ssl))
         .route("/api/v1/sites/{id}/ssl/status", get(sites::ssl_status))
+        .route(
+            "/api/v1/sites/{id}/app",
+            get(sites::app_status).post(sites::app_configure),
+        )
         .route("/api/v1/sites/{id}/ssl/cert", post(sites::cert_install))
         .route(
             "/api/v1/sites/{id}/security",
@@ -114,6 +119,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/sites/{id}",
             get(sites::get).patch(sites::update).delete(sites::delete),
         )
+        .route("/api/v1/files/copy", post(files::copy))
+        .route("/api/v1/files/upload", post(files::upload))
         .route("/api/v1/backups", get(backups::list))
         .route("/api/v1/backups/run", post(backups::run))
         .route("/api/v1/backups/schedules", post(backups::schedule_create))

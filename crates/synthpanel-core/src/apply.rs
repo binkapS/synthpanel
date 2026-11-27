@@ -41,9 +41,9 @@ impl Paths {
             nginx_vhosts: nginx.join("sites-available/synthpanel"),
             nginx_enabled: nginx.join("sites-enabled/synthpanel"),
             snippets: nginx.join("snippets"),
-            php_pools: (0..4).map(|i| php.join(version_dir(i))).collect(),
+            php_pools: (0..5).map(|i| php.join(version_dir(i))).collect(),
             nginx_main: nginx.join("nginx.conf"),
-            php_main: (0..4)
+            php_main: (0..5)
                 .map(|i| php.join(version_dir(i)).join("php-fpm.conf"))
                 .collect(),
             backups: backup.join("configs"),
@@ -57,7 +57,8 @@ fn version_dir(index: usize) -> String {
         0 => "8.1".to_string(),
         1 => "8.2".to_string(),
         2 => "8.3".to_string(),
-        _ => "8.4".to_string(),
+        3 => "8.4".to_string(),
+        _ => "8.5".to_string(),
     }
 }
 
@@ -298,6 +299,7 @@ fn pick_pool_path(paths: &Paths, version: &str) -> Result<PathBuf> {
         "8.2" => 1,
         "8.3" => 2,
         "8.4" => 3,
+        "8.5" => 4,
         _ => 2,
     };
     let root = &paths.php_pools[idx];

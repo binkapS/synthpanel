@@ -60,3 +60,76 @@ synthpanel deploy:add --site <site-id> --repo https://github.com/example/app.git
 synthpanel deploy:run <deployment-id>
 synthpanel deploy:runs <deployment-id>
 ```
+
+All commands accept the global `--socket`, `--token-file` and
+`--output json|table|yaml` options (see `synthpanel --help`).
+
+## CloudPanel-parity verbs
+
+These verbs are **CLI-first**: the CLI and IPC methods exist, but a verb is not
+proof that the matching REST endpoint or UI screen has shipped. The current
+per-feature status is in [`docs/roadmap.md`](../../docs/roadmap.md). The REST
+routes for site security, per-site SSH users, custom certificates, sessions and
+DB dump/import are present in `/api/v1` — see the
+[REST API](./api) and the [OpenAPI document](/openapi.json). Proxy site
+creation is exposed through the ordinary site-create REST route with template
+`proxy`; `user-sites:*` has no REST route in v1.
+
+### Reverse-proxy sites
+
+```sh
+synthpanel sites:proxy app.example.com --target http://127.0.0.1:3000 \
+  [--aliases www.app.example.com] [--ssl none|le|custom]
+```
+
+Creates a site with template `proxy` and a `proxy_target <url>;` directive.
+The vhost renderer has landed; dedicated UI options are still in progress.
+
+### Per-site security controls
+
+```sh
+synthpanel sites:security:get --site <site-id>
+synthpanel sites:security:set --site <site-id> \
+  [--ip-block 10.0.0.8,192.0.2.0/24] [--bot-block wget,curl] \
+  [--basic-auth-user deploy --basic-auth-password s3cret] \
+  [--cloudflare-only]
+```
+
+`--ip-block` and `--bot-block` take comma-separated lists. The two basic-auth
+options must be supplied together; supplying both enables basic auth. Only
+fields actually supplied by the CLI are sent to the core.
+
+### Per-site SSH users
+
+```sh
+synthpanel sites:ssh-users:list --site <site-id>
+synthpanel sites:ssh-users:add --site <site-id> --username deploy \
+  --public-key "$(cat id_ed25519.pub)"
+synthpanel sites:ssh-users:remove --site <site-id> --username deploy
+```
+
+These accounts are key-only system users, separate from panel accounts.
+
+### Custom certificate and database dumps
+
+```sh
+synthpanel ssl:cert:install --site <site-id> --cert site.crt --key site.key
+synthpanel db:dump <db-id>
+synthpanel db:import <db-id> --file dump.sql
+```
+
+`--cert` and `--key` are paths to local PEM files; their contents are sent over
+IPC. `--file` is a local SQL dump sent as raw SQL (base64 is accepted by the
+core as well).
+
+### User-to-site assignments
+
+```sh
+synthpanel user-sites:list --user <user-id>
+synthpanel user-sites:set --user <user-id> --sites <id-1>,<id-2>
+# An empty --sites value clears the assignment.
+```
+
+These map to the core's `user_sites.*` methods. There is no CLI verb for
+session revocation: sessions are listed and revoked in the web UI through
+`GET /api/v1/auth/sessions` and `POST /api/v1/auth/sessions/revoke-others`.

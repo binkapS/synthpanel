@@ -28,7 +28,12 @@ the configuration does not validate.
 | 8.1 | supported |
 | 8.2 | supported |
 | 8.3 | supported (the default) |
-| 8.4 | supported |
+| 8.4 | supported (includes all 8.4.x patch releases) |
+| 8.5 | supported |
+
+Patch releases such as 8.4.7 use the matching major/minor entry above; the
+panel discovers the installed FPM binary at runtime rather than assuming a
+package is present.
 
 The page marks a version as *not installed* when its `php-fpm` binary is not
 on the PATH, and *installed, but not running* when the service is inactive.

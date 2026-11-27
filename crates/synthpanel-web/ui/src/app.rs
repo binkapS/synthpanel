@@ -787,6 +787,42 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         });
     });
 
+    let b = Rc::clone(bridge);
+    app.on_file_copy(move |scope, from, to| {
+        let b = Rc::clone(&b);
+        let body = serde_json::json!({
+            "scope": scope.as_str(),
+            "path": from.as_str(),
+            "target": to.as_str(),
+        });
+        let _ = slint::spawn_local(async move {
+            match http("POST", "/api/v1/files/copy", Some(body)).await {
+                Ok(_) => {
+                    load_files(&b, &b.app.borrow().get_current_file_path());
+                    b.app.borrow_mut().set_files_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_files_status(message.into()),
+            }
+        });
+    });
+
+    let b = Rc::clone(bridge);
+    app.on_file_upload(move |scope, path, base64| {
+        let b = Rc::clone(&b);
+        let scope = scope.to_string();
+        let path = path.to_string();
+        let base64 = base64.to_string();
+        let _ = slint::spawn_local(async move {
+            match api::upload_file(&scope, &path, &base64).await {
+                Ok(()) => {
+                    load_files(&b, &path);
+                    b.app.borrow_mut().set_files_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_files_status(message.into()),
+            }
+        });
+    });
+
     // --- Deployments --------------------------------------------------------------------
     let b = Rc::clone(bridge);
     app.on_create_deployment(

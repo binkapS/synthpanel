@@ -1,0 +1,6354 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SynthPanel REST API",
+    "version": "1.0.0",
+    "summary": "The v1 HTTP surface implemented by crates/synthpanel-web/src/api/mod.rs",
+    "description": "All `/api/v1` paths below are registered in `crates/synthpanel-web/src/api/mod.rs`. Responses are JSON objects proxied from the privileged core unless stated otherwise; where the core returns an untyped value, the schema is deliberately generic. Fields with a `default` in a request schema are optional in the handler (serde defaults). Paths outside that router (`/healthz`, the embedded UI and its static assets) are not listed. \n\nAuthentication: a browser sends the `synthpanel_session` cookie; scripts send `Authorization: Bearer sp_<prefix>_<secret>`. A Bearer token takes precedence over the cookie and is exempt from CSRF. Browser mutations (POST/PUT/PATCH/DELETE) must echo the `synthpanel_csrf` cookie in the `x-csrf-token` header; the two public auth paths and Bearer requests are exempt. Roles: admin (terminal, users, security, alerts, settings, panel, update), operator (sites, databases, files, backups, cron, deployments; read-only elsewhere), user (read-only plus sites assigned to them). API-key scopes are `read`, `write` and `admin`. The `/api/v1/auth/sessions*` endpoints reject Bearer keys even though their policy is read-only. Note: `POST`/`DELETE /api/v1/api-keys` are currently classified as read-scope operations by `authz.rs`; the `x-api-key-scope` extensions reflect the implementation, not a recommendation. \n\nThis document is generated from the current handlers; where a CloudPanel-parity feature is only wired through the CLI and core, the endpoint may still be incomplete in the UI. See `docs/roadmap.md` for per-feature status.",
+    "license": {
+      "name": "AGPL-3.0-or-later"
+    },
+    "x-auth-notes": {
+      "sessionCookie": "synthpanel_session (HttpOnly, SameSite=Strict, Secure when TLS is detected)",
+      "csrfCookie": "synthpanel_csrf (readable by JS)",
+      "csrfHeader": "x-csrf-token",
+      "bearerPrefix": "sp_",
+      "publicPaths": [
+        "/api/v1/auth/login",
+        "/api/v1/auth/2fa/verify"
+      ],
+      "csrfExemptPaths": [
+        "/api/v1/auth/login",
+        "/api/v1/auth/2fa/verify"
+      ]
+    },
+    "x-websocket-channels": [
+      {
+        "path": "/ws/dashboard",
+        "upgrade": "GET with Upgrade: websocket",
+        "auth": "Session cookie or Bearer API key (read scope)",
+        "query": {},
+        "serverFrames": [
+          {
+            "type": "snapshot",
+            "metrics": "latest metrics object or null",
+            "services": "service status array"
+          },
+          {
+            "type": "error",
+            "message": "IPC error; socket then closes"
+          }
+        ],
+        "cadenceSeconds": 3
+      },
+      {
+        "path": "/ws/logs",
+        "upgrade": "GET with Upgrade: websocket",
+        "auth": "Session cookie or Bearer API key (read scope)",
+        "query": {
+          "type": "default panel",
+          "site_id": "optional",
+          "lines": "default 200"
+        },
+        "serverFrames": [
+          {
+            "type": "log",
+            "line": "one log line"
+          },
+          {
+            "type": "error",
+            "message": "IPC error; socket then closes"
+          }
+        ],
+        "cadenceSeconds": 2
+      },
+      {
+        "path": "/ws/terminal/{id}",
+        "upgrade": "GET with Upgrade: websocket",
+        "auth": "Session cookie or Bearer API key; admin role required (checked in the handler)",
+        "query": {},
+        "clientFrames": [
+          {
+            "type": "input",
+            "data": "keystrokes"
+          },
+          {
+            "type": "resize",
+            "rows": 24,
+            "cols": 80
+          }
+        ],
+        "serverFrames": [
+          {
+            "type": "output",
+            "data": "terminal bytes"
+          }
+        ]
+      }
+    ]
+  },
+  "servers": [
+    {
+      "url": "https://{host}:8443",
+      "description": "The panel itself; TLS is required by default.",
+      "variables": {
+        "host": {
+          "default": "localhost",
+          "description": "Panel hostname or IP"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "cookieAuth": []
+    },
+    {
+      "bearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Dashboard"
+    },
+    {
+      "name": "Admin"
+    },
+    {
+      "name": "Sites"
+    },
+    {
+      "name": "PHP"
+    },
+    {
+      "name": "Databases"
+    },
+    {
+      "name": "Security"
+    },
+    {
+      "name": "Backups"
+    },
+    {
+      "name": "Cron"
+    },
+    {
+      "name": "Logs"
+    },
+    {
+      "name": "Files"
+    },
+    {
+      "name": "API keys"
+    },
+    {
+      "name": "Alerts"
+    },
+    {
+      "name": "Deployments"
+    },
+    {
+      "name": "Terminal"
+    },
+    {
+      "name": "Realtime"
+    },
+    {
+      "name": "Public"
+    },
+    {
+      "name": "Panel"
+    },
+    {
+      "name": "Updates"
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign in",
+        "description": "Rate limited to 10 attempts per IP in a 300-second window. Sets the session and CSRF cookies on success.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [],
+        "x-access-policy": "public",
+        "x-api-key-scope": "none"
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Sign out",
+        "description": "Destroys the session and clears both cookies.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Current user",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/auth/2fa/setup": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Generate a TOTP secret",
+        "description": "Returns the secret, otpauth URL and an SVG QR data URI. The secret stays disabled until /2fa/enable succeeds; if 2FA is already enabled the password is verified first.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/auth/2fa/enable": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Enable TOTP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CodeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/auth/2fa/verify": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Complete a 2FA login",
+        "description": "Consumes the challenge ID returned by /auth/login. Rate limited like /auth/login; codes cannot be reused.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [],
+        "x-access-policy": "public",
+        "x-api-key-scope": "none"
+      }
+    },
+    "/api/v1/auth/2fa/disable": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Disable TOTP",
+        "description": "Requires the account password.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/auth/sessions": {
+      "get": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "List active browser sessions",
+        "description": "Session-cookie authentication only: API keys are rejected with 403 because a key has no browser session.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionsList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/auth/sessions/revoke-others": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Revoke all other sessions",
+        "description": "Session-cookie authentication only; leaves the current session intact.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeOthersResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/metrics/snapshot": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Latest metrics snapshot",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/metrics/range": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Metrics history",
+        "parameters": [
+          {
+            "name": "range",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "24h"
+            },
+            "description": "Defaults to 24h."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/services": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Service status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Audit log",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25
+            },
+            "description": "Defaults to 25 and is clamped to 1..200."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/settings": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Read panel settings",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      },
+      "patch": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Update panel settings",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsPatch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "List users",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsersList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      },
+      "post": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Create a user",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/users/{id}": {
+      "patch": {
+        "tags": [
+          "Admin"
+        ],
+        "summary": "Update a user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "User ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "List sites",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Create a site",
+        "description": "Creates the vhost and PHP-FPM pool through the apply pipeline. The CLI's `sites:proxy` verb uses template `proxy`.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSiteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Get a site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write"
+      },
+      "patch": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Update a site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSiteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      },
+      "delete": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Delete a site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/ssl/issue": {
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Issue a Let's Encrypt certificate",
+        "description": "HTTP-01 via the ACME webroot served at /.well-known/acme-challenge/{token}.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/ssl/status": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Site certificate status",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write"
+      }
+    },
+    "/api/v1/sites/{id}/ssl/cert": {
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Install a custom certificate",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CertInstallRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/security": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Get per-site security controls",
+        "description": "CloudPanel parity endpoint. Returns the stored IP/bot blocks, basic auth and Cloudflare-only settings.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write"
+      },
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Set per-site security controls",
+        "description": "CloudPanel parity endpoint. All body fields are optional and defaulted by the handler.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SiteSecurityRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/ssh-users": {
+      "get": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "List per-site SSH users",
+        "description": "CloudPanel parity endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteUsersList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write"
+      },
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Add a per-site SSH user",
+        "description": "CloudPanel parity endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSiteUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/ssh-users/{username}": {
+      "delete": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Remove a per-site SSH user",
+        "description": "CloudPanel parity endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          },
+          {
+            "name": "username",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "System user name"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/suspend": {
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Suspend a site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/sites/{id}/unsuspend": {
+      "post": {
+        "tags": [
+          "Sites"
+        ],
+        "summary": "Unsuspend a site",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Site ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "site",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/php/versions": {
+      "get": {
+        "tags": [
+          "PHP"
+        ],
+        "summary": "Managed PHP versions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/php/status": {
+      "get": {
+        "tags": [
+          "PHP"
+        ],
+        "summary": "PHP installation status",
+        "description": "Installed versions, FPM binaries, generated pools and the sites using them.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/databases": {
+      "get": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "List databases",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Create a database",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/databases/{id}": {
+      "get": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Get a database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "delete": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Delete a database",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/databases/{id}/dump": {
+      "post": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Dump a database on demand",
+        "description": "CloudPanel parity endpoint. No request body.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/databases/{id}/import": {
+      "post": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Import a SQL dump",
+        "description": "CloudPanel parity endpoint.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportDumpRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/databases/{id}/users": {
+      "get": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "List database users",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Add a database user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Database ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddDatabaseUserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/databases/users/{id}": {
+      "delete": {
+        "tags": [
+          "Databases"
+        ],
+        "summary": "Delete a database user",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "DB user ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/security/firewall": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Firewall status and rules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/security/firewall/rules": {
+      "post": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Apply a firewall rule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FirewallRuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/security/fail2ban": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "fail2ban jails",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/security/fail2ban/unban": {
+      "post": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Unban an IP",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnbanRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/security/ssh-keys": {
+      "get": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "List SSH keys",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      },
+      "post": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Add an SSH key",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SshKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/security/ssh-keys/{id}": {
+      "delete": {
+        "tags": [
+          "Security"
+        ],
+        "summary": "Remove an SSH key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Key ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups": {
+      "get": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "List backups and schedules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/backups/run": {
+      "post": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Run a backup now",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunBackupRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/schedules": {
+      "post": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Create a backup schedule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/schedules/{id}": {
+      "delete": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Delete a backup schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Schedule ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/{id}": {
+      "delete": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Delete an archive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Backup ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/{id}/verify": {
+      "post": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Verify an archive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Backup ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/{id}/restore": {
+      "post": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Restore an archive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Backup ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/backups/{id}/download": {
+      "get": {
+        "tags": [
+          "Backups"
+        ],
+        "summary": "Download an archive",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Backup ID"
+          },
+          {
+            "name": "passphrase",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            },
+            "description": "Optional decryption passphrase."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The archive bytes",
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/cron": {
+      "get": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "List cron jobs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Create a cron job",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/cron/describe": {
+      "get": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Describe a cron expression",
+        "parameters": [
+          {
+            "name": "expression",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/cron/{id}": {
+      "patch": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Update a cron job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Job ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateJobRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      },
+      "delete": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Delete a cron job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Job ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/cron/{id}/run": {
+      "post": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Run a cron job now",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Job ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/cron/{id}/runs": {
+      "get": {
+        "tags": [
+          "Cron"
+        ],
+        "summary": "Cron run history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Job ID"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 20
+            },
+            "description": "Defaults to 20."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/logs": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "Read a log source",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "panel"
+            },
+            "description": "Log source name (see /logs/sources); defaults to panel."
+          },
+          {
+            "name": "site_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": null
+            }
+          },
+          {
+            "name": "level",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            }
+          },
+          {
+            "name": "since_minutes",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": null
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 500
+            },
+            "description": "Defaults to 500."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/logs/sources": {
+      "get": {
+        "tags": [
+          "Logs"
+        ],
+        "summary": "List log sources",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/files": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "List a directory",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "www",
+                "etc",
+                "backups",
+                "logs"
+              ],
+              "default": null
+            },
+            "description": "Optional file-manager scope."
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "delete": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Delete a path",
+        "description": "Path traversal outside the selected scope is rejected.",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "www",
+                "etc",
+                "backups",
+                "logs"
+              ],
+              "default": null
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/content": {
+      "get": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Read a file",
+        "parameters": [
+          {
+            "name": "scope",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "www",
+                "etc",
+                "backups",
+                "logs"
+              ],
+              "default": null
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "put": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Write a file",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/dir": {
+      "post": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Create a directory",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MkdirRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/rename": {
+      "post": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Rename or move a path",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/permissions": {
+      "patch": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Change permissions or ownership",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChmodRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/archive": {
+      "post": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Create an archive",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/files/extract": {
+      "post": {
+        "tags": [
+          "Files"
+        ],
+        "summary": "Extract an archive",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExtractRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/api-keys": {
+      "get": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "List API keys",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Create an API key",
+        "description": "Returns the one-time `sp_<prefix>_<secret>` token; only its SHA-256 hash is stored. The key is created for the authenticated account, including when the caller is itself an API key.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateKeyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/api-keys/{id}": {
+      "delete": {
+        "tags": [
+          "API keys"
+        ],
+        "summary": "Revoke an API key",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Key ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/alerts": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Alert delivery history",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/alerts/test": {
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Send a test alert",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/alerts/channels": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List alert channels",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create an alert channel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/alerts/channels/{id}": {
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete an alert channel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Channel ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/alerts/rules": {
+      "get": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "List alert rules",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      },
+      "post": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Create an alert rule",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/alerts/rules/{id}": {
+      "delete": {
+        "tags": [
+          "Alerts"
+        ],
+        "summary": "Delete an alert rule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Rule ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/deployments": {
+      "get": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "List deployments",
+        "parameters": [
+          {
+            "name": "site_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            },
+            "description": "Optional site filter."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      },
+      "post": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "Create a deployment",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/deployments/{id}": {
+      "patch": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "Update a deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Deployment ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeploymentUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      },
+      "delete": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "Delete a deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Deployment ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/deployments/{id}/run": {
+      "post": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "Run a deployment",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Deployment ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "operator",
+        "x-api-key-scope": "write",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/deployments/{id}/runs": {
+      "get": {
+        "tags": [
+          "Deployments"
+        ],
+        "summary": "Deployment run history",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Deployment ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/terminal": {
+      "get": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "List terminal sessions",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/terminal/open": {
+      "post": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Open a terminal session",
+        "description": "Admin only. The shell runs in a PTY inside the core, not via an SSH port.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalOpenRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/terminal/{id}": {
+      "delete": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Close a terminal session",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/terminal/{id}/write": {
+      "post": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Write to a terminal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalWriteRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/terminal/{id}/read": {
+      "get": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Read terminal output",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/terminal/{id}/resize": {
+      "post": {
+        "tags": [
+          "Terminal"
+        ],
+        "summary": "Resize a terminal",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Session ID"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TerminalResizeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/ws/dashboard": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "Upgrade to the dashboard WebSocket",
+        "description": "WebSocket upgrade. See info.x-websocket-channels for frames, query parameters and auth. The browser bridge sends the same session cookie or Bearer token on the handshake request.",
+        "responses": {
+          "101": {
+            "description": "Switching Protocols; server pushes snapshot frames every 3 seconds."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-websocket": true
+      }
+    },
+    "/ws/logs": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "Upgrade to the log-tail WebSocket",
+        "description": "WebSocket upgrade. See info.x-websocket-channels for frames, query parameters and auth. The browser bridge sends the same session cookie or Bearer token on the handshake request.",
+        "parameters": [
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": "panel"
+            },
+            "description": "Defaults to panel."
+          },
+          {
+            "name": "site_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "default": null
+            }
+          },
+          {
+            "name": "lines",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 200
+            },
+            "description": "Defaults to 200."
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols; server pushes log frames."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-websocket": true
+      }
+    },
+    "/ws/terminal/{id}": {
+      "get": {
+        "tags": [
+          "Realtime"
+        ],
+        "summary": "Upgrade to a terminal WebSocket",
+        "description": "WebSocket upgrade. See info.x-websocket-channels for frames, query parameters and auth. The browser bridge sends the same session cookie or Bearer token on the handshake request. Admin only (checked in the handler).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Terminal session ID"
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "Switching Protocols; bidirectional JSON frames."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "read",
+        "x-api-key-scope": "read",
+        "x-websocket": true
+      }
+    },
+    "/.well-known/acme-challenge/{token}": {
+      "get": {
+        "tags": [
+          "Public"
+        ],
+        "summary": "Serve an ACME HTTP-01 challenge",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "Challenge token"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The challenge body",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          }
+        },
+        "security": [],
+        "x-access-policy": "read",
+        "x-api-key-scope": "read"
+      }
+    },
+    "/api/v1/panel/ssl/status": {
+      "get": {
+        "tags": [
+          "Panel"
+        ],
+        "summary": "Panel certificate status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/panel/ssl/issue": {
+      "post": {
+        "tags": [
+          "Panel"
+        ],
+        "summary": "Issue a panel certificate",
+        "description": "Let's Encrypt for the panel hostname; needs port 80 reachable and acme.sh installed.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/update": {
+      "get": {
+        "tags": [
+          "Updates"
+        ],
+        "summary": "Update status",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin"
+      }
+    },
+    "/api/v1/update/check": {
+      "post": {
+        "tags": [
+          "Updates"
+        ],
+        "summary": "Check for updates",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/update/apply": {
+      "post": {
+        "tags": [
+          "Updates"
+        ],
+        "summary": "Apply a signed update",
+        "description": "Verifies the Ed25519 signature and SHA-256 checksum, backs up the binaries, restarts and health-checks, then rolls back on failure.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    },
+    "/api/v1/update/rollback": {
+      "post": {
+        "tags": [
+          "Updates"
+        ],
+        "summary": "Roll back an update",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JsonValue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        },
+        "x-access-policy": "admin",
+        "x-api-key-scope": "admin",
+        "x-csrf": "Required for cookie sessions; Bearer API keys are exempt."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "synthpanel_session",
+        "description": "Browser session. Mutating requests also need `x-csrf-token` matching the `synthpanel_csrf` cookie."
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "sp_<prefix>_<secret>",
+        "description": "Scoped API key. CSRF is not applied to Bearer requests."
+      }
+    },
+    "schemas": {
+      "JsonValue": {
+        "description": "A JSON value returned by the core IPC method. The handlers proxy these objects without a fixed shape."
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "operator",
+              "user"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled",
+              "suspended"
+            ]
+          },
+          "quota_sites": {
+            "type": "integer"
+          },
+          "quota_dbs": {
+            "type": "integer"
+          },
+          "totp_enabled": {
+            "type": "boolean"
+          },
+          "last_login_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "description": "A user record. Password hashes and TOTP secrets are stripped by the handler."
+      },
+      "UsersList": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/User"
+            }
+          }
+        },
+        "required": [
+          "users"
+        ]
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "LoginResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "requires_2fa": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "user": {
+                "$ref": "#/components/schemas/User"
+              }
+            },
+            "required": [
+              "requires_2fa",
+              "user"
+            ],
+            "description": "Session established; Set-Cookie sends synthpanel_session and synthpanel_csrf."
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requires_2fa": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "challenge_id": {
+                "type": "string",
+                "description": "Pass to /auth/2fa/verify; expires after 300 seconds."
+              }
+            },
+            "required": [
+              "requires_2fa",
+              "challenge_id"
+            ],
+            "description": "Password accepted, a TOTP code is still required."
+          }
+        ]
+      },
+      "TwoFactorRequest": {
+        "type": "object",
+        "properties": {
+          "challenge_id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "challenge_id",
+          "code"
+        ]
+      },
+      "CodeRequest": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "PasswordRequest": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "description": "Required by the extractor. Only checked by /2fa/setup when 2FA is already enabled, and by /2fa/disable."
+      },
+      "SettingsPatch": {
+        "type": "object",
+        "properties": {
+          "hostname": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "locale": {
+            "type": "string"
+          },
+          "panel_port": {
+            "type": "integer"
+          },
+          "session_lifetime": {
+            "type": "integer"
+          },
+          "update_channel": {
+            "type": "string"
+          },
+          "maintenance_mode": {
+            "type": "boolean",
+            "description": "Stored and editable; the panel does not enforce it yet."
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false,
+        "description": "Only these keys are accepted; an empty object or an unknown key returns 400."
+      },
+      "UserCreate": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string",
+            "description": "At least 12 characters."
+          },
+          "name": {
+            "type": "string",
+            "description": "Defaults to the e-mail address.",
+            "default": null
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "operator",
+              "user"
+            ],
+            "default": "operator"
+          },
+          "quota_sites": {
+            "type": "integer",
+            "default": 10
+          },
+          "quota_dbs": {
+            "type": "integer",
+            "default": 10
+          },
+          "sites": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Optional per-site assignment."
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "UserUpdate": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "operator",
+              "user"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled",
+              "suspended"
+            ]
+          },
+          "quota_sites": {
+            "type": "integer"
+          },
+          "quota_dbs": {
+            "type": "integer"
+          },
+          "sites": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "All fields are optional. A caller may not change its own role/status, and the last active admin may not be demoted or disabled."
+      },
+      "SessionsList": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "ip": {
+                  "type": "string"
+                },
+                "user_agent": {
+                  "type": "string"
+                },
+                "age_seconds": {
+                  "type": "integer"
+                },
+                "expires_in_seconds": {
+                  "type": "integer"
+                },
+                "current": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "ip",
+                "user_agent",
+                "age_seconds",
+                "expires_in_seconds",
+                "current"
+              ]
+            }
+          },
+          "count": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sessions",
+          "count"
+        ]
+      },
+      "RevokeOthersResponse": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "revoked": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "revoked"
+        ]
+      },
+      "CreateSiteRequest": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string",
+            "description": "A hostname; trimmed and lowercased, max 253 characters."
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "document_root": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Defaults to the panel's generated root.",
+            "default": null
+          },
+          "template": {
+            "type": "string",
+            "description": "Default template applied by the handler.",
+            "default": "php"
+          },
+          "php_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "ssl_mode": {
+            "type": "string",
+            "default": "none"
+          },
+          "directives": {
+            "type": "string",
+            "description": "Custom Nginx directives, validated before apply.",
+            "default": ""
+          },
+          "overrides": {
+            "description": "php.ini overrides object; defaults to an empty object.",
+            "default": {}
+          }
+        },
+        "required": [
+          "domain"
+        ]
+      },
+      "UpdateSiteRequest": {
+        "type": "object",
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "document_root": {
+            "type": "string"
+          },
+          "template": {
+            "type": "string"
+          },
+          "php_version": {
+            "description": "A value or null; null clears the selection.",
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ssl_mode": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "directives": {
+            "type": "string"
+          },
+          "overrides": {
+            "description": "JSON object of php.ini overrides."
+          }
+        },
+        "description": "Every field is optional; only supplied keys are forwarded to the core."
+      },
+      "SiteSecurityRequest": {
+        "type": "object",
+        "properties": {
+          "ip_blocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "bot_blocks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "basic_auth_enabled": {
+            "type": "boolean",
+            "default": false
+          },
+          "basic_auth_user": {
+            "type": "string",
+            "default": ""
+          },
+          "basic_auth_password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Omit to keep the current password.",
+            "default": null
+          },
+          "cloudflare_only": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "description": "All fields are optional: the handler applies serde defaults, so an empty object resets to these defaults."
+      },
+      "CertInstallRequest": {
+        "type": "object",
+        "properties": {
+          "cert": {
+            "type": "string",
+            "description": "PEM certificate contents."
+          },
+          "key": {
+            "type": "string",
+            "description": "PEM private key contents."
+          },
+          "chain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional intermediate chain.",
+            "default": null
+          }
+        },
+        "required": [
+          "cert",
+          "key"
+        ]
+      },
+      "AddSiteUserRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Key-only system account name."
+          },
+          "public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "public_key"
+        ]
+      },
+      "SiteUsersList": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JsonValue"
+            }
+          }
+        },
+        "required": [
+          "users"
+        ]
+      },
+      "CreateDatabaseRequest": {
+        "type": "object",
+        "properties": {
+          "engine": {
+            "type": "string",
+            "enum": [
+              "mysql",
+              "postgres",
+              "redis"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Generated when omitted.",
+            "default": null
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Generated when omitted.",
+            "default": null
+          },
+          "privileges": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "engine",
+          "name"
+        ]
+      },
+      "AddDatabaseUserRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "password": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "privileges": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "username"
+        ]
+      },
+      "ImportDumpRequest": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "description": "Base64-encoded dump; raw SQL text is accepted by the core as well."
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "FirewallRuleRequest": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "string"
+          },
+          "proto": {
+            "type": "string",
+            "default": "tcp"
+          },
+          "source": {
+            "type": "string",
+            "description": "Port or CIDR source.",
+            "default": "any"
+          },
+          "action": {
+            "type": "string",
+            "default": "allow"
+          },
+          "comment": {
+            "type": "string",
+            "default": ""
+          },
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "required": [
+          "port"
+        ]
+      },
+      "UnbanRequest": {
+        "type": "object",
+        "properties": {
+          "jail": {
+            "type": "string"
+          },
+          "ip": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "jail",
+          "ip"
+        ]
+      },
+      "SshKeyRequest": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "public_key": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string",
+            "default": "root"
+          }
+        },
+        "required": [
+          "label",
+          "public_key"
+        ]
+      },
+      "RunBackupRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "site_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "contents": {
+            "description": "Optional selection object.",
+            "default": null
+          },
+          "destination": {
+            "description": "Optional destination object.",
+            "default": null
+          },
+          "passphrase": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "schedule_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "description": "All fields optional; unset values are forwarded as null and defaulted by the core."
+      },
+      "RestoreRequest": {
+        "type": "object",
+        "properties": {
+          "passphrase": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "destination": {
+            "description": "Optional destination object.",
+            "default": null
+          }
+        }
+      },
+      "ScheduleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "destination": {},
+          "retention": {
+            "description": "Optional retention object.",
+            "default": null
+          }
+        },
+        "required": [
+          "name",
+          "cron",
+          "destination"
+        ]
+      },
+      "CreateJobRequest": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string",
+            "description": "Five-field cron expression."
+          },
+          "command": {
+            "type": "string"
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "site_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "expression",
+          "command"
+        ]
+      },
+      "UpdateJobRequest": {
+        "type": "object",
+        "properties": {
+          "expression": {
+            "type": "string"
+          },
+          "command": {
+            "type": "string"
+          },
+          "user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "site_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "description": "All fields optional."
+      },
+      "WriteRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "description": "Defaults to the handler's configured scope.",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          },
+          "content": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "content_base64": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Alternative to `content`.",
+            "default": null
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "MkdirRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "RenameRequest": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ]
+      },
+      "ChmodRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          },
+          "mode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "ArchiveRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          },
+          "format": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "ExtractRequest": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "into": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "www",
+              "etc",
+              "backups",
+              "logs"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "path"
+        ]
+      },
+      "CreateKeyRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "description": "Scope list or JSON value; defaults to null when omitted.",
+            "default": null
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "ChannelRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "webhook",
+              "email"
+            ]
+          },
+          "config": {
+            "description": "Channel configuration object; defaults to null.",
+            "default": null
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ]
+      },
+      "RuleRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "channel_id": {
+            "type": "string"
+          },
+          "severity": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "cooldown_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "name",
+          "event",
+          "channel_id"
+        ]
+      },
+      "TestRequest": {
+        "type": "object",
+        "properties": {
+          "channel_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "channel_id"
+        ]
+      },
+      "DeploymentCreateRequest": {
+        "type": "object",
+        "properties": {
+          "site_id": {
+            "type": "string"
+          },
+          "repo_url": {
+            "type": "string"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "target_subdir": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "build_command": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "deploy_user": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "required": [
+          "site_id",
+          "repo_url"
+        ]
+      },
+      "DeploymentUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "repo_url": {
+            "type": "string"
+          },
+          "branch": {
+            "type": "string"
+          },
+          "target_subdir": {
+            "type": "string"
+          },
+          "build_command": {
+            "type": "string"
+          },
+          "deploy_user": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "description": "All fields optional."
+      },
+      "TerminalOpenRequest": {
+        "type": "object",
+        "properties": {
+          "shell": {
+            "type": "string"
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "default": null
+          },
+          "cols": {
+            "type": "integer",
+            "default": null
+          }
+        },
+        "description": "All fields optional; the handler/core supplies defaults."
+      },
+      "TerminalWriteRequest": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "string",
+            "default": null
+          },
+          "data_b64": {
+            "type": "string",
+            "default": null
+          }
+        },
+        "description": "Both fields optional; provide one of them."
+      },
+      "TerminalResizeRequest": {
+        "type": "object",
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "default": null
+          },
+          "cols": {
+            "type": "integer",
+            "default": null
+          }
+        },
+        "description": "Both fields optional."
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "Bad request (400)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Unauthorized": {
+        "description": "Authentication required (401)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Not allowed for this role/scope, or invalid CSRF token (403)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "Core or IPC failure (500)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "TooManyRequests": {
+        "description": "Rate limited (429)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

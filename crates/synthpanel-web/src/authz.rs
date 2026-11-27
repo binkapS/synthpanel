@@ -88,6 +88,7 @@ const OPERATOR_AREAS: &[&str] = &[
     "/api/v1/cron",
     "/api/v1/deployments",
     "/api/v1/files",
+    "/api/v1/api-keys",
 ];
 
 /// The routes that are reachable without a session.

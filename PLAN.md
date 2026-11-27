@@ -250,7 +250,7 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | WebSocket channels for live metrics and log tailing | ✅ |
 | A CLI that mirrors the core operations | ✅ |
 | `--output json` for scripting | ✅ |
-| An OpenAPI 3.1 document | ⬜ |
+| An OpenAPI 3.1 document | ✅ `docs-site/public/openapi.json`, generated from the registered routes |
 
 ### 4.14 Settings
 
@@ -283,12 +283,12 @@ that the web UI or the REST endpoint is shipped; the per-feature state is in
 | Parity item | IPC methods | CLI verbs | Status |
 |---|---|---|---|
 | Reverse-proxy site type | `sites.create` (template `proxy`) | `sites:proxy` | 🟡 CLI added; vhost renderer landed, IPC/UI wiring in progress |
-| Per-site security controls | `site_security.get`, `site_security.set` | `sites:security:get`, `sites:security:set` | 🟡 CLI added; core store landed, IPC/UI wiring in progress |
-| Per-site SSH users | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | 🟡 CLI added; core store landed, IPC/UI wiring in progress |
-| Custom certificate install | `ssl.cert.install` | `ssl:cert:install` | 🟡 CLI added; core helper landed, IPC/UI wiring in progress |
-| On-demand DB dump/import | `databases.dump`, `databases.import` | `db:dump`, `db:import` | 🟡 CLI added; core and API landed, IPC/UI wiring in progress |
-| Per-site user ACL | `user_sites.list`, `user_sites.set` | `user-sites:list`, `user-sites:set` | 🟡 CLI added; core and UI in progress |
-| Session revocation | web-only | none | 🟡 web work in progress |
+| Per-site security controls | `site_security.get`, `site_security.set` | `sites:security:get`, `sites:security:set` | 🟡 CLI, core store and REST routes landed; UI wiring in progress |
+| Per-site SSH users | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | 🟡 CLI, core store and REST routes landed; UI wiring in progress |
+| Custom certificate install | `ssl.cert.install` | `ssl:cert:install` | 🟡 CLI, core helper and REST route landed; UI upload in progress |
+| On-demand DB dump/import | `databases.dump`, `databases.import` | `db:dump`, `db:import` | 🟡 CLI, core and REST routes landed; UI wiring in progress |
+| Per-site user ACL | `user_sites.list`, `user_sites.set` | `user-sites:list`, `user-sites:set` | 🟡 CLI and core in progress; no REST route in v1 |
+| Session revocation | web session store | none | 🟡 REST routes landed; web UI work in progress |
 
 ## 5. Architecture
 
@@ -644,27 +644,33 @@ From then on the panel manages its own users, with roles and quotas.
 - Format: JSON; errors as `{ "error": { "code", "message" } }`
 - Rate limits: `429` on the login; every failed attempt is counted per IP.
 - Every mutating call is audit-logged.
-- An OpenAPI 3.1 document is planned, not written yet.
+- The OpenAPI 3.1 document lives at `docs-site/public/openapi.json` and is
+  generated from the routes registered in `api/mod.rs`; it is served by the
+  docs site at `/openapi.json`.
 
 ### 8.2 Endpoint map
 
 ```
 Auth      POST /auth/login  POST /auth/logout  GET /auth/me
           POST /auth/2fa/setup|enable|verify|disable
+          GET /auth/sessions  POST /auth/sessions/revoke-others
 Sites     GET|POST /sites   GET|PATCH|DELETE /sites/:id
           POST /sites/:id/ssl/issue   GET /sites/:id/ssl/status
+          POST /sites/:id/ssl/cert
+          GET|POST /sites/:id/security
+          GET|POST /sites/:id/ssh-users  DELETE /sites/:id/ssh-users/:username
           POST /sites/:id/suspend|unsuspend
 PHP       GET /php/versions  GET /php/status
 Databases GET|POST /databases  GET|DELETE /databases/:id
+          POST /databases/:id/dump  POST /databases/:id/import
           GET|POST /databases/:id/users  DELETE /databases/users/:id
-          GET /databases/engines
 Security  GET /security/firewall  POST /security/firewall/rules
           GET /security/fail2ban  POST /security/fail2ban/unban
           GET|POST /security/ssh-keys  DELETE /security/ssh-keys/:id
 Users     GET|POST /users  PATCH /users/:id
 Backups   GET /backups  POST /backups/run  POST /backups/:id/verify|restore
           GET /backups/:id/download  DELETE /backups/:id
-          GET|POST /backups/schedules  DELETE /backups/schedules/:id
+          POST /backups/schedules  DELETE /backups/schedules/:id
 Cron      GET|POST /cron  PATCH|DELETE /cron/:id  POST /cron/:id/run
           GET /cron/:id/runs  GET /cron/describe
 Logs      GET /logs?type=…&site_id=…&search=…  GET /logs/sources
@@ -687,10 +693,13 @@ API keys  GET|POST /api-keys  DELETE /api-keys/:id
 Realtime  WS /ws/dashboard   WS /ws/logs   WS /ws/terminal/:id
 ```
 
-The CloudPanel-parity endpoints (per-site security, SSH users, user→site ACL,
-custom certificate install, DB dump/import, proxy sites) are being added to this
-surface; see §4.16 and [`docs/roadmap.md`](./docs/roadmap.md). Session
-revocation is web-only and has no CLI verb.
+The CloudPanel-parity REST routes for per-site security, SSH users, custom
+certificates, DB dump/import and browser sessions are registered; user→site ACL
+has no REST route in v1, and proxy sites use the ordinary site-create route with
+template `proxy`. Their UI screens are still landing — see §4.16 and
+[`docs/roadmap.md`](./docs/roadmap.md). Session revocation is web-only and has
+no CLI verb. The complete, machine-readable route list is
+`docs-site/public/openapi.json`.
 
 ### 8.3 CLI
 
@@ -826,7 +835,7 @@ per-phase detail and the remaining gaps live in
 - The multi-server agent and the plugin API need a protocol that does not exist
   yet; the IPC contract was designed with that in mind (§5.10).
 - DNS zone management, if there is demand for it.
-- An OpenAPI document and a code editor.
+- A code editor with syntax highlighting in the file manager.
 - Web-only session revocation, database quota enforcement, and the UI wiring for
   the CloudPanel-parity features in §4.16.
 - An external security audit and reproducible builds.
@@ -877,7 +886,7 @@ is inside its budget, and the changelog is updated.
 | Item | Status |
 |---|---|
 | The docs site (VitePress): installation, quickstart, guides, the CLI and API reference, troubleshooting, the security model | ✅ |
-| The API reference is written by hand | ✅ (an OpenAPI document is planned) |
+| The API reference is written by hand, plus a generated OpenAPI 3.1 document | ✅ |
 | A contributing guide | ⬜ |
 | A changelog with the release notes | ⬜ |
 | `SECURITY.md` with the private disclosure process | ⬜ (the address is in the README) |

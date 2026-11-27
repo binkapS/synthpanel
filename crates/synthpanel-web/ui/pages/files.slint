@@ -27,6 +27,11 @@ export component FilesPage inherits Rectangle {
     callback file-renamed(string, string, string);
     callback file-chmod(string, string, string);
     callback file-content(string, string);
+    // Upload: (scope, directory, base64). An empty base64 makes the JS bridge
+    // open a file picker and upload the chosen file into `directory`.
+    callback file-upload(string, string, string);
+    // Copy: (scope, source path, destination path).
+    callback file-copy(string, string, string);
 
     vertical-stretch: 0;
 
@@ -61,6 +66,10 @@ export component FilesPage inherits Rectangle {
             AppButton {
                 text: root.editing ? "Hide editor" : "New file";
                 clicked => { root.editing = !root.editing; }
+            }
+            AppButton {
+                text: "Upload";
+                clicked => { root.file-upload(root.scope, root.path, ""); }
             }
         }
 
@@ -165,6 +174,11 @@ export component FilesPage inherits Rectangle {
                             icon: @image-url("../assets/icons/refresh.svg");
                             tooltip: "Open " + entry.name + " in editor";
                             clicked => { root.file-content(root.scope, entry.path); }
+                        }
+                        IconButton {
+                            icon: @image-url("../assets/icons/plus.svg");
+                            tooltip: "Duplicate " + entry.name;
+                            clicked => { root.file-copy(root.scope, entry.path, entry.path + "-copy"); }
                         }
                         IconButton {
                             icon: @image-url("../assets/icons/trash.svg");

@@ -5,6 +5,7 @@
 //! by `synthpanel-web` and `synthpanel-cli`.
 
 pub mod alerts;
+pub mod app_process;
 pub mod apply;
 pub mod audit;
 pub mod auth;

@@ -234,6 +234,8 @@ export component AppWindow inherits Window {
     callback file-renamed(string, string, string);
     callback file-chmod(string, string, string);
     callback file-content(string, string);
+    callback file-upload(string, string, string);
+    callback file-copy(string, string, string);
 
     callback create-deployment(string, string, string, string, string, string, string, string);
     callback run-deployment(string);
@@ -419,6 +421,8 @@ export component AppWindow inherits Window {
             file-renamed(scope, from, to) => { root.file-renamed(scope, from, to); }
             file-chmod(scope, path, mode) => { root.file-chmod(scope, path, mode); }
             file-content(scope, path) => { root.file-content(scope, path); }
+            file-upload(scope, path, base64) => { root.file-upload(scope, path, base64); }
+            file-copy(scope, from, to) => { root.file-copy(scope, from, to); }
         }
 
         if root.current-page == Page.deployments : DeploymentsPage {
