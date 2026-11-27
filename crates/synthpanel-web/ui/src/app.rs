@@ -255,6 +255,17 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
                 b.app.borrow_mut().set_current_page(crate::Page::Sessions);
                 load_sessions(&b);
             }
+            crate::Page::SiteApp => {
+                let id = b.app.borrow().get_site_app_id().to_string();
+                b.app.borrow_mut().set_current_page(crate::Page::SiteApp);
+                load_site_app(&b, &id);
+            }
+            crate::Page::SiteCert => {
+                let id = b.app.borrow().get_site_cert_id().to_string();
+                b.app.borrow_mut().set_current_page(crate::Page::SiteCert);
+                b.app.borrow_mut().set_site_cert_status("".into());
+                let _ = id;
+            }
         }
     });
 
@@ -1049,6 +1060,63 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         api::socket_send(2, &format!(r#"{{"type":"resize","rows":{rows},"cols":{cols}}}"#));
     });
 
+    // --- Site apps and custom certificates -------------------------------------------------------
+    let b = Rc::clone(bridge);
+    app.on_load_site_app(move |site_id| load_site_app(&b, &site_id));
+
+    let b = Rc::clone(bridge);
+    app.on_configure_site_app(move |site_id, app_type, port, command| {
+        let b = Rc::clone(&b);
+        let site_id = site_id.to_string();
+        let body = serde_json::json!({
+            "app_type": app_type.as_str(),
+            "app_port": port,
+            "app_command": command.as_str(),
+        });
+        let _ = slint::spawn_local(async move {
+            match http("POST", &format!("/api/v1/sites/{site_id}/app"), Some(body)).await {
+                Ok(_) => {
+                    load_site_app(&b, &site_id);
+                    b.app.borrow_mut().set_site_app_status("".into());
+                }
+                Err(message) => b.app.borrow_mut().set_site_app_status(message.into()),
+            }
+        });
+    });
+
+    let control = |bridge: &Rc<Bridge>, site_id: &str, action: &'static str| {
+        let b = Rc::clone(bridge);
+        let site_id = site_id.to_string();
+        let _ = slint::spawn_local(async move {
+            let body = serde_json::json!({ "action": action });
+            match http("POST", &format!("/api/v1/sites/{site_id}/app/control"), Some(body)).await {
+                Ok(_) => load_site_app(&b, &site_id),
+                Err(message) => b.app.borrow_mut().set_site_app_status(message.into()),
+            }
+        });
+    };
+    let b = Rc::clone(bridge);
+    app.on_start_site_app(move |site_id| control(&b, &site_id, "start"));
+    let b = Rc::clone(bridge);
+    app.on_stop_site_app(move |site_id| control(&b, &site_id, "stop"));
+
+    let b = Rc::clone(bridge);
+    app.on_install_site_cert(move |site_id, cert, key, chain| {
+        let b = Rc::clone(&b);
+        let site_id = site_id.to_string();
+        let body = serde_json::json!({
+            "cert": cert.as_str(),
+            "key": key.as_str(),
+            "chain": chain.as_str(),
+        });
+        let _ = slint::spawn_local(async move {
+            match http("POST", &format!("/api/v1/sites/{site_id}/ssl/cert"), Some(body)).await {
+                Ok(_) => b.app.borrow_mut().set_site_cert_status("Certificate installed".into()),
+                Err(message) => b.app.borrow_mut().set_site_cert_status(message.into()),
+            }
+        });
+    });
+
     // --- Site security, site users and sessions -------------------------------------------------
     let b = Rc::clone(bridge);
     app.on_load_site_security(move |site_id| {
@@ -1738,6 +1806,33 @@ fn load_settings(bridge: &Rc<Bridge>) {
 // Site security, site users, sessions
 // ---------------------------------------------------------------------------
 
+fn load_site_app(bridge: &Rc<Bridge>, site_id: &str) {
+    let app = bridge.app.borrow().clone();
+    let site_id = site_id.to_string();
+    let _ = slint::spawn_local(async move {
+        match http("GET", &format!("/api/v1/sites/{site_id}/app"), None).await {
+            Ok(body) => {
+                let app_type = body.get("app_type").and_then(serde_json::Value::as_str).unwrap_or("node");
+                app.set_site_app_type(app_type.into());
+                app.set_site_app_port(
+                    body.get("app_port").and_then(serde_json::Value::as_i64).unwrap_or(3000) as i32,
+                );
+                app.set_site_app_running(
+                    body.get("running").and_then(serde_json::Value::as_bool).unwrap_or(false),
+                );
+                app.set_site_app_status("".into());
+            }
+            Err(message) => {
+                // No app configured yet: keep the form defaults and clear the
+                // notice, so the page is usable for a first configuration.
+                if !message.contains("no app is configured") {
+                    app.set_site_app_status(message.into());
+                }
+            }
+        }
+    });
+}
+
 fn load_site_security(bridge: &Rc<Bridge>, site_id: &str) {
     let app = bridge.app.borrow().clone();
     let site_id = site_id.to_string();
@@ -2077,6 +2172,8 @@ fn page_name(page: crate::Page) -> &'static str {
         crate::Page::SiteSecurity => "site-security",
         crate::Page::SiteUsers => "site-users",
         crate::Page::Sessions => "sessions",
+        crate::Page::SiteApp => "site-app",
+        crate::Page::SiteCert => "site-cert",
     }
 }
 
@@ -2100,6 +2197,8 @@ fn parse_page(name: &str) -> Option<crate::Page> {
         "site-security" => crate::Page::SiteSecurity,
         "site-users" => crate::Page::SiteUsers,
         "sessions" => crate::Page::Sessions,
+        "site-app" => crate::Page::SiteApp,
+        "site-cert" => crate::Page::SiteCert,
         _ => return None,
     })
 }

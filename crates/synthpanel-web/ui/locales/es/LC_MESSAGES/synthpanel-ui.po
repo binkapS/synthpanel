@@ -1,0 +1,309 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: SynthPanel\n"
+"Language: es\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+msgid "Actions"
+msgstr "Acciones"
+
+msgid "Active panel sessions across all devices."
+msgstr "Sesiones activas del panel en todos los dispositivos."
+
+msgid "Active sessions"
+msgstr "Sesiones activas"
+
+msgid "Add a site user"
+msgstr "Añadir un usuario del sitio"
+
+msgid "Add user"
+msgstr "Añadir usuario"
+
+msgid "Added"
+msgstr "Añadido"
+
+msgid "Alerts"
+msgstr "Alertas"
+
+msgid "App"
+msgstr ""
+
+msgid "Application"
+msgstr ""
+
+msgid "Application port"
+msgstr ""
+
+msgid "Application type"
+msgstr ""
+
+msgid "Authentication code"
+msgstr "Código de autenticación"
+
+msgid "Authorized users"
+msgstr "Usuarios autorizados"
+
+msgid "Backups"
+msgstr "Copias de seguridad"
+
+msgid "Blocked IP addresses"
+msgstr "Direcciones IP bloqueadas"
+
+msgid "Blocked bots"
+msgstr "Bots bloqueados"
+
+msgid "Bot blocking"
+msgstr "Bloqueo de bots"
+
+msgid "Certificate"
+msgstr ""
+
+msgid "Chain (optional)"
+msgstr ""
+
+msgid "Cloudflare"
+msgstr "Cloudflare"
+
+msgid "Cloudflare only"
+msgstr "Solo Cloudflare"
+
+msgid "Configuration"
+msgstr ""
+
+msgid "Cron"
+msgstr "Cron"
+
+msgid "Custom certificate"
+msgstr ""
+
+msgid "Dashboard"
+msgstr "Panel de control"
+
+msgid "Databases"
+msgstr "Bases de datos"
+
+msgid "Deployments"
+msgstr "Despliegues"
+
+msgid "Device"
+msgstr "Dispositivo"
+
+msgid "Dump"
+msgstr "Volcado"
+
+msgid "Email"
+msgstr "Correo electrónico"
+
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr "Introduce el código de 6 dígitos de tu aplicación de autenticación."
+
+msgid "Expires"
+msgstr "Caduca"
+
+msgid "Files"
+msgstr "Archivos"
+
+msgid "HTTP authentication"
+msgstr "Autenticación HTTP"
+
+msgid "IP address"
+msgstr "Dirección IP"
+
+msgid "IP blocking"
+msgstr "Bloqueo de IP"
+
+msgid "IP blocking, bot protection and HTTP authentication for this site."
+msgstr "Bloqueo de IP, protección contra bots y autenticación HTTP para este sitio."
+
+msgid "Import"
+msgstr "Importar"
+
+msgid "Import a database dump"
+msgstr "Importar un volcado de base de datos"
+
+msgid "Install a certificate, private key and optional chain for this site."
+msgstr ""
+
+msgid "Install certificate"
+msgstr ""
+
+msgid "Live server overview"
+msgstr "Resumen del servidor en directo"
+
+msgid "Logs"
+msgstr "Registros"
+
+msgid "Loopback TCP port the application listens on."
+msgstr ""
+
+msgid "Manage your server from a single place."
+msgstr "Gestiona tu servidor desde un solo lugar."
+
+msgid "No active sessions."
+msgstr "No hay sesiones activas."
+
+msgid "No site users yet."
+msgstr "Aún no hay usuarios del sitio."
+
+msgid "Node.js"
+msgstr ""
+
+msgid "One IPv4 address or CIDR per line. Leave empty to allow all clients."
+msgstr "Una dirección IPv4 o un CIDR por línea. Deja vacío para permitir todos los clientes."
+
+msgid "One bot name or user-agent fragment per line."
+msgstr "Un nombre de bot o un fragmento de agente de usuario por línea."
+
+msgid "PEM material"
+msgstr ""
+
+msgid "PHP"
+msgstr "PHP"
+
+msgid "Password"
+msgstr "Contraseña"
+
+msgid "Paste the contents of an SQL dump. Existing objects with the same name are overwritten."
+msgstr ""
+
+msgid "Please wait…"
+msgstr ""
+
+msgid "Private key"
+msgstr ""
+
+msgid "Process"
+msgstr ""
+
+msgid "Public key"
+msgstr ""
+
+msgid "Python"
+msgstr ""
+
+msgid "Reload"
+msgstr ""
+
+msgid "Require a password"
+msgstr ""
+
+msgid "Revoke other sessions"
+msgstr ""
+
+msgid "Runs as the site user. Environment assignments and a single command are supported."
+msgstr ""
+
+msgid "SQL dump"
+msgstr ""
+
+msgid "SSH users with access to this site's document root."
+msgstr ""
+
+msgid "SSL cert"
+msgstr ""
+
+msgid "Save configuration"
+msgstr ""
+
+msgid "Save security settings"
+msgstr ""
+
+msgid "Security"
+msgstr ""
+
+msgid "Sessions"
+msgstr ""
+
+msgid "Sessions page"
+msgstr ""
+
+msgid "Settings"
+msgstr ""
+
+msgid "Sign in"
+msgstr ""
+
+msgid "Sign in to SynthPanel"
+msgstr ""
+
+msgid "Sign out"
+msgstr ""
+
+msgid "Site app page"
+msgstr ""
+
+msgid "Site security"
+msgstr ""
+
+msgid "Site security page"
+msgstr ""
+
+msgid "Site users"
+msgstr ""
+
+msgid "Site users page"
+msgstr ""
+
+msgid "Sites"
+msgstr ""
+
+msgid "Start"
+msgstr ""
+
+msgid "Start command"
+msgstr ""
+
+msgid "Started"
+msgstr ""
+
+msgid "State"
+msgstr ""
+
+msgid "Status"
+msgstr ""
+
+msgid "Stop"
+msgstr ""
+
+msgid "Stored as a hash; leave empty to keep the current password."
+msgstr ""
+
+msgid "Supervised Node.js or Python application for this site."
+msgstr ""
+
+msgid "Switch to dark theme"
+msgstr ""
+
+msgid "Switch to light theme"
+msgstr ""
+
+msgid "SynthPanel · self-hosted server control panel"
+msgstr ""
+
+msgid "Terminal"
+msgstr ""
+
+msgid "The code changes every 30 seconds."
+msgstr ""
+
+msgid "Trust Cloudflare IPs and reject requests that bypass it."
+msgstr ""
+
+msgid "Two-factor verification"
+msgstr ""
+
+msgid "Use a different account"
+msgstr ""
+
+msgid "Username"
+msgstr ""
+
+msgid "Users"
+msgstr ""
+
+msgid "Verify"
+msgstr ""
+

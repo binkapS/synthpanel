@@ -25,6 +25,7 @@ pub mod metrics;
 pub mod nginx;
 pub mod ownership;
 pub mod php;
+pub mod remote_db;
 pub mod scheduler;
 pub mod security;
 pub mod settings;
@@ -37,5 +38,6 @@ pub mod stores;
 pub mod terminal;
 pub mod update;
 pub mod users;
+pub mod wordpress;
 
 pub use config::Paths;

@@ -393,6 +393,35 @@ pub async fn app_status(
     Ok(Json(status))
 }
 
+pub async fn app_control(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<String>,
+    ApiJson(body): ApiJson<Value>,
+) -> Result<Json<Value>, ApiError> {
+    let action = body
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or("restart")
+        .to_string();
+    let result: Value = state
+        .core_call(
+            methods::SITES_APP_CONTROL,
+            json!({ "site_id": id, "action": action }),
+        )
+        .await?;
+    audit(
+        &state,
+        &user.user_id,
+        "",
+        "sites.app.control",
+        &id,
+        &user.ip,
+    )
+    .await;
+    Ok(Json(result))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

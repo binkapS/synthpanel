@@ -13,9 +13,10 @@ use flate2::write::GzEncoder;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sqlx::SqlitePool;
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use tracing::{info, warn};
 
 /// The name of the manifest stored inside every archive.
@@ -42,6 +43,214 @@ impl Default for Contents {
             databases: false,
         }
     }
+}
+
+/// A validated set of glob patterns that are skipped while a backup walks a
+/// site's document root. Patterns are relative to the site root and use `/` as
+/// the separator; `*` and `?` match inside one path component and `**` spans
+/// whole components. A pattern with a single component matches that name at
+/// any depth, so `cache` skips every directory called `cache`.
+///
+/// An empty set is the historical behaviour: every file is archived.
+#[derive(Debug, Clone, Default)]
+pub struct Excludes {
+    patterns: Vec<ExcludePattern>,
+}
+
+#[derive(Debug, Clone)]
+struct ExcludePattern {
+    segments: Vec<String>,
+}
+
+impl Excludes {
+    /// Validate and compile the patterns supplied by an operator.
+    pub fn new(patterns: &[String]) -> Result<Self> {
+        validate_exclude_patterns(patterns)?;
+        Ok(Self {
+            patterns: patterns.iter().map(|p| ExcludePattern::new(p)).collect(),
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.patterns.is_empty()
+    }
+
+    /// Whether a path relative to a site root is excluded.
+    pub fn is_excluded(&self, relative: &Path) -> bool {
+        self.matches_any(&[relative])
+    }
+
+    /// A path may be described both relative to a site root and relative to
+    /// the `www` directory; accept a match against either spelling.
+    fn matches_any(&self, candidates: &[&Path]) -> bool {
+        self.patterns
+            .iter()
+            .any(|pattern| candidates.iter().any(|path| pattern.matches(path)))
+    }
+}
+
+impl ExcludePattern {
+    fn new(pattern: &str) -> Self {
+        Self {
+            segments: pattern_segments(pattern),
+        }
+    }
+
+    fn matches(&self, path: &Path) -> bool {
+        let segments = path_segments(path);
+        if segments.is_empty() {
+            return false;
+        }
+        if self.segments.len() == 1 {
+            return segments
+                .iter()
+                .any(|name| segment_matches(&self.segments[0], name));
+        }
+        match_segments(&self.segments, &segments)
+    }
+}
+
+/// Split a validated pattern into comparable path components.
+fn pattern_segments(pattern: &str) -> Vec<String> {
+    pattern
+        .trim()
+        .trim_end_matches('/')
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+fn path_segments(path: &Path) -> Vec<String> {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(name) => Some(name.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect()
+}
+
+fn match_segments(pattern: &[String], path: &[String]) -> bool {
+    match pattern.first() {
+        None => path.is_empty(),
+        Some(part) if part == "**" => {
+            match_segments(&pattern[1..], path)
+                || (!path.is_empty() && match_segments(pattern, &path[1..]))
+        }
+        Some(part) => {
+            !path.is_empty()
+                && segment_matches(part, &path[0])
+                && match_segments(&pattern[1..], &path[1..])
+        }
+    }
+}
+
+/// Shell-style wildcard matching inside a single path component.
+fn segment_matches(pattern: &str, name: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let name: Vec<char> = name.chars().collect();
+    let (mut pi, mut ni) = (0usize, 0usize);
+    let mut star: Option<usize> = None;
+    let mut retry = 0usize;
+    while ni < name.len() {
+        if pi < pattern.len() && (pattern[pi] == '?' || pattern[pi] == name[ni]) {
+            pi += 1;
+            ni += 1;
+        } else if pi < pattern.len() && pattern[pi] == '*' {
+            star = Some(pi);
+            pi += 1;
+            retry = ni;
+        } else if let Some(index) = star {
+            pi = index + 1;
+            retry += 1;
+            ni = retry;
+        } else {
+            return false;
+        }
+    }
+    while pi < pattern.len() && pattern[pi] == '*' {
+        pi += 1;
+    }
+    pi == pattern.len()
+}
+
+/// Reject patterns that could reach outside a document root or that cannot be
+/// interpreted as a relative path. Validation happens both when patterns are
+/// stored and again when they are used for a backup.
+pub fn validate_exclude_patterns(patterns: &[String]) -> Result<()> {
+    for pattern in patterns {
+        let trimmed = pattern.trim();
+        if trimmed.is_empty() {
+            bail!("an exclude pattern may not be empty");
+        }
+        if trimmed.starts_with('/') {
+            bail!("exclude patterns must be relative: `{pattern}`");
+        }
+        if trimmed.contains('\\') || trimmed.contains('\0') {
+            bail!("exclude patterns must use '/' and contain no NUL: `{pattern}`");
+        }
+        let segments: Vec<&str> = trimmed.split('/').filter(|part| !part.is_empty()).collect();
+        if segments.is_empty() {
+            bail!("an exclude pattern needs a path component: `{pattern}`");
+        }
+        if segments.iter().any(|part| *part == ".." || *part == ".") {
+            bail!("exclude patterns may not traverse paths: `{pattern}`");
+        }
+    }
+    Ok(())
+}
+
+/// Row key of the global exclude list. The schema uses `''` because an empty
+/// string can never be a generated site id, while `NULL` could not take part
+/// in a single-column primary key alongside per-site rows.
+pub const GLOBAL_EXCLUDES_KEY: &str = "";
+
+/// Store the exclude patterns of a site, or of every site when `site_id` is
+/// omitted. Passing an empty list clears the stored patterns.
+pub async fn set_excludes(
+    pool: &SqlitePool,
+    site_id: Option<&str>,
+    patterns: &[String],
+) -> Result<()> {
+    validate_exclude_patterns(patterns)?;
+    let key = site_id.unwrap_or(GLOBAL_EXCLUDES_KEY);
+    let json = serde_json::to_string(patterns)?;
+    sqlx::query(
+        "INSERT INTO backup_excludes (site_id, patterns, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT(site_id) DO UPDATE SET
+           patterns = excluded.patterns,
+           updated_at = excluded.updated_at",
+    )
+    .bind(key)
+    .bind(json)
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Read one scope's patterns from the database.
+pub async fn load_excludes(pool: &SqlitePool, site_id: Option<&str>) -> Result<Vec<String>> {
+    let key = site_id.unwrap_or(GLOBAL_EXCLUDES_KEY);
+    let json: Option<String> =
+        sqlx::query_scalar("SELECT patterns FROM backup_excludes WHERE site_id = ?")
+            .bind(key)
+            .fetch_optional(pool)
+            .await?;
+    match json {
+        Some(json) => Ok(serde_json::from_str(&json)?),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Global patterns followed by a site's own patterns. A full backup passes
+/// `None` and therefore receives the global list only.
+pub async fn effective_excludes(pool: &SqlitePool, site_id: Option<&str>) -> Result<Vec<String>> {
+    let mut patterns = load_excludes(pool, None).await?;
+    if let Some(site_id) = site_id {
+        patterns.extend(load_excludes(pool, Some(site_id)).await?);
+    }
+    Ok(patterns)
 }
 
 /// The kind of backup.
@@ -113,6 +322,14 @@ pub enum Destination {
         access_key: String,
         secret_key: String,
     },
+    /// Any remote supported by the `rclone` CLI (Google Drive, S3, SFTP, ...).
+    /// `remote` is the configured remote name and `path` is the directory
+    /// inside it; both are passed straight through as rclone arguments.
+    Rclone {
+        #[serde(alias = "remote_name")]
+        remote: String,
+        path: String,
+    },
 }
 
 impl Destination {
@@ -124,6 +341,7 @@ impl Destination {
             Destination::S3 {
                 endpoint, bucket, ..
             } => format!("s3://{bucket} @ {endpoint}"),
+            Destination::Rclone { remote, path } => format!("rclone://{remote}/{path}"),
         }
     }
 
@@ -166,9 +384,101 @@ impl Destination {
                 }
                 check_s3_endpoint(endpoint)?;
             }
+            Destination::Rclone { remote, path } => {
+                check_rclone_remote(remote, path)?;
+            }
         }
         Ok(())
     }
+}
+
+/// Check the remote name and path before they reach a child process.
+///
+/// Arguments are passed to `rclone` as separate argv entries, so there is no
+/// shell interpolation, but a leading dash could still be read as an option
+/// and a `:` would let a caller select a different remote than the one named.
+pub fn check_rclone_remote(remote: &str, path: &str) -> Result<()> {
+    let remote = remote.trim();
+    if remote.is_empty() {
+        bail!("the rclone destination needs a remote name");
+    }
+    if remote.starts_with('-')
+        || remote.contains(':')
+        || remote.contains('/')
+        || remote.contains('\\')
+        || remote.chars().any(char::is_whitespace)
+    {
+        bail!("the rclone remote name may not contain ':', '/', whitespace or a leading '-'");
+    }
+    if path.trim().is_empty() || path.contains('\0') || path.starts_with('-') {
+        bail!("the rclone destination needs a remote path");
+    }
+    Ok(())
+}
+
+/// The rclone executable; deployments can point this at a wrapper or a
+/// non-PATH installation.
+pub fn rclone_bin() -> PathBuf {
+    std::env::var_os("SYNTHPANEL_RCLONE_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("rclone"))
+}
+
+/// `remote:path` target understood by rclone.
+pub fn rclone_target(remote: &str, path: &str) -> String {
+    format!("{remote}:{}", path.trim_start_matches('/'))
+}
+
+/// The location recorded for an uploaded archive, parseable by
+/// `rclone_remote_from_location` on restore.
+pub fn rclone_location(remote: &str, path: &str, name: &str) -> String {
+    let path = path.trim_matches('/');
+    if path.is_empty() {
+        format!("rclone://{remote}/{name}")
+    } else {
+        format!("rclone://{remote}/{path}/{name}")
+    }
+}
+
+/// Turn a stored location back into the `remote:path/name` rclone target.
+pub fn rclone_remote_from_location(location: &str) -> Result<String> {
+    let value = location.strip_prefix("rclone://").unwrap_or(location);
+    // Accept rclone's own `remote:path` spelling as well as the recorded
+    // `rclone://remote/path` one.
+    if let Some((remote, path)) = value.split_once(':') {
+        if !remote.is_empty() && !remote.contains('/') && !path.is_empty() {
+            check_rclone_remote(remote, path)?;
+            return Ok(rclone_target(remote, path));
+        }
+    }
+    if let Some((remote, path)) = value.split_once('/') {
+        if remote.is_empty() || path.trim().is_empty() {
+            bail!("invalid rclone archive location");
+        }
+        Ok(rclone_target(remote, path))
+    } else {
+        bail!("invalid rclone archive location")
+    }
+}
+
+/// Run rclone with validated arguments. The binary is overridable so tests and
+/// deployments can supply a wrapper without changing the system PATH.
+fn run_rclone(args: &[&str]) -> Result<std::process::Output> {
+    run_rclone_with(&rclone_bin(), args)
+}
+
+fn run_rclone_with(bin: &Path, args: &[&str]) -> Result<std::process::Output> {
+    let output = std::process::Command::new(bin)
+        .args(args)
+        .output()
+        .context("cannot run rclone")?;
+    if !output.status.success() {
+        bail!(
+            "rclone failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output)
 }
 
 /// Check that an S3 endpoint is one the panel may talk to.
@@ -247,8 +557,20 @@ pub fn archive_name(id: &str, created_at: &str) -> String {
     format!("synthpanel-{id}-{stamp}.tar.gz")
 }
 
-/// Create a backup and upload it to the destination.
+/// Create a backup and upload it to the destination, with no excludes.
 pub async fn create_backup(plan: &BackupPlan) -> Result<BackupResult> {
+    create_backup_with_excludes(plan, &[]).await
+}
+
+/// Create a backup, skipping the site files matched by `patterns`.
+///
+/// This is the entry point for callers that load stored global/per-site
+/// excludes; an empty list keeps the historical, unfiltered behaviour.
+pub async fn create_backup_with_excludes(
+    plan: &BackupPlan,
+    patterns: &[String],
+) -> Result<BackupResult> {
+    let excludes = Excludes::new(patterns)?;
     plan.destination.validate()?;
     let started = std::time::Instant::now();
 
@@ -275,18 +597,32 @@ pub async fn create_backup(plan: &BackupPlan) -> Result<BackupResult> {
                     .file_name()
                     .map(|value| value.to_string_lossy().to_string())
                     .unwrap_or_else(|| "site".to_string());
-                copy_tree(root, &work_dir.join("www").join(name))?;
+                copy_tree_excluding(
+                    root,
+                    &work_dir.join("www").join(&name),
+                    &excludes,
+                    Path::new(&name),
+                )?;
             }
         } else {
             match &plan.site_id {
                 Some(site_id) => {
                     let source = plan.www_dir.join(site_id);
                     if source.exists() {
-                        copy_tree(&source, &work_dir.join("www").join(site_id))?;
+                        copy_tree_excluding(
+                            &source,
+                            &work_dir.join("www").join(site_id),
+                            &excludes,
+                            Path::new(site_id),
+                        )?;
                     }
                 }
                 None => {
-                    copy_tree(&plan.www_dir, &work_dir.join("www"))?;
+                    // A full backup walks every site root under `www`. Each
+                    // site is filtered relative to its own root, so a pattern
+                    // such as `cache` has the same meaning for full and for
+                    // per-site backups.
+                    copy_www_directory(&plan.www_dir, &work_dir.join("www"), &excludes)?;
                 }
             }
         }
@@ -366,8 +702,36 @@ pub async fn create_backup(plan: &BackupPlan) -> Result<BackupResult> {
     })
 }
 
-/// Copy a directory tree into the staging area.
+/// Copy a directory tree into the staging area (configuration files are never
+/// filtered by backup excludes).
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
+    copy_tree_inner(
+        source,
+        destination,
+        &Excludes::default(),
+        Path::new(""),
+        Path::new(""),
+    )
+}
+
+/// Copy a site tree, skipping excluded paths. `prefix` is the path of the
+/// site root relative to `www`, used to also match site-qualified patterns.
+fn copy_tree_excluding(
+    source: &Path,
+    destination: &Path,
+    excludes: &Excludes,
+    prefix: &Path,
+) -> Result<()> {
+    copy_tree_inner(source, destination, excludes, Path::new(""), prefix)
+}
+
+fn copy_tree_inner(
+    source: &Path,
+    destination: &Path,
+    excludes: &Excludes,
+    relative: &Path,
+    prefix: &Path,
+) -> Result<()> {
     if !source.exists() {
         return Ok(());
     }
@@ -376,10 +740,40 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         let entry = entry?;
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().to_string();
+        let child = relative.join(&name);
+        let qualified = prefix.join(&child);
+        if excludes.matches_any(&[&child, &qualified]) {
+            continue;
+        }
         let target = destination.join(&name);
-        let _ = name;
         if path.is_dir() {
-            copy_tree(&path, &target)?;
+            copy_tree_inner(&path, &target, excludes, &child, prefix)?;
+        } else {
+            std::fs::copy(&path, &target).with_context(|| {
+                format!("cannot copy {} to {}", path.display(), target.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+/// Walk the `www` directory of a full backup, applying excludes inside each
+/// site root while leaving its overall layout untouched.
+fn copy_www_directory(source: &Path, destination: &Path, excludes: &Excludes) -> Result<()> {
+    if !source.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(destination)?;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if excludes.is_excluded(&Path::new(&name)) {
+            continue;
+        }
+        let target = destination.join(&name);
+        if path.is_dir() {
+            copy_tree_excluding(&path, &target, excludes, Path::new(&name))?;
         } else {
             std::fs::copy(&path, &target).with_context(|| {
                 format!("cannot copy {} to {}", path.display(), target.display())
@@ -718,6 +1112,12 @@ pub async fn upload(destination: &Destination, local: &Path, name: &str) -> Resu
             .await?;
             Ok(format!("s3://{bucket}/{key}"))
         }
+        Destination::Rclone { remote, path } => {
+            let source = local.to_string_lossy().into_owned();
+            let target = format!("{}/{name}", rclone_target(remote, path));
+            run_rclone(&["copyto", &source, &target])?;
+            Ok(rclone_location(remote, path, name))
+        }
     }
 }
 
@@ -760,6 +1160,12 @@ pub async fn download(destination: &Destination, remote: &str, local: &Path) -> 
             download_s3(endpoint, region, bucket, key, access_key, secret_key, local).await?;
             Ok(())
         }
+        Destination::Rclone { .. } => {
+            let source = rclone_remote_from_location(remote)?;
+            let target = local.to_string_lossy().into_owned();
+            run_rclone(&["copyto", &source, &target])?;
+            Ok(())
+        }
     }
 }
 
@@ -781,6 +1187,25 @@ pub async fn list(destination: &Destination) -> Result<Vec<String>> {
         }
         Destination::Sftp { .. } => Ok(Vec::new()),
         Destination::S3 { .. } => Ok(Vec::new()),
+        Destination::Rclone { remote, path } => {
+            let target = rclone_target(remote, path);
+            match run_rclone(&["lsf", "--files-only", &target]) {
+                Ok(output) => {
+                    let mut names: Vec<String> = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .map(str::trim)
+                        .filter(|line| !line.is_empty())
+                        .map(String::from)
+                        .collect();
+                    names.sort();
+                    Ok(names)
+                }
+                Err(error) => {
+                    warn!(%error, "cannot list the rclone remote");
+                    Ok(Vec::new())
+                }
+            }
+        }
     }
 }
 
@@ -1197,5 +1622,249 @@ mod tests {
         let second = checksum_file(&file).unwrap();
         assert_eq!(first, second);
         assert_eq!(first.len(), 64);
+    }
+
+    #[test]
+    fn exclude_patterns_reject_path_traversal() {
+        let allowed = [
+            "cache",
+            "cache/",
+            "*.log",
+            "storage/logs/*.log",
+            "node_modules/**",
+            "site-a/tmp",
+        ];
+        assert!(
+            validate_exclude_patterns(
+                &allowed
+                    .iter()
+                    .map(|value| value.to_string())
+                    .collect::<Vec<_>>()
+            )
+            .is_ok()
+        );
+
+        for bad in [
+            "../secret",
+            "foo/../../secret",
+            "foo/./bar",
+            "/etc/passwd",
+            "",
+            "   ",
+            "foo\\bar",
+            "foo\0bar",
+        ] {
+            assert!(
+                validate_exclude_patterns(&[bad.to_string()]).is_err(),
+                "`{bad}` should be rejected"
+            );
+        }
+        assert!(
+            Excludes::new(&["../secret".to_string()]).is_err(),
+            "compilation repeats validation"
+        );
+    }
+
+    #[test]
+    fn exclude_globs_match_site_paths() {
+        let excludes = Excludes::new(&[
+            "cache".into(),
+            "*.log".into(),
+            "storage/**/tmp".into(),
+            "docs/readme.md".into(),
+        ])
+        .unwrap();
+        assert!(excludes.is_excluded(Path::new("cache")));
+        assert!(excludes.is_excluded(Path::new("nested/cache/file.php")));
+        assert!(excludes.is_excluded(Path::new("logs/app.log")));
+        assert!(excludes.is_excluded(Path::new("storage/tmp")));
+        assert!(excludes.is_excluded(Path::new("storage/2026/tmp")));
+        assert!(excludes.is_excluded(Path::new("docs/readme.md")));
+        assert!(!excludes.is_excluded(Path::new("docs/other.md")));
+        assert!(!excludes.is_excluded(Path::new("public/index.html")));
+        assert!(Excludes::default().is_empty());
+    }
+
+    #[tokio::test]
+    async fn excludes_site_files_from_a_full_archive() {
+        let dir = scratch("exclude-full");
+        for site in ["one", "two"] {
+            let root = dir.join("www").join(site);
+            std::fs::create_dir_all(root.join("cache")).unwrap();
+            std::fs::write(root.join("index.html"), "hello").unwrap();
+            std::fs::write(root.join("cache/data.bin"), "cache").unwrap();
+            std::fs::write(root.join("app.log"), "log").unwrap();
+        }
+
+        let plan = test_plan(&dir);
+        let result = create_backup_with_excludes(&plan, &["cache".into(), "*.log".into()])
+            .await
+            .unwrap();
+        let names = list_archive(&dir.join("backups").join(&result.name)).unwrap();
+        assert!(names.iter().any(|name| name.ends_with("one/index.html")));
+        assert!(names.iter().any(|name| name.ends_with("two/index.html")));
+        assert!(!names.iter().any(|name| name.contains("cache")));
+        assert!(!names.iter().any(|name| name.ends_with(".log")));
+        assert!(
+            result
+                .entries
+                .iter()
+                .any(|entry| entry.ends_with("one/index.html"))
+        );
+        assert!(!result.entries.iter().any(|entry| entry.contains("cache")));
+    }
+
+    #[tokio::test]
+    async fn excludes_apply_to_a_site_backup() {
+        let dir = scratch("exclude-site");
+        let root = dir.join("www/one");
+        std::fs::create_dir_all(root.join("cache")).unwrap();
+        std::fs::write(root.join("index.html"), "hello").unwrap();
+        std::fs::write(root.join("cache/data.bin"), "cache").unwrap();
+
+        let mut plan = test_plan(&dir);
+        plan.kind = Kind::Site;
+        plan.site_id = Some("one".into());
+        plan.site_root = Some(root.clone());
+        let result = create_backup_with_excludes(&plan, &["cache".into()])
+            .await
+            .unwrap();
+        let names = list_archive(&dir.join("backups").join(&result.name)).unwrap();
+        assert!(names.iter().any(|name| name.ends_with("one/index.html")));
+        assert!(!names.iter().any(|name| name.contains("cache")));
+    }
+
+    #[tokio::test]
+    async fn backups_without_excludes_keep_every_file() {
+        let dir = scratch("exclude-compat");
+        let root = dir.join("www/one");
+        std::fs::create_dir_all(root.join("cache")).unwrap();
+        std::fs::write(root.join("index.html"), "hello").unwrap();
+        std::fs::write(root.join("cache/data.bin"), "cache").unwrap();
+
+        let plan = test_plan(&dir);
+        let result = create_backup(&plan).await.unwrap();
+        let names = list_archive(&dir.join("backups").join(&result.name)).unwrap();
+        assert!(names.iter().any(|name| name.contains("cache/data.bin")));
+        assert!(names.iter().any(|name| name.ends_with("one/index.html")));
+    }
+
+    #[tokio::test]
+    async fn excludes_are_stored_per_scope() {
+        let dir = scratch("exclude-store");
+        let pool = crate::db::connect(dir.join("state.db")).await.unwrap();
+        crate::db::migrate(&pool).await.unwrap();
+
+        set_excludes(&pool, None, &["cache".into()]).await.unwrap();
+        set_excludes(&pool, Some("one".into()), &["*.log".into()])
+            .await
+            .unwrap();
+        assert_eq!(
+            effective_excludes(&pool, None).await.unwrap(),
+            vec!["cache"]
+        );
+        assert_eq!(
+            effective_excludes(&pool, Some("one")).await.unwrap(),
+            vec!["cache", "*.log"]
+        );
+        assert_eq!(
+            effective_excludes(&pool, Some("two")).await.unwrap(),
+            vec!["cache"]
+        );
+
+        // An empty list clears the scope without touching the other one.
+        set_excludes(&pool, Some("one".into()), &[]).await.unwrap();
+        assert_eq!(
+            effective_excludes(&pool, Some("one")).await.unwrap(),
+            vec!["cache"]
+        );
+        assert!(
+            set_excludes(&pool, None, &["../secret".into()])
+                .await
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn validates_and_labels_rclone_destinations() {
+        let remote = Destination::Rclone {
+            remote: "gdrive".into(),
+            path: "backups/synthpanel".into(),
+        };
+        assert!(remote.validate().is_ok());
+        assert_eq!(remote.label(), "rclone://gdrive/backups/synthpanel");
+
+        for (name, path) in [
+            ("", "backups"),
+            ("bad:name", "backups"),
+            ("bad/name", "backups"),
+            ("-flag", "backups"),
+            ("gdrive", ""),
+            ("gdrive", "-flag"),
+        ] {
+            assert!(
+                Destination::Rclone {
+                    remote: name.into(),
+                    path: path.into(),
+                }
+                .validate()
+                .is_err(),
+                "`{name}:{path}` should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn rclone_locations_roundtrip() {
+        let location = rclone_location("gdrive", "/backups/sp/", "archive.tar.gz");
+        assert_eq!(location, "rclone://gdrive/backups/sp/archive.tar.gz");
+        assert_eq!(
+            rclone_remote_from_location(&location).unwrap(),
+            "gdrive:backups/sp/archive.tar.gz"
+        );
+        assert_eq!(
+            rclone_remote_from_location("gdrive:backups/archive.tar.gz").unwrap(),
+            "gdrive:backups/archive.tar.gz"
+        );
+        assert!(rclone_remote_from_location("gdrive").is_err());
+        assert_eq!(rclone_target("gdrive", "/backups"), "gdrive:backups");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rclone_runs_the_configured_binary() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = scratch("rclone-bin");
+        let capture = dir.join("args.txt");
+        let bin = dir.join("fake-rclone");
+        std::fs::write(
+            &bin,
+            format!("#!/bin/sh\nprintf '%s\\n' \"$@\" > {}\n", capture.display()),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&bin).unwrap().permissions();
+        permissions.set_mode(0o755);
+        std::fs::set_permissions(&bin, permissions).unwrap();
+
+        let local = dir.join("archive.tar.gz");
+        run_rclone_with(
+            &bin,
+            &[
+                "copyto",
+                &local.to_string_lossy(),
+                "gdrive:backups/archive.tar.gz",
+            ],
+        )
+        .unwrap();
+        let args = std::fs::read_to_string(&capture).unwrap();
+        assert_eq!(
+            args.lines().collect::<Vec<_>>(),
+            vec![
+                "copyto",
+                local.to_str().unwrap(),
+                "gdrive:backups/archive.tar.gz"
+            ]
+        );
     }
 }

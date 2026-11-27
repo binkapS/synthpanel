@@ -163,6 +163,22 @@ pub enum Command {
         #[arg(long)]
         site: String,
     },
+    /// Install WordPress into a site's document root.
+    #[command(name = "site:wordpress:install")]
+    SiteWordpressInstall {
+        /// Site id.
+        #[arg(long)]
+        site: String,
+        /// WordPress administrator user name.
+        #[arg(long)]
+        admin_user: String,
+        /// WordPress administrator password.
+        #[arg(long)]
+        admin_password: String,
+        /// WordPress administrator email address.
+        #[arg(long)]
+        admin_email: String,
+    },
     /// Show the security controls of a site.
     #[command(name = "sites:security:get")]
     SitesSecurityGet {
@@ -564,6 +580,54 @@ pub enum Command {
         #[arg(long, default_value = "")]
         sites: String,
     },
+    /// List registered external / remote database servers.
+    #[command(name = "db:remote:list")]
+    DbRemoteList,
+    /// Register an external / remote database server (RDS, Aurora, etc.).
+    #[command(name = "db:remote:add")]
+    DbRemoteAdd {
+        /// Display name for the server.
+        #[arg(long)]
+        name: String,
+        /// Engine: mysql, mariadb, postgres, postgresql, aurora-mysql or aurora-postgresql.
+        #[arg(long, default_value = "mysql")]
+        engine: String,
+        /// Hostname, IP address or RDS/Aurora endpoint.
+        #[arg(long)]
+        host: String,
+        /// Port (defaults to 3306 for MySQL engines and 5432 for Postgres).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Database name on the remote server.
+        #[arg(long)]
+        database: String,
+        /// Login user on the remote server.
+        #[arg(long)]
+        username: String,
+        /// Login password (prompted when omitted).
+        #[arg(long)]
+        password: Option<String>,
+        /// Require TLS for the connection.
+        #[arg(long)]
+        tls: bool,
+    },
+    /// Remove a registered remote database server.
+    #[command(name = "db:remote:delete")]
+    DbRemoteDelete {
+        /// Remote server id.
+        #[arg(long)]
+        id: String,
+    },
+    /// Replace backup exclude patterns (global when --site is omitted).
+    #[command(name = "backup:excludes:set")]
+    BackupExcludesSet {
+        /// Site id; omit to set the global patterns.
+        #[arg(long)]
+        site: Option<String>,
+        /// Comma separated glob patterns, e.g. 'cache,*.log,storage/**'.
+        #[arg(long)]
+        patterns: String,
+    },
 }
 
 #[derive(Debug, Args)]
@@ -830,6 +894,26 @@ async fn main() -> Result<()> {
                 .call(
                     synthpanel_ipc::methods::SITES_APP_STATUS,
                     json!({ "site_id": site }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::SiteWordpressInstall {
+            site,
+            admin_user,
+            admin_password,
+            admin_email,
+        } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::WORDPRESS_INSTALL,
+                    json!({
+                        "site_id": site,
+                        "admin_user": admin_user,
+                        "admin_password": admin_password,
+                        "admin_email": admin_email,
+                    }),
                 )
                 .await?;
             println!("{}", global.as_json(&result));
@@ -1513,6 +1597,69 @@ async fn main() -> Result<()> {
             }
             Ok(())
         }
+        Command::DbRemoteList => {
+            let servers: Vec<Value> = global
+                .call(synthpanel_ipc::methods::DATABASES_REMOTE_LIST, json!({}))
+                .await?;
+            for server in &servers {
+                println!("{}", global.as_json(server));
+            }
+            if servers.is_empty() {
+                eprintln!("no remote databases yet");
+            }
+            Ok(())
+        }
+        Command::DbRemoteAdd {
+            name,
+            engine,
+            host,
+            port,
+            database,
+            username,
+            password,
+            tls,
+        } => {
+            let password = match password {
+                Some(password) => password.clone(),
+                None => prompt_password("Remote database password")?,
+            };
+            let params = json!({
+                "name": name,
+                "engine": engine,
+                "host": host,
+                "port": port,
+                "database": database,
+                "username": username,
+                "password": password,
+                "tls": tls,
+            });
+            let result: Value = global
+                .call(synthpanel_ipc::methods::DATABASES_REMOTE_ADD, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::DbRemoteDelete { id } => {
+            let result: Value = global
+                .call(
+                    synthpanel_ipc::methods::DATABASES_REMOTE_DELETE,
+                    json!({ "id": id }),
+                )
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
+        Command::BackupExcludesSet { site, patterns } => {
+            let mut params = json!({ "patterns": split_list(&patterns) });
+            if let Some(site) = site {
+                params["site_id"] = json!(site);
+            }
+            let result: Value = global
+                .call(synthpanel_ipc::methods::BACKUP_EXCLUDES_SET, params)
+                .await?;
+            println!("{}", global.as_json(&result));
+            Ok(())
+        }
     };
     if let Err(error) = result {
         eprintln!("error: {error}");
@@ -1754,5 +1901,59 @@ mod tests {
         ])
         .unwrap();
         assert!(matches!(cli.command, Command::UserSitesSet { .. }));
+    }
+
+    #[test]
+    fn cli_parses_remote_db_verbs() {
+        let cli = Cli::try_parse_from(["synthpanel", "db:remote:list"]).unwrap();
+        assert!(matches!(cli.command, Command::DbRemoteList));
+
+        let cli = Cli::try_parse_from([
+            "synthpanel",
+            "db:remote:add",
+            "--name",
+            "prod",
+            "--engine",
+            "postgres",
+            "--host",
+            "db.example.com",
+            "--database",
+            "app",
+            "--username",
+            "app",
+            "--password",
+            "pw",
+            "--tls",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::DbRemoteAdd {
+                name,
+                engine,
+                host,
+                port,
+                database,
+                username,
+                password,
+                tls,
+            } => {
+                assert_eq!(name, "prod");
+                assert_eq!(engine, "postgres");
+                assert_eq!(host, "db.example.com");
+                assert_eq!(port, None);
+                assert_eq!(database, "app");
+                assert_eq!(username, "app");
+                assert_eq!(password.as_deref(), Some("pw"));
+                assert!(tls);
+            }
+            other => panic!("wrong command: {other:?}"),
+        }
+
+        let cli =
+            Cli::try_parse_from(["synthpanel", "db:remote:delete", "--id", "remote-id"]).unwrap();
+        match cli.command {
+            Command::DbRemoteDelete { id } => assert_eq!(id, "remote-id"),
+            other => panic!("wrong command: {other:?}"),
+        }
     }
 }

@@ -13,12 +13,14 @@ pub mod deployments;
 pub mod files;
 pub mod logs;
 pub mod panel;
+pub mod remote_db;
 pub mod security;
 pub mod sessions;
 pub mod site_users;
 pub mod sites;
 pub mod terminal;
 pub mod update;
+pub mod wordpress;
 
 use crate::state::AppState;
 use axum::Router;
@@ -98,6 +100,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/api/v1/sites/{id}/app",
             get(sites::app_status).post(sites::app_configure),
         )
+        .route("/api/v1/sites/{id}/app/control", post(sites::app_control))
         .route("/api/v1/sites/{id}/ssl/cert", post(sites::cert_install))
         .route(
             "/api/v1/sites/{id}/security",
@@ -121,6 +124,19 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/api/v1/files/copy", post(files::copy))
         .route("/api/v1/files/upload", post(files::upload))
+        .route(
+            "/api/v1/databases/remote",
+            get(remote_db::list).post(remote_db::add),
+        )
+        .route(
+            "/api/v1/databases/remote/{id}",
+            axum::routing::delete(remote_db::delete),
+        )
+        .route("/api/v1/backups/excludes", post(backups::excludes_set))
+        .route(
+            "/api/v1/sites/{site_id}/wordpress/install",
+            post(wordpress::install),
+        )
         .route("/api/v1/backups", get(backups::list))
         .route("/api/v1/backups/run", post(backups::run))
         .route("/api/v1/backups/schedules", post(backups::schedule_create))

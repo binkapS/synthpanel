@@ -53,6 +53,15 @@ pub struct ScheduleRequest {
     pub retention: Option<Value>,
 }
 
+/// CloudPanel parity wave 3: patterns skipped while archiving site files.
+/// Omitting `site_id` sets the global list.
+#[derive(Debug, Deserialize)]
+pub struct ExcludesSetRequest {
+    #[serde(default)]
+    pub site_id: Option<String>,
+    pub patterns: Vec<String>,
+}
+
 pub async fn list(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
@@ -226,6 +235,34 @@ pub async fn schedule_delete(
         "",
         "backups.schedule.delete",
         &id,
+        &user.ip,
+    )
+    .await;
+    Ok(Json(result))
+}
+
+/// Replace the backup exclude patterns of a site, or the global patterns
+/// when `site_id` is absent. The core validates paths and rejects traversal.
+///
+/// Route: `POST /api/v1/backups/excludes`.
+pub async fn excludes_set(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    ApiJson(body): ApiJson<ExcludesSetRequest>,
+) -> Result<Json<Value>, ApiError> {
+    let mut params = json!({ "patterns": body.patterns });
+    if let Some(site_id) = &body.site_id {
+        params["site_id"] = json!(site_id);
+    }
+    let result: Value = state
+        .core_call(methods::BACKUP_EXCLUDES_SET, params)
+        .await?;
+    audit(
+        &state,
+        &user.user_id,
+        body.site_id.as_deref().unwrap_or(""),
+        "backups.excludes.set",
+        body.site_id.as_deref().unwrap_or("global"),
         &user.ip,
     )
     .await;

@@ -1,0 +1,161 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { SpinBox } from "std-widgets.slint";
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { StatusBadge } from "../widgets/status_badge.slint";
+import { SelectField, TextArea } from "../widgets/field.slint";
+
+export component SiteAppPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: @tr("Site app page");
+
+    in property <string> site-id;
+    in-out property <string> app-type;
+    in-out property <int> app-port;
+    in-out property <string> app-command;
+    in-out property <string> status;
+    in-out property <bool> running;
+
+    // The select shows human-readable type names, but the bridge expects the
+    // stored identifiers ("node" / "python"). Keep the index here so a status
+    // refresh can restore the selection after another page changed the type.
+    private property <int> type-index: 0;
+
+    callback load-app(string);
+    callback configure-app(string, string, int, string);
+    callback start-app(string);
+    callback stop-app(string);
+
+    changed site-id => {
+        if (root.site-id != "") {
+            root.load-app(root.site-id);
+        }
+    }
+
+    changed app-type => {
+        root.type-index = root.app-type == "python" ? 1 : 0;
+    }
+
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+
+            PageHeader {
+                title: @tr("Application");
+                subtitle: @tr("Supervised Node.js or Python application for this site.");
+            }
+
+            if root.status != "" : Notice { text: root.status; }
+
+            HorizontalLayout {
+                spacing: 10px;
+                alignment: end;
+                AppButton {
+                    text: @tr("Reload");
+                    clicked => { root.load-app(root.site-id); }
+                }
+            }
+
+            Card {
+                title: @tr("Configuration");
+                subtitle: root.site-id;
+                VerticalLayout {
+                    spacing: 12px;
+
+                    HorizontalLayout {
+                        spacing: 12px;
+                        SelectField {
+                            label: @tr("Application type");
+                            options: [@tr("Node.js"), @tr("Python")];
+                            index <=> root.type-index;
+                            selected(value) => {
+                                root.app-type = value == @tr("Python") ? "python" : "node";
+                            }
+                            horizontal-stretch: 1;
+                            min-width: 160px;
+                        }
+                        VerticalLayout {
+                            spacing: 6px;
+                            Text {
+                                text: @tr("Application port");
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: Theme.muted;
+                                vertical-alignment: center;
+                                accessible-role: none;
+                            }
+                            SpinBox {
+                                value <=> root.app-port;
+                                minimum: 1;
+                                maximum: 65535;
+                                min-width: 120px;
+                                min-height: 32px;
+                                vertical-stretch: 0;
+                                accessible-label: @tr("Application port");
+                                accessible-description: @tr("Loopback TCP port the application listens on.");
+                            }
+                        }
+                    }
+
+                    TextArea {
+                        label: @tr("Start command");
+                        text <=> root.app-command;
+                        lines: 2;
+                        monospace: true;
+                    }
+                    Text {
+                        text: @tr("Runs as the site user. Environment assignments and a single command are supported.");
+                        font-size: 11px;
+                        color: Theme.muted;
+                        wrap: word-wrap;
+                        accessible-role: none;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Save configuration");
+                            primary: true;
+                            enabled: root.site-id != "";
+                            clicked => {
+                                root.configure-app(root.site-id, root.app-type, root.app-port, root.app-command);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                title: @tr("Process");
+                HorizontalLayout {
+                    spacing: 12px;
+                    Text {
+                        text: @tr("State");
+                        width: 90px;
+                        font-size: 12px;
+                        color: Theme.muted;
+                        vertical-alignment: center;
+                    }
+                    StatusBadge { status: root.running ? "running" : "stopped"; }
+                    Rectangle { horizontal-stretch: 1; }
+                    AppButton {
+                        text: @tr("Start");
+                        enabled: !root.running && root.site-id != "";
+                        clicked => { root.start-app(root.site-id); }
+                    }
+                    AppButton {
+                        text: @tr("Stop");
+                        danger: true;
+                        enabled: root.running && root.site-id != "";
+                        clicked => { root.stop-app(root.site-id); }
+                    }
+                }
+            }
+        }
+    }
+}

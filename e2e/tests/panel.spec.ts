@@ -681,6 +681,44 @@ test('panel access gates expose non-secret status', async ({ page }) => {
   });
 });
 
+test('remote database servers can be managed', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const name = `e2e-remote-${Date.now()}`;
+  const added = await api(page, 'POST', '/api/v1/databases/remote', {
+    name,
+    engine: 'postgres',
+    host: 'db.example.com',
+    port: 5432,
+    database: 'app',
+    username: 'app',
+    password: 'a-strong-test-password',
+    tls: true,
+  });
+  expect(added.status).toBe(200);
+  const id = added.body.id;
+  expect(id).toBeTruthy();
+  try {
+    const listed = await api(page, 'GET', '/api/v1/databases/remote');
+    expect(listed.status).toBe(200);
+    expect(listed.body.servers.map((s: any) => s.name)).toContain(name);
+    expect(JSON.stringify(listed.body)).not.toContain('a-strong-test-password');
+  } finally {
+    expect((await api(page, 'DELETE', `/api/v1/databases/remote/${id}`)).status).toBe(200);
+  }
+});
+
+test('backup exclude patterns can be stored and cleared', async ({ page }) => {
+  await openApp(page);
+  await expectSession(page);
+  const stored = await api(page, 'POST', '/api/v1/backups/excludes', {
+    patterns: ['cache/**', '*.log'],
+  });
+  expect(stored.status).toBe(200);
+  const cleared = await api(page, 'POST', '/api/v1/backups/excludes', { patterns: [] });
+  expect(cleared.status).toBe(200);
+});
+
 // Guard against forgetting the activation flag when adding new navigations.
 test('e2e harness is inert on a normal URL', async ({ page }) => {
   await page.goto('/');

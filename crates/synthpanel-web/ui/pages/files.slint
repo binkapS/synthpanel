@@ -4,7 +4,8 @@
 import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader, Notice } from "../widgets/card.slint";
 import { AppButton, IconButton } from "../widgets/button.slint";
-import { TextField, TextArea } from "../widgets/field.slint";
+import { TextField } from "../widgets/field.slint";
+import { TextEdit } from "std-widgets.slint";
 import { FileRow } from "../types.slint";
 
 export component FilesPage inherits Rectangle {
@@ -17,6 +18,7 @@ export component FilesPage inherits Rectangle {
     in-out property <string> content;
 
     private property <bool> editing: false;
+    private property <bool> modified: false;
     private property <string> scope: "www";
     private property <string> new-name: "";
 
@@ -65,7 +67,10 @@ export component FilesPage inherits Rectangle {
             }
             AppButton {
                 text: root.editing ? "Hide editor" : "New file";
-                clicked => { root.editing = !root.editing; }
+                clicked => {
+                    root.editing = !root.editing;
+                    root.modified = false;
+                }
             }
             AppButton {
                 text: "Upload";
@@ -93,11 +98,80 @@ export component FilesPage inherits Rectangle {
                         }
                     }
                 }
-                TextArea {
-                    label: "Content";
-                    text <=> root.content;
-                    lines: 12;
+                Text {
+                    text: "Content";
+                    font-size: 12px;
+                    font-weight: 500;
+                    color: Theme.muted;
                     vertical-stretch: 0;
+                    accessible-role: none;
+                }
+                // Editor surface: a non-interactive Flickable mirrors the
+                // TextEdit's scroll offset so the line numbers stay aligned.
+                Rectangle {
+                    min-height: 12 * 18px + 12px;
+                    background: Theme.surface;
+                    border-color: Theme.border;
+                    border-width: 1px;
+                    border-radius: 4px;
+                    clip: true;
+                    vertical-stretch: 0;
+                    HorizontalLayout {
+                        spacing: 0px;
+                        Flickable {
+                            width: 46px;
+                            interactive: false;
+                            content-y: editor.content-y;
+                            Rectangle {
+                                width: 100%;
+                                height: max(editor.content-height, editor.height);
+                                background: Theme.surface-muted;
+                                // Slint has no text tokenizer/split(); a fixed
+                                // set of rows keeps the gutter dependency-free.
+                                for n in 256 : Text {
+                                    x: 4px;
+                                    y: n * 18px;
+                                    width: parent.width - 8px;
+                                    height: 18px;
+                                    text: "\{n + 1}";
+                                    font-family: "monospace";
+                                    font-size: 11px;
+                                    color: Theme.muted;
+                                    horizontal-alignment: right;
+                                    vertical-alignment: center;
+                                    accessible-role: none;
+                                }
+                            }
+                        }
+                        editor := TextEdit {
+                            text <=> root.content;
+                            font-family: "monospace";
+                            font-size: 13px;
+                            wrap: no-wrap;
+                            min-height: 12 * 18px + 12px;
+                            vertical-stretch: 0;
+                            accessible-label: "Content";
+                            edited(text) => { root.modified = true; }
+                        }
+                    }
+                }
+                if root.modified : HorizontalLayout {
+                    spacing: 6px;
+                    vertical-stretch: 0;
+                    Text {
+                        text: "●";
+                        font-size: 11px;
+                        color: Theme.warning;
+                        vertical-alignment: center;
+                        accessible-role: none;
+                    }
+                    Text {
+                        text: "Modified (unsaved changes)";
+                        font-size: 11px;
+                        color: Theme.warning;
+                        vertical-stretch: 0;
+                        accessible-label: "File has unsaved changes";
+                    }
                 }
                 HorizontalLayout {
                     alignment: end;
@@ -111,6 +185,7 @@ export component FilesPage inherits Rectangle {
                         primary: true;
                         clicked => {
                             root.file-write(root.scope, root.path + "/" + root.new-name, root.content);
+                            root.modified = false;
                             root.editing = false;
                         }
                     }
@@ -173,7 +248,10 @@ export component FilesPage inherits Rectangle {
                         if !entry.is-directory : IconButton {
                             icon: @image-url("../assets/icons/refresh.svg");
                             tooltip: "Open " + entry.name + " in editor";
-                            clicked => { root.file-content(root.scope, entry.path); }
+                            clicked => {
+                                root.modified = false;
+                                root.file-content(root.scope, entry.path);
+                            }
                         }
                         IconButton {
                             icon: @image-url("../assets/icons/plus.svg");

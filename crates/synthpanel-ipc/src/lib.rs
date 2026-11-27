@@ -262,6 +262,12 @@ pub mod methods {
     pub const SITES_APP_CONFIGURE: &str = "sites.app.configure";
     pub const SITES_APP_STATUS: &str = "sites.app.status";
     pub const FILES_COPY: &str = "files.copy";
+    pub const WORDPRESS_INSTALL: &str = "wordpress.install";
+    pub const DATABASES_REMOTE_LIST: &str = "databases.remote.list";
+    pub const DATABASES_REMOTE_ADD: &str = "databases.remote.add";
+    pub const DATABASES_REMOTE_DELETE: &str = "databases.remote.delete";
+    pub const BACKUP_EXCLUDES_SET: &str = "backups.excludes.set";
+    pub const SITES_APP_CONTROL: &str = "sites.app.control";
 }
 
 /// Well-known error codes.

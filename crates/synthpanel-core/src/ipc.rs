@@ -2455,6 +2455,121 @@ impl IpcServer {
                 sandbox.copy(from, to).map_err(file_error)?;
                 Ok(json!({ "ok": true }))
             }
+            methods::WORDPRESS_INSTALL => {
+                let result = crate::wordpress::install(
+                    &self.pool,
+                    crate::wordpress::InstallRequest {
+                        site_id: param_str(params, "site_id")?,
+                        admin_user: param_str(params, "admin_user")?,
+                        admin_password: param_str(params, "admin_password")?,
+                        admin_email: param_str(params, "admin_email")?,
+                    },
+                )
+                .await
+                .map_err(internal)?;
+                let site_id = param_str(params, "site_id")?;
+                self.stores
+                    .sites
+                    .update(
+                        site_id,
+                        sites::SitePatch {
+                            template: Some("wordpress".into()),
+                            ..Default::default()
+                        },
+                    )
+                    .await
+                    .map_err(internal)?;
+                let extras = self
+                    .stores
+                    .sites
+                    .get_with_extras(site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                let vhost = self.render_site_vhost(&extras).await?;
+                let pool = crate::php::render_pool(&extras);
+                let applied = self
+                    .apply
+                    .apply_site(&extras, &vhost, &pool)
+                    .await
+                    .map_err(internal)?;
+                let mut value = serde_json::to_value(result).map_err(internal)?;
+                if let serde_json::Value::Object(map) = &mut value {
+                    map.insert("applied".into(), json!(applied));
+                }
+                Ok(value)
+            }
+            methods::DATABASES_REMOTE_LIST => {
+                let rows = crate::remote_db::list(&self.pool).await.map_err(internal)?;
+                Ok(serde_json::to_value(rows).map_err(internal)?)
+            }
+            methods::DATABASES_REMOTE_ADD => {
+                let input = crate::remote_db::AddRemoteDatabase::from_params(params)
+                    .map_err(|e| Error::new(codes::BAD_REQUEST, e.to_string()))?;
+                let record = crate::remote_db::add(&self.pool, &self.paths.secret_key_path, &input)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "id": record.id }))
+            }
+            methods::DATABASES_REMOTE_DELETE => {
+                let id = param_str(params, "id")?;
+                if !crate::remote_db::delete(&self.pool, id)
+                    .await
+                    .map_err(internal)?
+                {
+                    return Err(Error::new(codes::NOT_FOUND, "remote database not found"));
+                }
+                Ok(json!({ "ok": true }))
+            }
+            methods::BACKUP_EXCLUDES_SET => {
+                let site_id = opt_str(params, "site_id");
+                let patterns: Vec<String> = params
+                    .get("patterns")
+                    .and_then(Value::as_array)
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                crate::backup::set_excludes(&self.pool, site_id, &patterns)
+                    .await
+                    .map_err(internal)?;
+                Ok(json!({ "ok": true }))
+            }
+            methods::SITES_APP_CONTROL => {
+                let site_id = param_str(params, "site_id")?;
+                let action = param_str(params, "action")?;
+                let site = self
+                    .stores
+                    .sites
+                    .get(site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "site not found"))?;
+                let app = crate::app_process::get_app(&self.pool, site_id)
+                    .await
+                    .map_err(internal)?
+                    .ok_or_else(|| Error::new(codes::NOT_FOUND, "no app is configured"))?;
+                match action {
+                    "start" => crate::app_process::start_app(&site, &app, &self.paths)
+                        .await
+                        .map_err(internal)?,
+                    "stop" => crate::app_process::stop_app(&site, &app, &self.paths)
+                        .await
+                        .map_err(internal)?,
+                    "restart" => crate::app_process::restart_app(&site, &app, &self.paths)
+                        .await
+                        .map_err(internal)?,
+                    other => {
+                        return Err(Error::new(
+                            codes::BAD_REQUEST,
+                            format!("invalid app action `{other}`"),
+                        ));
+                    }
+                }
+                Ok(json!({ "ok": true }))
+            }
             other => Err(Error::new(
                 codes::UNSUPPORTED,
                 format!("unknown method `{other}`"),

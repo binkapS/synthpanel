@@ -56,6 +56,8 @@ import { SettingsPage } from "pages/settings.slint";
 import { SiteSecurityPage } from "pages/site_security.slint";
 import { SiteUsersPage } from "pages/site_users.slint";
 import { SessionsPage } from "pages/sessions.slint";
+import { SiteAppPage } from "pages/site_app.slint";
+import { SiteCertPage } from "pages/site_cert.slint";
 
 export component AppWindow inherits Window {
     title: "SynthPanel";
@@ -168,6 +170,17 @@ export component AppWindow inherits Window {
     in-out property <string> site-users-username;
     in-out property <string> site-users-key;
     in-out property <string> site-users-status;
+    in-out property <string> site-app-id;
+    in-out property <string> site-app-type;
+    in-out property <int> site-app-port: 3000;
+    in-out property <string> site-app-command;
+    in-out property <string> site-app-status;
+    in-out property <bool> site-app-running;
+    in-out property <string> site-cert-id;
+    in-out property <string> site-cert-content;
+    in-out property <string> site-cert-key;
+    in-out property <string> site-cert-chain;
+    in-out property <string> site-cert-status;
     in-out property <[PanelSession]> sessions;
     in-out property <string> sessions-status;
 
@@ -257,6 +270,11 @@ export component AppWindow inherits Window {
     callback load-site-users(string);
     callback add-site-user(string, string, string);
     callback remove-site-user(string, string);
+    callback load-site-app(string);
+    callback configure-site-app(string, string, int, string);
+    callback start-site-app(string);
+    callback stop-site-app(string);
+    callback install-site-cert(string, string, string, string);
     callback load-sessions();
     callback revoke-other-sessions();
     callback dump-database(string);
@@ -349,6 +367,14 @@ export component AppWindow inherits Window {
             open-users(id) => {
                 root.site-users-id = id;
                 root.navigate(Page.site-users);
+            }
+            open-app(id) => {
+                root.site-app-id = id;
+                root.navigate(Page.site-app);
+            }
+            open-cert(id) => {
+                root.site-cert-id = id;
+                root.navigate(Page.site-cert);
             }
             back() => { root.navigate(Page.sites); }
         }
@@ -486,6 +512,28 @@ export component AppWindow inherits Window {
             load-users(site-id) => { root.load-site-users(site-id); }
             add-user(site-id, username, key) => { root.add-site-user(site-id, username, key); }
             remove-user(site-id, username) => { root.remove-site-user(site-id, username); }
+        }
+
+        if root.current-page == Page.site-app : SiteAppPage {
+            site-id: root.site-app-id;
+            app-type <=> root.site-app-type;
+            app-port <=> root.site-app-port;
+            app-command <=> root.site-app-command;
+            status <=> root.site-app-status;
+            running <=> root.site-app-running;
+            load-app(id) => { root.load-site-app(id); }
+            configure-app(id, type, port, command) => { root.configure-site-app(id, type, port, command); }
+            start-app(id) => { root.start-site-app(id); }
+            stop-app(id) => { root.stop-site-app(id); }
+        }
+
+        if root.current-page == Page.site-cert : SiteCertPage {
+            site-id: root.site-cert-id;
+            cert <=> root.site-cert-content;
+            key <=> root.site-cert-key;
+            chain <=> root.site-cert-chain;
+            status <=> root.site-cert-status;
+            install-cert(site, cert, key, chain) => { root.install-site-cert(site, cert, key, chain); }
         }
 
         if root.current-page == Page.sessions : SessionsPage {

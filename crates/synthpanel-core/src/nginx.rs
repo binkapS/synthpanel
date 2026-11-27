@@ -167,6 +167,8 @@ pub fn render_vhost_with_app(
         Some(app) => render_app_location(&app),
         None => match site.template.as_str() {
             "proxy" => render_proxy_location(proxy_target.as_deref()),
+            "wordpress" => "    # WordPress permalinks\n    location / {\n        try_files $uri $uri/ /index.php?$args;\n    }\n\n"
+                .to_string(),
             _ => "    # Static files\n    location / {\n        try_files $uri $uri/ =404;\n    }\n\n"
                 .to_string(),
         },

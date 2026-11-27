@@ -1,0 +1,68 @@
+// Copyright (C) 2026 Binkap S
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import { Theme } from "../widgets/theme.slint";
+import { Card, PageHeader, Notice } from "../widgets/card.slint";
+import { AppButton } from "../widgets/button.slint";
+import { TextArea } from "../widgets/field.slint";
+
+export component SiteCertPage inherits Rectangle {
+    in property <string> site-id;
+    in-out property <string> cert;
+    in-out property <string> key;
+    in-out property <string> chain;
+    in-out property <string> status;
+
+    callback install-cert(string, string, string, string);
+
+    accessible-role: region;
+    accessible-label: @tr("Custom certificate");
+
+    Flickable {
+        VerticalLayout {
+            alignment: start;
+            spacing: 18px;
+
+            PageHeader {
+                title: @tr("Custom certificate");
+                subtitle: @tr("Install a certificate, private key and optional chain for this site.");
+            }
+
+            if root.status != "" : Notice { text: root.status; }
+
+            Card {
+                title: @tr("PEM material");
+                VerticalLayout {
+                    spacing: 12px;
+                    TextArea {
+                        label: @tr("Certificate");
+                        text <=> root.cert;
+                        lines: 8;
+                    }
+                    TextArea {
+                        label: @tr("Private key");
+                        text <=> root.key;
+                        lines: 8;
+                    }
+                    TextArea {
+                        label: @tr("Chain (optional)");
+                        text <=> root.chain;
+                        lines: 4;
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+                        AppButton {
+                            text: @tr("Install certificate");
+                            primary: true;
+                            enabled: root.cert != "" && root.key != "";
+                            clicked => {
+                                root.install-cert(root.site-id, root.cert, root.key, root.chain);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
