@@ -1,4 +1,4 @@
--- CloudPanel parity: per-site SSH users.
+-- Per-site SSH users.
 --
 -- System usernames are global on a host, so `username` is unique across all
 -- sites rather than only within a site. The document root is stored with the

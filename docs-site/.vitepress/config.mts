@@ -24,7 +24,6 @@ export default defineConfig({
             { text: 'Terminal', link: '/guide/terminal' },
             { text: 'PHP', link: '/guide/php' },
             { text: 'Panel certificate', link: '/guide/panel-certificate' },
-            { text: 'SynthPanel vs CloudPanel', link: '/guide/cloudpanel-comparison' },
             { text: 'Troubleshooting', link: '/guide/troubleshooting' },
           ],
         },

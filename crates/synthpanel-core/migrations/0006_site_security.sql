@@ -1,4 +1,4 @@
--- Site-level security controls (CloudPanel parity).
+-- Site-level security controls.
 --
 -- Sites without a row here keep the permissive defaults. The password column
 -- holds an htpasswd line (`user:{SHA}<base64>`) that the core writes to the

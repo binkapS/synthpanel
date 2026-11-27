@@ -185,40 +185,22 @@ exist yet).
 
 ---
 
-## CloudPanel parity workstream (in progress)
+## Extended features
 
-The following CLI verbs are implemented in `synthpanel-cli` and call the IPC
-methods listed. They are **CLI-first** additions: until the matching core
-handler, REST endpoint and UI screen land, a verb may fail with `unsupported`
-or simply have no browser equivalent. Session revocation is web-only and has no
-CLI verb.
+The CLI verbs below are implemented and call the IPC methods listed. They are
+available through the REST API and UI screens described in
+[PLAN.md §4.16](../PLAN.md#416-extended-features). Session revocation is
+web-only and has no CLI verb.
 
 | Feature | CLI verb(s) | IPC method(s) | Status |
 |---|---|---|---|
-| Reverse-proxy site type | `sites:proxy` | `sites.create` with template `proxy` | 🟡 CLI added; vhost renderer landed, IPC/UI in progress |
-| Per-site security controls | `sites:security:get`, `sites:security:set` | `site_security.get`, `site_security.set` | 🟡 CLI added; core store landed, IPC/UI in progress |
-| Per-site SSH users | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | 🟡 CLI added; core store landed, IPC/UI in progress |
-| Custom certificate install | `ssl:cert:install` | `ssl.cert.install` | 🟡 CLI added; core helper landed, IPC/UI in progress |
-| On-demand DB dump/import | `db:dump`, `db:import` | `databases.dump`, `databases.import` | 🟡 CLI added; core and API landed, IPC/UI in progress |
-| Per-site user ACL | `user-sites:list`, `user-sites:set` | `user_sites.list`, `user_sites.set` | 🟡 CLI added; core/UI in progress |
-| Session revocation | none (web-only) | web session store | 🟡 web work in progress |
-
-IPC parameter names used by these verbs, matched to the core modules that are
-landing alongside them (a verb is still not proof of a shipped handler):
-
-- `sites:proxy` → `sites.create`: `domain`, `aliases` (array), `template` =
-  `proxy`, `ssl_mode`, `directives` = `proxy_target <url>;` (the vhost renderer
-  consumes that line), plus a `proxy_pass` alias.
-- `sites:security:get|set` → `site_id`; setters send only the supplied fields:
-  `ip_blocks`, `bot_blocks` (arrays), `basic_auth_enabled` (bool),
-  `basic_auth_user`, `password`/`basic_auth_password`, `cloudflare_only` (bool).
-- `sites:ssh-users:*` → `site_id`, and `username` / `public_key` for add (the
-  system accounts are key-only), `username` for remove.
-- `ssl:cert:install` → `site_id`, `cert` and `key` (PEM contents read from the
-  local files named by `--cert` and `--key`).
-- `db:dump` → `id`; `db:import` → `id` and `data` (raw SQL read from the local
-  file named by `--file`; base64 is accepted by the core as well).
-- `user-sites:*` → `user_id`; set sends `site_ids` (array).
+| Reverse-proxy site type | `sites:proxy` | `sites.create` with template `proxy` | ✅ shipped |
+| Per-site security controls | `sites:security:get`, `sites:security:set` | `site_security.get`, `site_security.set` | ✅ shipped |
+| Per-site SSH users | `sites:ssh-users:list|add|remove` | `site_ssh_users.*` | ✅ shipped |
+| Custom certificate install | `ssl:cert:install` | `ssl.cert.install` | ✅ shipped |
+| On-demand DB dump/import | `db:dump`, `db:import` | `databases.dump`, `databases.import` | ✅ shipped |
+| Per-site user ACL | `user-sites:list`, `user-sites:set` | `user_sites.list`, `user_sites.set` | ✅ shipped |
+| Session revocation | none (web-only) | web session store | ✅ shipped |
 
 ---
 

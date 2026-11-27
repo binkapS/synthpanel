@@ -248,7 +248,7 @@ pub mod methods {
     pub const TERMINAL_RESIZE: &str = "terminal.resize";
     pub const TERMINAL_CLOSE: &str = "terminal.close";
 
-    // CloudPanel-parity additions.
+    // Extended feature methods.
     pub const USER_SITES_LIST: &str = "user_sites.list";
     pub const USER_SITES_SET: &str = "user_sites.set";
     pub const SITE_SECURITY_GET: &str = "site_security.get";

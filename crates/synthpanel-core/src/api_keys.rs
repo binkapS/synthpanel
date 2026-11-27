@@ -1,4 +1,4 @@
-//! API key site assignments (CloudPanel parity wave 4).
+//! API key site assignments.
 //!
 //! The `api_keys` table stores only the SHA-256 hash of a token; this module
 //! never sees a raw key and never writes one to the database or the logs.

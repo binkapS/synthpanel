@@ -1,4 +1,4 @@
--- CloudPanel parity wave 2: Node.js / Python site applications.
+-- Node.js / Python site applications.
 --
 -- A site with a row here is served by an application process listening on
 -- `app_port` on loopback instead of by the plain static/PHP vhost. The core

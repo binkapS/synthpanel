@@ -53,7 +53,7 @@ pub struct ScheduleRequest {
     pub retention: Option<Value>,
 }
 
-/// CloudPanel parity wave 3: patterns skipped while archiving site files.
+/// Patterns skipped while archiving site files.
 /// Omitting `site_id` sets the global list.
 #[derive(Debug, Deserialize)]
 pub struct ExcludesSetRequest {

@@ -15,7 +15,7 @@ an unprivileged web process that talks to it over a Unix socket.
 ## Contents
 
 - [What it does](#what-it-does)
-- [CloudPanel parity (work in progress)](#cloudpanel-parity-work-in-progress)
+- [Extended features](#extended-features)
 - [Install](#install)
 - [First steps](#first-steps)
 - [The three interfaces](#the-three-interfaces)
@@ -50,21 +50,15 @@ an unprivileged web process that talks to it over a Unix socket.
 Everything in the table above is available in the **UI**, the **REST API** and
 the **CLI**.
 
-## CloudPanel parity (work in progress)
+## Extended features
 
-SynthPanel already matches or exceeds CloudPanel on the LEMP core, backups
-(encrypted, verified, restorable), cron, logs, alerts, Git deployments, the
-browser terminal, signed self-update and the REST API. The remaining parity
-features are being added behind the same IPC protocol. The CLI verbs below are
-present, but a verb's presence does **not** mean the server-side handler, REST
-endpoint or UI screen has shipped — see [`docs/roadmap.md`](./docs/roadmap.md)
-for the honest per-feature status. The REST routes for site security, per-site
-SSH users, custom certificates, DB dump/import and session management are now
-registered and documented in the [OpenAPI document](./docs-site/public/openapi.json);
-their UI screens are still landing. Proxy site creation goes through the normal
-site-create route with template `proxy`, and `user-sites:*` has no REST route in
-v1. A short [CloudPanel comparison guide](./docs-site/guide/cloudpanel-comparison.md)
-separates shipped features, in-progress work and intentional non-goals.
+Beyond the core LEMP stack, SynthPanel ships site-level security controls,
+per-site user scoping, SSH users, custom certificates, on-demand database dump
+and import, browser session management, remote database servers, backup
+excludes, framework templates and optional HTTP/3. Every operation is
+available through the IPC contract and, where listed below, through the REST
+API and the UI as well. The [OpenAPI document](./docs-site/public/openapi.json)
+lists all registered routes.
 
 | Feature | CLI verbs | REST route |
 | --- | --- | --- |
@@ -73,7 +67,7 @@ separates shipped features, in-progress work and intentional non-goals.
 | Per-site SSH users | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | `GET/POST /api/v1/sites/{id}/ssh-users`, `DELETE …/{username}` |
 | Custom certificate install | `ssl:cert:install` | `POST /api/v1/sites/{id}/ssl/cert` |
 | On-demand database dump/import | `db:dump`, `db:import` | `POST /api/v1/databases/{id}/dump`, `…/import` |
-| Per-site user ACL | `user-sites:list`, `user-sites:set` | none in v1 |
+| Per-site user ACL | `user-sites:list`, `user-sites:set` | via `POST /api/v1/users` and `PATCH /api/v1/users/{id}` (`sites`) |
 | Session revocation | web-only; no CLI verb | `GET /api/v1/auth/sessions`, `POST /api/v1/auth/sessions/revoke-others` |
 
 ## Install
@@ -169,8 +163,8 @@ curl -sk https://127.0.0.1:8443/api/v1/sites \
   -H "Authorization: Bearer sp_abc123_secret"
 ```
 
-Every registered route — including auth, the CloudPanel-parity endpoints and
-the WebSocket upgrade paths — is described in the
+Every registered route — including auth, the extended endpoints and the
+WebSocket upgrade paths — is described in the
 [OpenAPI 3.1 document](./docs-site/public/openapi.json) (served by the docs site
 at `/openapi.json`).
 
@@ -183,7 +177,7 @@ sudo synthpanel backup:run --site <site-id>
 sudo synthpanel logs --type nginx-error --search timeout
 sudo synthpanel update --check
 
-# CloudPanel-parity verbs (server-side wiring in progress)
+# Extended verbs
 sudo synthpanel sites:proxy app.example.com --target http://127.0.0.1:3000
 sudo synthpanel sites:security:set --site <site-id> --ip-block 10.0.0.8 --cloudflare-only
 sudo synthpanel sites:ssh-users:add --site <site-id> --username deploy --public-key "$(cat id_ed25519.pub)"

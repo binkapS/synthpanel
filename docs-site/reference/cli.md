@@ -64,13 +64,11 @@ synthpanel deploy:runs <deployment-id>
 All commands accept the global `--socket`, `--token-file` and
 `--output json|table|yaml` options (see `synthpanel --help`).
 
-## CloudPanel-parity verbs
+## Extended verbs
 
-These verbs are **CLI-first**: the CLI and IPC methods exist, but a verb is not
-proof that the matching REST endpoint or UI screen has shipped. The current
-per-feature status is in [`docs/roadmap.md`](../../docs/roadmap.md). The REST
-routes for site security, per-site SSH users, custom certificates, sessions and
-DB dump/import are present in `/api/v1` — see the
+These verbs operate on the extended feature set. The current per-feature status
+is in `docs/roadmap.md` in the repository. The matching REST routes are
+present in `/api/v1` — see the
 [REST API](./api) and the [OpenAPI document](/openapi.json). Proxy site
 creation is exposed through the ordinary site-create REST route with template
 `proxy`; `user-sites:*` has no REST route in v1.
@@ -83,7 +81,7 @@ synthpanel sites:proxy app.example.com --target http://127.0.0.1:3000 \
 ```
 
 Creates a site with template `proxy` and a `proxy_target <url>;` directive.
-The vhost renderer has landed; dedicated UI options are still in progress.
+The site UI exposes the proxy template.
 
 ### Per-site security controls
 

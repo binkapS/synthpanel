@@ -1,4 +1,4 @@
--- CloudPanel parity wave 3: external / remote database servers.
+-- External / remote database servers.
 --
 -- These are connection definitions for databases that live outside the panel
 -- (RDS, Aurora, a managed Postgres instance, or any remote MySQL/Postgres

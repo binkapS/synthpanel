@@ -1834,7 +1834,7 @@ mod tests {
     }
 
     #[test]
-    fn cli_parses_cloudpanel_parity_verbs() {
+    fn cli_parses_extended_verbs() {
         let cli = Cli::try_parse_from([
             "synthpanel",
             "sites:proxy",

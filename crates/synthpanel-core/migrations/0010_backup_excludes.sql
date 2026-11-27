@@ -1,4 +1,4 @@
--- CloudPanel parity wave 3: backup exclude patterns.
+-- Backup exclude patterns.
 --
 -- A row scoped to a site holds that site's patterns; the single row with the
 -- empty site id holds the global patterns applied to every backup. Patterns

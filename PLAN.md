@@ -1,6 +1,6 @@
 # SynthPanel — Design Document
 
-**Status:** v1.0 implemented · CloudPanel-parity workstream in progress · **Last updated:** 2026-11-27 · **Owner:** synthpanel contributors
+**Status:** v1.0 implemented · **Last updated:** 2026-11-27 · **Owner:** synthpanel contributors
 
 This document describes the design of SynthPanel and, for every feature, whether
 it is **shipped**, **partial** or **planned**. The honest, per-phase status lives
@@ -40,7 +40,7 @@ built and *why*.
 
 **SynthPanel** is a free, open-source server control panel for single Linux servers. It installs a complete, production-ready web stack — Nginx, multi-version PHP-FPM, MariaDB/PostgreSQL, Redis — and lets you manage everything (sites, databases, SSL, security, backups, cron, logs) from a clean web UI, a REST API, or a CLI.
 
-The design is deliberately inspired by **CloudPanel**, which proves that a control panel can be:
+The design is deliberately inspired by focused single-server control panels, which show that a panel can be:
 
 - **Lightweight** — a few MB of RAM at idle, no unnecessary services
 - **Modern** — Nginx-only, per-site PHP-FPM isolation, free Let's Encrypt SSL
@@ -88,7 +88,7 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 
 ---
 
-## 3. Design Principles (CloudPanel-Inspired)
+## 3. Design Principles
 
 1. **One-command install** — `curl -sSfL https://get.synthpanel.io | sudo bash` on a clean server is the whole story.
 2. **Nginx-only** — no Apache, no `.htaccess`, no mod_php.
@@ -271,24 +271,25 @@ SynthPanel rebuilds that philosophy in **Rust** (backend) with a **Slint** WebAs
 | A changelog view | ⬜ |
 | OS package updates from the UI | ⬜ |
 
-### 4.16 CloudPanel parity (work in progress)
+### 4.16 Extended features
 
-SynthPanel already matches or exceeds CloudPanel on the LEMP core, backups
-(encrypted, verified, restorable), cron, logs, alerts, Git deployments, the
-browser terminal, signed self-update and the REST API. The remaining parity
-work is being added behind the same IPC contract. A CLI verb is **not** proof
-that the web UI or the REST endpoint is shipped; the per-feature state is in
-[`docs/roadmap.md`](./docs/roadmap.md).
+Beyond the original v1 scope, SynthPanel ships site-level security controls,
+reverse-proxy sites, per-site SSH users, per-site user ACLs and scoped API
+keys, custom certificate installation, on-demand database dump/import, remote
+database servers, backup excludes, framework templates, supervised Node/Python
+apps, browser session management and optional HTTP/3. All of them are exposed
+through the typed IPC contract; the table shows where they also have REST
+routes, CLI verbs and UI screens.
 
-| Parity item | IPC methods | CLI verbs | Status |
+| Feature | IPC methods | CLI verbs | REST / UI |
 |---|---|---|---|
-| Reverse-proxy site type | `sites.create` (template `proxy`) | `sites:proxy` | 🟡 CLI added; vhost renderer landed, IPC/UI wiring in progress |
-| Per-site security controls | `site_security.get`, `site_security.set` | `sites:security:get`, `sites:security:set` | 🟡 CLI, core store and REST routes landed; UI wiring in progress |
-| Per-site SSH users | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | `sites:ssh-users:list`, `sites:ssh-users:add`, `sites:ssh-users:remove` | 🟡 CLI, core store and REST routes landed; UI wiring in progress |
-| Custom certificate install | `ssl.cert.install` | `ssl:cert:install` | 🟡 CLI, core helper and REST route landed; UI upload in progress |
-| On-demand DB dump/import | `databases.dump`, `databases.import` | `db:dump`, `db:import` | 🟡 CLI, core and REST routes landed; UI wiring in progress |
-| Per-site user ACL | `user_sites.list`, `user_sites.set` | `user-sites:list`, `user-sites:set` | 🟡 CLI and core in progress; no REST route in v1 |
-| Session revocation | web session store | none | 🟡 REST routes landed; web UI work in progress |
+| Reverse-proxy site type | `sites.create` (template `proxy`) | `sites:proxy` | site-create route / UI template selector |
+| Per-site security controls | `site_security.get`, `site_security.set` | `sites:security:get`, `sites:security:set` | `GET/POST /api/v1/sites/{id}/security` / Site Security page |
+| Per-site SSH users | `site_ssh_users.list`, `site_ssh_users.add`, `site_ssh_users.remove` | `sites:ssh-users:*` | `GET/POST/DELETE /api/v1/sites/{id}/ssh-users` / Site Users page |
+| Custom certificate install | `ssl.cert.install` | `ssl:cert:install` | `POST /api/v1/sites/{id}/ssl/cert` / SSL cert page |
+| On-demand DB dump/import | `databases.dump`, `databases.import` | `db:dump`, `db:import` | `POST /api/v1/databases/{id}/dump|import` / Databases page |
+| Per-site user ACL | `user_sites.list`, `user_sites.set` | `user-sites:list`, `user-sites:set` | users create/update (`sites`) / Users page |
+| Session revocation | web session store | none (web-only) | `GET /api/v1/auth/sessions`, `POST …/revoke-others` / Sessions page |
 
 ## 5. Architecture
 
@@ -584,7 +585,7 @@ v1 runs on a single server, but the IPC contract is designed so remote agents ca
 
 ## 7. Installation & Provisioning
 
-### 7.1 Installer UX (CloudPanel-style)
+### 7.1 Installer UX
 
 ```bash
 curl -sSfL https://get.synthpanel.io | sudo bash
@@ -693,11 +694,12 @@ API keys  GET|POST /api-keys  DELETE /api-keys/:id
 Realtime  WS /ws/dashboard   WS /ws/logs   WS /ws/terminal/:id
 ```
 
-The CloudPanel-parity REST routes for per-site security, SSH users, custom
+The extended REST routes for per-site security, SSH users, custom
 certificates, DB dump/import and browser sessions are registered; user→site ACL
-has no REST route in v1, and proxy sites use the ordinary site-create route with
-template `proxy`. Their UI screens are still landing — see §4.16 and
-[`docs/roadmap.md`](./docs/roadmap.md). Session revocation is web-only and has
+is managed through the users create/update routes and proxy sites use the
+ordinary site-create route with template `proxy`. Their UI screens are
+described in §4.16 and [`docs/roadmap.md`](./docs/roadmap.md). Session
+revocation is web-only and has
 no CLI verb. The complete, machine-readable route list is
 `docs-site/public/openapi.json`.
 
@@ -741,7 +743,7 @@ synthpanel update   synthpanel update:status   synthpanel update:rollback
 
 ## 9. UI/UX Design
 
-### 9.1 Layout (CloudPanel-like)
+### 9.1 Layout
 
 ```
 ┌───────────────────────────────────────────────────────────┐
@@ -837,7 +839,7 @@ per-phase detail and the remaining gaps live in
 - DNS zone management, if there is demand for it.
 - A code editor with syntax highlighting in the file manager.
 - Web-only session revocation, database quota enforcement, and the UI wiring for
-  the CloudPanel-parity features in §4.16.
+  the extended features in §4.16.
 - An external security audit and reproducible builds.
 
 ## 11. Testing & Quality

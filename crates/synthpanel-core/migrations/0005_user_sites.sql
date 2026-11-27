@@ -1,4 +1,4 @@
--- CloudPanel parity: per-site user scoping.
+-- Per-site user scoping.
 --
 -- A row grants a user access to one site. Admin/operator bypass is decided by
 -- the web authorization layer, so the core only stores and checks the mapping.

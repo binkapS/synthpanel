@@ -1,4 +1,4 @@
-//! Per-site user scoping (CloudPanel parity).
+//! Per-site user scoping.
 //!
 //! The `user_sites` table is the source of truth for which sites a user may
 //! see. This module deliberately contains no role logic: the web layer

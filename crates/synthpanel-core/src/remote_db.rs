@@ -1,6 +1,6 @@
 //! External / remote database server definitions.
 //!
-//! CloudPanel lets an operator register a database that is not managed by the
+//! An operator can register a database that is not managed by the
 //! panel itself — an RDS or Aurora instance, a managed PostgreSQL server, or
 //! any other remote MySQL/Postgres endpoint. This module owns those connection
 //! definitions. It deliberately does **not** open connections: it only stores

@@ -4,7 +4,7 @@
     "title": "SynthPanel REST API",
     "version": "1.0.0",
     "summary": "The v1 HTTP surface implemented by crates/synthpanel-web/src/api/mod.rs",
-    "description": "All `/api/v1` paths below are registered in `crates/synthpanel-web/src/api/mod.rs`. Responses are JSON objects proxied from the privileged core unless stated otherwise; where the core returns an untyped value, the schema is deliberately generic. Fields with a `default` in a request schema are optional in the handler (serde defaults). Paths outside that router (`/healthz`, the embedded UI and its static assets) are not listed. \n\nAuthentication: a browser sends the `synthpanel_session` cookie; scripts send `Authorization: Bearer sp_<prefix>_<secret>`. A Bearer token takes precedence over the cookie and is exempt from CSRF. Browser mutations (POST/PUT/PATCH/DELETE) must echo the `synthpanel_csrf` cookie in the `x-csrf-token` header; the two public auth paths and Bearer requests are exempt. Roles: admin (terminal, users, security, alerts, settings, panel, update), operator (sites, databases, files, backups, cron, deployments; read-only elsewhere), user (read-only plus sites assigned to them). API-key scopes are `read`, `write` and `admin`. The `/api/v1/auth/sessions*` endpoints reject Bearer keys even though their policy is read-only. Note: `POST`/`DELETE /api/v1/api-keys` are currently classified as read-scope operations by `authz.rs`; the `x-api-key-scope` extensions reflect the implementation, not a recommendation. \n\nThis document is generated from the current handlers; where a CloudPanel-parity feature is only wired through the CLI and core, the endpoint may still be incomplete in the UI. See `docs/roadmap.md` for per-feature status.",
+    "description": "All `/api/v1` paths below are registered in `crates/synthpanel-web/src/api/mod.rs`. Responses are JSON objects proxied from the privileged core unless stated otherwise; where the core returns an untyped value, the schema is deliberately generic. Fields with a `default` in a request schema are optional in the handler (serde defaults). Paths outside that router (`/healthz`, the embedded UI and its static assets) are not listed. \n\nAuthentication: a browser sends the `synthpanel_session` cookie; scripts send `Authorization: Bearer sp_<prefix>_<secret>`. A Bearer token takes precedence over the cookie and is exempt from CSRF. Browser mutations (POST/PUT/PATCH/DELETE) must echo the `synthpanel_csrf` cookie in the `x-csrf-token` header; the two public auth paths and Bearer requests are exempt. Roles: admin (terminal, users, security, alerts, settings, panel, update), operator (sites, databases, files, backups, cron, deployments; read-only elsewhere), user (read-only plus sites assigned to them). API-key scopes are `read`, `write` and `admin`. The `/api/v1/auth/sessions*` endpoints reject Bearer keys even though their policy is read-only. Note: `POST`/`DELETE /api/v1/api-keys` are currently classified as read-scope operations by `authz.rs`; the `x-api-key-scope` extensions reflect the implementation, not a recommendation. \n\nThis document is generated from the current handlers; See `docs/roadmap.md` for per-feature status.",
     "license": {
       "name": "AGPL-3.0-or-later"
     },
@@ -1288,7 +1288,7 @@
           "Sites"
         ],
         "summary": "Get per-site security controls",
-        "description": "CloudPanel parity endpoint. Returns the stored IP/bot blocks, basic auth and Cloudflare-only settings.",
+        "description": "Extended feature endpoint. Returns the stored IP/bot blocks, basic auth and Cloudflare-only settings.",
         "parameters": [
           {
             "name": "id",
@@ -1332,7 +1332,7 @@
           "Sites"
         ],
         "summary": "Set per-site security controls",
-        "description": "CloudPanel parity endpoint. All body fields are optional and defaulted by the handler.",
+        "description": "Extended feature endpoint. All body fields are optional and defaulted by the handler.",
         "parameters": [
           {
             "name": "id",
@@ -1389,7 +1389,7 @@
           "Sites"
         ],
         "summary": "List per-site SSH users",
-        "description": "CloudPanel parity endpoint.",
+        "description": "Extended feature endpoint.",
         "parameters": [
           {
             "name": "id",
@@ -1433,7 +1433,7 @@
           "Sites"
         ],
         "summary": "Add a per-site SSH user",
-        "description": "CloudPanel parity endpoint.",
+        "description": "Extended feature endpoint.",
         "parameters": [
           {
             "name": "id",
@@ -1490,7 +1490,7 @@
           "Sites"
         ],
         "summary": "Remove a per-site SSH user",
-        "description": "CloudPanel parity endpoint.",
+        "description": "Extended feature endpoint.",
         "parameters": [
           {
             "name": "id",
@@ -1873,7 +1873,7 @@
           "Databases"
         ],
         "summary": "Dump a database on demand",
-        "description": "CloudPanel parity endpoint. No request body.",
+        "description": "Extended feature endpoint. No request body.",
         "parameters": [
           {
             "name": "id",
@@ -1920,7 +1920,7 @@
           "Databases"
         ],
         "summary": "Import a SQL dump",
-        "description": "CloudPanel parity endpoint.",
+        "description": "Extended feature endpoint.",
         "parameters": [
           {
             "name": "id",

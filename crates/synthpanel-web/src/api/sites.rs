@@ -276,7 +276,7 @@ fn is_valid_hostname(value: &str) -> bool {
     })
 }
 
-/// CloudPanel parity: per-site security settings.
+/// Per-site security settings.
 #[derive(Debug, Deserialize)]
 pub struct SiteSecurityRequest {
     #[serde(default)]

@@ -1,4 +1,4 @@
--- CloudPanel parity wave 4: restrict API keys to specific sites.
+-- Restrict API keys to specific sites.
 --
 -- A row grants an API key access to one site. No token material is stored
 -- here: `id` is the API key's UUID, while the key's hash lives in `api_keys`.
