@@ -1,7 +1,7 @@
 -- SynthPanel initial schema.
--- Tables follow PLAN.md §5.5. Phase 0 uses settings, users, sessions,
--- audit_log and metrics_*; the remaining tables are created now so later
--- phases only add data, not migrations.
+-- Phase 0 uses settings, users, sessions, audit_log and metrics_*; the
+-- remaining tables are created now so later phases only add data, not
+-- migrations.
 
 PRAGMA foreign_keys = ON;
 

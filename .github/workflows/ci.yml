@@ -86,15 +86,3 @@ jobs:
       - name: End-to-end tests
         run: e2e/run.sh
 
-  docs:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-      - name: Build docs site
-        working-directory: docs-site
-        run: |
-          npm install --no-audit --no-fund
-          npm run build

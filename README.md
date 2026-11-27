@@ -57,8 +57,7 @@ per-site user scoping, SSH users, custom certificates, on-demand database dump
 and import, browser session management, remote database servers, backup
 excludes, framework templates and optional HTTP/3. Every operation is
 available through the IPC contract and, where listed below, through the REST
-API and the UI as well. The [OpenAPI document](./docs-site/public/openapi.json)
-lists all registered routes.
+API and the UI as well.
 
 | Feature | CLI verbs | REST route |
 | --- | --- | --- |
@@ -164,9 +163,9 @@ curl -sk https://127.0.0.1:8443/api/v1/sites \
 ```
 
 Every registered route — including auth, the extended endpoints and the
-WebSocket upgrade paths — is described in the
-[OpenAPI 3.1 document](./docs-site/public/openapi.json) (served by the docs site
-at `/openapi.json`).
+WebSocket upgrade paths — is implemented in
+`crates/synthpanel-web/src/api/mod.rs`; the web process serves an OpenAPI 3.1
+document at `/openapi.json` for reference.
 
 **CLI** — the same operations from a shell, with `--output json` for scripts:
 
@@ -187,8 +186,7 @@ sudo synthpanel db:import <db-id> --file dump.sql
 sudo synthpanel user-sites:set --user <user-id> --sites <site-id-1>,<site-id-2>
 ```
 
-The full reference lives in the [documentation site](./docs-site) and in
-[`docs-site/reference/cli.md`](./docs-site/reference/cli.md).
+The CLI's `--help` output and the examples above cover day-to-day operations.
 
 ## Architecture
 
@@ -297,11 +295,8 @@ packaging/
   apt/publish.sh        publishes a flat apt repository
   sign-release.sh       signs a release with Ed25519
   systemd/              the unit files
-docs-site/              the VitePress documentation site
 e2e/                    the Playwright suite
 tests/                  the smoke, chaos and update scripts
-docs/roadmap.md         what is implemented and what is not
-PLAN.md                 the design document
 ```
 
 ## Security
