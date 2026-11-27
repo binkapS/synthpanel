@@ -5,6 +5,9 @@ import { Theme } from "../widgets/theme.slint";
 import { Card, PageHeader } from "../widgets/card.slint";
 
 export component PlaceholderPage inherits VerticalLayout {
+    accessible-role: region;
+    accessible-label: "Coming soon page";
+
     in property <string> title: "Coming soon";
     in property <string> description: "This area is not implemented yet.";
 

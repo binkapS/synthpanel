@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { BackupRow, ScheduleRow } from "../types.slint";
 
 export component BackupsPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Backups page";
+
     in-out property <[BackupRow]> backups;
     in-out property <[ScheduleRow]> schedules;
     in-out property <string> status;
@@ -199,17 +202,17 @@ export component BackupsPage inherits Rectangle {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("../assets/icons/refresh.svg");
-                                tooltip: "Verify";
+                                tooltip: "Verify backup " + backup.name;
                                 clicked => { root.backup-action(backup.id, "verify", ""); }
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/play.svg");
-                                tooltip: "Restore";
+                                tooltip: "Restore backup " + backup.name;
                                 clicked => { root.backup-action(backup.id, "restore", ""); }
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete";
+                                tooltip: "Delete backup " + backup.name;
                                 danger: true;
                                 clicked => { root.delete-backup(backup.id); }
                             }
@@ -277,7 +280,7 @@ export component BackupsPage inherits Rectangle {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete schedule";
+                                tooltip: "Delete schedule " + schedule.name;
                                 danger: true;
                                 clicked => { root.delete-schedule(schedule.id); }
                             }

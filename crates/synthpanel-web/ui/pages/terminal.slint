@@ -8,6 +8,9 @@ import { AppButton } from "../widgets/button.slint";
 import { VtLine } from "../types.slint";
 
 export component TerminalPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Terminal page";
+
     in-out property <string> id;
     in-out property <string> shell;
     in-out property <string> status;
@@ -121,6 +124,11 @@ export component TerminalPage inherits Rectangle {
     keys := FocusScope {
         width: 100%;
         height: 100%;
+        accessible-role: text-input;
+        accessible-label: "Terminal command input";
+        accessible-description: root.shell == ""
+            ? "Interactive shell. Type commands and press Enter to send them."
+            : "Interactive " + root.shell + " shell. Type commands and press Enter to send them.";
         key-pressed(event) => {
             root.send-key(event);
             EventResult.accept
@@ -155,12 +163,14 @@ export component TerminalPage inherits Rectangle {
                         color: Theme.muted;
                         vertical-alignment: center;
                         horizontal-stretch: 0;
+                        accessible-role: none;
                     }
                     ComboBox {
                         model: ["bash", "sh", "zsh"];
                         width: 100px;
                         horizontal-stretch: 0;
                         selected(value) => { root.terminal-open(value, root.view-rows, root.view-cols); }
+                        accessible-label: "Shell";
                     }
                     AppButton {
                         text: "Close session";
@@ -175,6 +185,14 @@ export component TerminalPage inherits Rectangle {
                     border-radius: 8px;
                     height: 480px;
                     clip: true;
+                    // The terminal is driven by a FocusScope, so show a clear
+                    // ring when it owns the keyboard focus.
+                    states [
+                        focused when keys.has-focus : {
+                            border-width: 2px;
+                            border-color: Theme.accent;
+                        }
+                    ]
 
                     screen := ScrollView {
                         width: 100%;
@@ -233,6 +251,9 @@ export component TerminalPage inherits Rectangle {
                         font-size: 12px;
                         horizontal-stretch: 1;
                         enabled: root.id != "";
+                        // The enclosing FocusScope owns the text-input role,
+                        // name and description; hide this duplicate node.
+                        accessible-role: none;
                         key-pressed(event) => {
                             root.send-key(event);
                             EventResult.accept

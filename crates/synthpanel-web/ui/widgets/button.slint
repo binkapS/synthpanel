@@ -3,6 +3,38 @@
 
 import { Theme } from "theme.slint";
 
+// A TouchArea alone is invisible to keyboard and assistive-technology users.
+// Mirror Slint's own FocusTouchArea: a zero-sized FocusScope handles Space /
+// Enter while the TouchArea keeps the mouse behaviour and pointer cursor.
+// `forward-focus` makes a pointer click move keyboard focus to the scope too.
+component FocusButtonArea inherits Rectangle {
+    in property <bool> enabled: true;
+    out property <bool> pressed <=> area.pressed;
+    out property <bool> has-hover <=> area.has-hover;
+    out property <bool> has-focus <=> focus.has-focus;
+    callback clicked <=> area.clicked;
+
+    forward-focus: focus;
+
+    area := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+    }
+
+    focus := FocusScope {
+        width: 0px;
+        height: 0px;
+        enabled: root.enabled;
+        key-pressed(event) => {
+            if (event.text == Key.Space || event.text == Key.Return) {
+                area.clicked();
+                return accept;
+            }
+            return reject;
+        }
+    }
+}
+
 export component AppButton inherits Rectangle {
     in property <string> text;
     in property <bool> primary: false;
@@ -43,9 +75,8 @@ export component AppButton inherits Rectangle {
         }
     }
 
-    ta := TouchArea {
+    ta := FocusButtonArea {
         enabled: root.enabled;
-        mouse-cursor: pointer;
         clicked => {
             if (root.enabled) {
                 root.clicked();
@@ -55,6 +86,10 @@ export component AppButton inherits Rectangle {
 
     accessible-role: button;
     accessible-label: root.text;
+    accessible-description: root.danger ? "Destructive action" : "";
+    accessible-enabled: root.enabled;
+    accessible-action-default => { ta.clicked(); }
+    forward-focus: ta;
 
     states [
         hovered when ta.has-hover && root.enabled && !root.primary: {
@@ -65,6 +100,10 @@ export component AppButton inherits Rectangle {
         }
         pressed when ta.pressed && root.enabled: {
             opacity: 0.85;
+        }
+        focused when ta.has-focus && root.enabled: {
+            border-width: 2px;
+            border-color: Theme.accent;
         }
     ]
 }
@@ -105,9 +144,8 @@ export component IconButton inherits Rectangle {
         }
     }
 
-    ta := TouchArea {
+    ta := FocusButtonArea {
         enabled: root.enabled;
-        mouse-cursor: pointer;
         clicked => {
             if (root.enabled) {
                 root.clicked();
@@ -117,10 +155,18 @@ export component IconButton inherits Rectangle {
 
     accessible-role: button;
     accessible-label: root.tooltip;
+    accessible-description: root.danger ? "Destructive action" : "";
+    accessible-enabled: root.enabled;
+    accessible-action-default => { ta.clicked(); }
+    forward-focus: ta;
 
     states [
         hovered when ta.has-hover && root.enabled: {
             background: root.danger ? Theme.danger-soft : Theme.surface-muted;
+        }
+        focused when ta.has-focus && root.enabled: {
+            border-width: 2px;
+            border-color: Theme.accent;
         }
     ]
 }

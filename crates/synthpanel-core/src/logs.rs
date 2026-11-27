@@ -1,6 +1,6 @@
 //! Log reading with filters and tail support.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -175,8 +175,10 @@ pub fn parse_timestamp(line: &str) -> Option<String> {
 
 /// Read a log file and apply the filters.
 pub fn read_log(path: &Path, filters: &Filters) -> Result<Vec<LogLine>> {
+    // A fresh install has no panel log yet. Treat a missing file as an empty
+    // log so the viewer and API work before the first entry is written.
     if !path.exists() {
-        bail!("the log file {} does not exist", path.display());
+        return Ok(Vec::new());
     }
     let contents = std::fs::read_to_string(path)?;
     let limit = if filters.limit == 0 {
@@ -307,9 +309,9 @@ mod tests {
     }
 
     #[test]
-    fn missing_log_is_reported() {
+    fn missing_log_is_empty() {
         let result = read_log(Path::new("/nonexistent/log"), &Filters::default());
-        assert!(result.is_err());
+        assert!(matches!(result, Ok(lines) if lines.is_empty()));
     }
 
     #[test]

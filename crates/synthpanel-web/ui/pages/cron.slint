@@ -8,6 +8,9 @@ import { TextField } from "../widgets/field.slint";
 import { CronRow } from "../types.slint";
 
 export component CronPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Cron page";
+
     in-out property <[CronRow]> jobs;
     in-out property <string> status;
 
@@ -147,12 +150,12 @@ export component CronPage inherits Rectangle {
                     }
                     IconButton {
                         icon: @image-url("../assets/icons/play.svg");
-                        tooltip: "Run now";
+                        tooltip: "Run job " + job.expression + " now";
                         clicked => { root.run-cron(job.id); }
                     }
                     IconButton {
                         icon: @image-url("../assets/icons/trash.svg");
-                        tooltip: "Delete job";
+                        tooltip: "Delete job " + job.expression;
                         danger: true;
                         clicked => { root.delete-cron(job.id); }
                     }

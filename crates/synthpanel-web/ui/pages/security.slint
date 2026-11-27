@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { FirewallState, JailRow, SshKeyRow } from "../types.slint";
 
 export component SecurityPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Security page";
+
     in-out property <FirewallState> firewall;
     in-out property <[JailRow]> jails;
     in-out property <[SshKeyRow]> ssh-keys;
@@ -248,7 +251,7 @@ export component SecurityPage inherits Rectangle {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Remove key";
+                                tooltip: "Remove SSH key " + key.label;
                                 danger: true;
                                 clicked => { root.remove-ssh-key(key.id); }
                             }

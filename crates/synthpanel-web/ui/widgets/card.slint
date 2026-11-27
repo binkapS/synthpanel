@@ -104,6 +104,13 @@ export component Notice inherits Rectangle {
     vertical-stretch: 0;
     clip: true;
     border-radius: 8px;
+    // Status/error messages arrive asynchronously from the bridge; expose
+    // them as a labelled live region so changes are announced.
+    // Qualified: the notice's child Text element is named `text`, which would
+    // otherwise shadow the bare `text` role name.
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.text;
+    accessible-live-region: root.kind == "error" ? assertive : polite;
     background: root.kind == "success"
         ? Theme.success-soft
         : (root.kind == "warning" ? Theme.warning-soft : Theme.danger-soft);
@@ -122,6 +129,7 @@ export component Notice inherits Rectangle {
                 ? Theme.success
                 : (root.kind == "warning" ? Theme.warning : Theme.danger);
             wrap: word-wrap;
+            accessible-role: none;
         }
     }
 }

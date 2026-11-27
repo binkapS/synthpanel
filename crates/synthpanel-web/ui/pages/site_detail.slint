@@ -8,6 +8,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { SiteDetail, SslStatus } from "../types.slint";
 
 export component SiteDetailPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Site detail page";
+
     in property <string> id;
     in-out property <SiteDetail> detail;
     in-out property <SslStatus> ssl;

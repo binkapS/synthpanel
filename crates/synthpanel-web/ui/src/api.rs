@@ -116,3 +116,30 @@ pub fn set_global(name: &str, callback: wasm_bindgen::closure::Closure<dyn FnMut
     );
     callback.forget();
 }
+
+/// Register a global that returns a value to JavaScript. Used by the E2E
+/// snapshot hook; the closure is leaked for the lifetime of the page like
+/// `set_global`'s callbacks.
+pub fn set_global_returning(
+    name: &str,
+    callback: wasm_bindgen::closure::Closure<dyn FnMut(JsValue) -> JsValue>,
+) {
+    let _ = js_sys::Reflect::set(
+        &js_sys::global(),
+        &JsValue::from_str(name),
+        callback.as_ref(),
+    );
+    callback.forget();
+}
+
+/// True only when `slint-loader.js` installed the `?e2e=1` test harness.
+pub fn e2e_mode() -> bool {
+    js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("synthpanel_e2e"))
+        .map(|value| !value.is_null() && !value.is_undefined())
+        .unwrap_or(false)
+}
+
+/// Signal deterministic readiness to the E2E harness.
+pub fn e2e_ready() {
+    let _ = call("e2e_ready", &[]);
+}

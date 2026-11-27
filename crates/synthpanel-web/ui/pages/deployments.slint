@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { DeploymentRow } from "../types.slint";
 
 export component DeploymentsPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Deployments page";
+
     in-out property <[DeploymentRow]> deployments;
     in-out property <string> status;
 
@@ -159,12 +162,12 @@ export component DeploymentsPage inherits Rectangle {
                     }
                     IconButton {
                         icon: @image-url("../assets/icons/play.svg");
-                        tooltip: "Deploy now";
+                        tooltip: "Deploy " + deployment.repo + " now";
                         clicked => { root.run-deployment(deployment.id); }
                     }
                     IconButton {
                         icon: @image-url("../assets/icons/trash.svg");
-                        tooltip: "Delete";
+                        tooltip: "Delete deployment " + deployment.repo;
                         danger: true;
                         clicked => { root.delete-deployment(deployment.id); }
                     }

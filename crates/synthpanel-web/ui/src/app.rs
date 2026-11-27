@@ -7,8 +7,8 @@
 //! properties and models. The UI is the only consumer; the server-side
 //! `synthpanel-web` process is untouched.
 
-use slint::ComponentHandle;
-use std::cell::RefCell;
+use slint::{ComponentHandle, Model};
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -22,13 +22,28 @@ fn model<T: Clone + 'static>(items: Vec<T>) -> slint::ModelRc<T> {
     slint::ModelRc::new(slint::VecModel::from(items))
 }
 
+/// Socket id reserved for the live log tail (1 is dashboard, 2 is terminal).
+const LOG_SOCKET_ID: u32 = 3;
+/// How many recent lines the server should replay when the tail connects.
+const LOG_TAIL_LINES: usize = 200;
+/// Upper bound of the Slint model so a long-running tail cannot grow forever.
+const LOG_MODEL_LIMIT: usize = 500;
+
 /// Per-window runtime state.
 pub struct Bridge {
     app: RefCell<Rc<AppWindow>>,
-    /// The last dashboard metrics snapshot, kept so the next one can be
-    /// converted into a network *rate* (the core reports byte counters).
     /// The virtual terminal that renders the raw PTY stream.
     vt: RefCell<Option<crate::terminal::Terminal>>,
+    /// Whether socket id 3 currently belongs to the log tail.
+    logs_socket_open: Cell<bool>,
+    /// Close callbacks we triggered ourselves (leaving the page, switching
+    /// source). The JS bridge emits a close for a socket replaced by
+    /// `socket_open`, so those must not be reported as a disconnect.
+    logs_expected_closes: Cell<u32>,
+    /// Until the first WS frame arrives, the REST history is shown. The first
+    /// frame drops that snapshot so REST lines and the WS replay of the same
+    /// recent lines can never coexist in the model.
+    logs_ws_takeover: Cell<bool>,
 }
 
 pub fn install() -> Result<(), JsValue> {
@@ -42,11 +57,18 @@ pub fn install() -> Result<(), JsValue> {
     let bridge = Bridge {
         app: RefCell::new(app.clone()),
         vt: RefCell::new(None),
+        logs_socket_open: Cell::new(false),
+        logs_expected_closes: Cell::new(0),
+        logs_ws_takeover: Cell::new(false),
     };
     let bridge = Rc::new(bridge);
 
     register_callbacks(&bridge);
     register_socket_callbacks(&bridge);
+    if api::e2e_mode() {
+        register_e2e_hooks(&app);
+        api::e2e_ready();
+    }
     load_session(&bridge);
 
     // On wasm the Slint event loop drives rendering, timers, input and the
@@ -65,6 +87,7 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_logout(move || {
         let b = Rc::clone(&b);
+        close_logs_socket(&b);
         let _ = slint::spawn_local(async move {
             let _ = http("POST", "/api/v1/auth/logout", None).await;
             let app = &b.app.borrow();
@@ -152,6 +175,11 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_navigate(move |page| {
         let b = Rc::clone(&b);
+        // The tail is only useful while the Logs page is visible. `load_logs`
+        // reopens it on entry; every other page tears it down.
+        if !matches!(&page, crate::Page::Logs) {
+            close_logs_socket(&b);
+        }
         match page {
             crate::Page::Dashboard => {
                 b.app.borrow_mut().set_current_page(crate::Page::Dashboard);
@@ -219,6 +247,8 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
     let b = Rc::clone(bridge);
     app.on_open_site(move |id| {
         let b = Rc::clone(&b);
+        // This transition bypasses `on_navigate`, so close the tail here too.
+        close_logs_socket(&b);
         b.app.borrow_mut().set_site_detail_id(id.to_string().into());
         b.app.borrow_mut().set_current_page(crate::Page::SiteDetail);
         load_site_detail(&b);
@@ -616,7 +646,10 @@ fn register_callbacks(bridge: &Rc<Bridge>) {
         let source = source.to_string();
         let _ = slint::spawn_local(async move {
             b.app.borrow_mut().set_active_log_source(source.clone().into());
+            // REST fills in the history; the socket is restarted on the new
+            // source and takes the model over on its first frame.
             load_log_tail(&b, &source, "");
+            open_logs_socket(&b);
         });
     });
 
@@ -1372,6 +1405,7 @@ fn load_cron(bridge: &Rc<Bridge>) {
 }
 
 fn load_logs(bridge: &Rc<Bridge>) {
+    let bridge = Rc::clone(bridge);
     let app = bridge.app.borrow().clone();
     let _ = slint::spawn_local(async move {
         match http("GET", "/api/v1/logs/sources", None).await {
@@ -1381,6 +1415,10 @@ fn load_logs(bridge: &Rc<Bridge>) {
             }
             Err(message) => app.set_logs_status(message.into()),
         }
+        // Start the realtime tail as soon as the page is shown, even if the
+        // sources listing failed. Switching source restarts it via
+        // `on_log_source`; the REST tail still supplies the initial history.
+        open_logs_socket(&bridge);
     });
 }
 
@@ -1538,6 +1576,52 @@ fn load_settings(bridge: &Rc<Bridge>) {
 // Sockets
 // ---------------------------------------------------------------------------
 
+/// Start (or replace) the live log tail on socket id 3.
+///
+/// The REST request in `load_log_tail` seeds the model with history. The
+/// server socket starts at offset 0 and replays the same recent lines, so the
+/// first frame replaces that snapshot (`logs_ws_takeover`) instead of being
+/// appended to it. From then on the socket owns the model and only appends,
+/// capped at `LOG_MODEL_LIMIT`. This content-independent handover keeps the
+/// two sources from ever showing duplicate lines.
+fn open_logs_socket(bridge: &Rc<Bridge>) {
+    // `socket_open` closes any socket already on this id in the JS bridge,
+    // which emits a close callback for the old connection. Expect it.
+    if bridge.logs_socket_open.get() {
+        bridge.logs_expected_closes.set(bridge.logs_expected_closes.get() + 1);
+    }
+    let source = bridge.app.borrow().get_active_log_source().to_string();
+    // No source selected yet: use the server's own default ("panel") so the
+    // tail is still live from the moment the page is opened.
+    let source = if source.is_empty() {
+        "panel".to_string()
+    } else {
+        source
+    };
+    bridge.logs_socket_open.set(true);
+    bridge.logs_ws_takeover.set(true);
+    api::socket_open(
+        LOG_SOCKET_ID,
+        &format!(
+            "/ws/logs?type={}&lines={}",
+            percent_encode(&source),
+            LOG_TAIL_LINES
+        ),
+    );
+}
+
+/// Stop the log tail. Used when leaving the Logs page and on logout.
+fn close_logs_socket(bridge: &Rc<Bridge>) {
+    if !bridge.logs_socket_open.get() {
+        return;
+    }
+    // Our `socket_close` also produces a close callback; mark it as expected.
+    bridge.logs_expected_closes.set(bridge.logs_expected_closes.get() + 1);
+    bridge.logs_socket_open.set(false);
+    bridge.logs_ws_takeover.set(false);
+    api::socket_close(LOG_SOCKET_ID);
+}
+
 impl Bridge {
     fn on_socket_message(&self, id: u32, data: &str) {
         let value: serde_json::Value = serde_json::from_str(data).unwrap_or(serde_json::Value::Null);
@@ -1595,13 +1679,66 @@ impl Bridge {
                 }
                 _ => {}
             },
+            3 => match value.get("type").and_then(serde_json::Value::as_str) {
+                Some("log") => {
+                    let line = value
+                        .get("line")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or_default();
+                    if line.is_empty() {
+                        return;
+                    }
+                    // First frame after a (re)connect discards the REST
+                    // snapshot; later frames append to the live tail.
+                    let current = self.app.borrow().get_log_lines();
+                    let mut lines: Vec<crate::LogLine> = if self.logs_ws_takeover.get() {
+                        self.logs_ws_takeover.set(false);
+                        Vec::new()
+                    } else {
+                        (0..current.row_count())
+                            .filter_map(|index| current.row_data(index))
+                            .collect()
+                    };
+                    if lines.len() >= LOG_MODEL_LIMIT {
+                        lines.drain(0..=lines.len() - LOG_MODEL_LIMIT);
+                    }
+                    lines.push(models::log_line(line));
+                    self.app.borrow_mut().set_log_lines(model(lines));
+                }
+                Some("error") => {
+                    self.app.borrow_mut().set_logs_status(
+                        value
+                            .get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("log stream error")
+                            .to_string()
+                            .into(),
+                    );
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
 
     fn on_socket_close(&self, id: u32) {
-        if id == 2 {
-            self.app.borrow_mut().set_terminal_status("the connection closed".into());
+        match id {
+            2 => self.app.borrow_mut().set_terminal_status("the connection closed".into()),
+            3 => {
+                self.logs_socket_open.set(false);
+                self.logs_ws_takeover.set(false);
+                if self.logs_expected_closes.get() > 0 {
+                    // Intentional: leaving the page or switching source. The
+                    // JS bridge also closes the old socket on `socket_open`.
+                    self.logs_expected_closes.set(self.logs_expected_closes.get() - 1);
+                    return;
+                }
+                let status = self.app.borrow().get_logs_status().to_string();
+                if status.is_empty() {
+                    self.app.borrow_mut().set_logs_status("log stream disconnected".into());
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -1615,4 +1752,112 @@ fn percent_encode(input: &str) -> String {
         }
     }
     out
+}
+
+// ---------------------------------------------------------------------------
+// E2E test hooks
+// ---------------------------------------------------------------------------
+//
+// Installed only when slint-loader.js started in `?e2e=1` mode. Slint renders
+// to a canvas, so Playwright cannot use DOM selectors; these hooks expose
+// semantic actions and a state snapshot to the test harness.
+
+fn page_name(page: crate::Page) -> &'static str {
+    match page {
+        crate::Page::Dashboard => "dashboard",
+        crate::Page::Sites => "sites",
+        crate::Page::SiteDetail => "site-detail",
+        crate::Page::Databases => "databases",
+        crate::Page::Php => "php",
+        crate::Page::Security => "security",
+        crate::Page::Backups => "backups",
+        crate::Page::Cron => "cron",
+        crate::Page::Logs => "logs",
+        crate::Page::Files => "files",
+        crate::Page::Deployments => "deployments",
+        crate::Page::Alerts => "alerts",
+        crate::Page::Terminal => "terminal",
+        crate::Page::Users => "users",
+        crate::Page::Settings => "settings",
+    }
+}
+
+fn parse_page(name: &str) -> Option<crate::Page> {
+    Some(match name {
+        "dashboard" => crate::Page::Dashboard,
+        "sites" => crate::Page::Sites,
+        "site-detail" => crate::Page::SiteDetail,
+        "databases" => crate::Page::Databases,
+        "php" => crate::Page::Php,
+        "security" => crate::Page::Security,
+        "backups" => crate::Page::Backups,
+        "cron" => crate::Page::Cron,
+        "logs" => crate::Page::Logs,
+        "files" => crate::Page::Files,
+        "deployments" => crate::Page::Deployments,
+        "alerts" => crate::Page::Alerts,
+        "terminal" => crate::Page::Terminal,
+        "users" => crate::Page::Users,
+        "settings" => crate::Page::Settings,
+        _ => return None,
+    })
+}
+
+fn js_string(payload: &JsValue, key: &str) -> String {
+    js_sys::Reflect::get(payload, &JsValue::from_str(key))
+        .ok()
+        .and_then(|value| value.as_string())
+        .unwrap_or_default()
+}
+
+fn register_e2e_hooks(app: &Rc<AppWindow>) {
+    let login_app = app.clone();
+    let login = wasm_bindgen::closure::Closure::<dyn FnMut(JsValue)>::new(move |payload: JsValue| {
+        let email = js_string(&payload, "email");
+        let password = js_string(&payload, "password");
+        login_app.invoke_login(email.into(), password.into());
+    });
+    api::set_global("synthpanel_e2e_login", login);
+
+    let nav_app = app.clone();
+    let navigate = wasm_bindgen::closure::Closure::<dyn FnMut(JsValue)>::new(move |name: JsValue| {
+        let name = name.as_string().unwrap_or_default();
+        if let Some(page) = parse_page(&name) {
+            nav_app.invoke_navigate(page);
+        }
+    });
+    api::set_global("synthpanel_e2e_navigate", navigate);
+
+    let snap_app = app.clone();
+    let snapshot =
+        wasm_bindgen::closure::Closure::<dyn FnMut(JsValue) -> JsValue>::new(move |_: JsValue| {
+            let authenticated = snap_app.get_authenticated();
+            let loading = snap_app.get_loading();
+            let state = serde_json::json!({
+                "ready": true,
+                "authenticated": authenticated,
+                "loginVisible": !loading && !authenticated,
+                "loading": loading,
+                "currentPage": page_name(snap_app.get_current_page()),
+                "sessionEmail": snap_app.get_session().email.to_string(),
+                "dashboardStatus": snap_app.get_dash_status().to_string(),
+                "sites": snap_app.get_sites().iter().map(|s| s.domain.to_string()).collect::<Vec<_>>(),
+                "sitesStatus": snap_app.get_sites_status().to_string(),
+                "cronCommands": snap_app.get_cron_jobs().iter().map(|j| j.command.to_string()).collect::<Vec<_>>(),
+                "cronStatus": snap_app.get_cron_status().to_string(),
+                "backups": snap_app.get_backups().iter().map(|b| b.name.to_string()).collect::<Vec<_>>(),
+                "backupsStatus": snap_app.get_backups_status().to_string(),
+                "alertChannels": snap_app.get_alert_channels().iter().map(|c| c.name.to_string()).collect::<Vec<_>>(),
+                "alertRules": snap_app.get_alert_rules().iter().map(|r| r.name.to_string()).collect::<Vec<_>>(),
+                "alertsStatus": snap_app.get_alerts_status().to_string(),
+                "deployments": snap_app.get_deployments().iter().map(|d| d.repo.to_string()).collect::<Vec<_>>(),
+                "phpVersions": snap_app.get_php_versions().iter().map(|v| v.version.to_string()).collect::<Vec<_>>(),
+                "logLines": snap_app.get_log_lines().iter().map(|l| l.text.to_string()).collect::<Vec<_>>(),
+                "logsStatus": snap_app.get_logs_status().to_string(),
+                "terminalId": snap_app.get_terminal_id().to_string(),
+                "terminalStatus": snap_app.get_terminal_status().to_string(),
+            });
+            JsValue::from_str(&state.to_string())
+        });
+    api::set_global_returning("synthpanel_e2e_snapshot", snapshot);
 }

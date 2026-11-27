@@ -19,6 +19,9 @@ export component LoginPage inherits Rectangle {
 
     background: Theme.bg;
 
+    accessible-role: region;
+    accessible-label: @tr("Sign in to SynthPanel");
+
     // Keep the login card centered both vertically and horizontally.
     VerticalLayout {
         alignment: center;
@@ -53,7 +56,7 @@ export component LoginPage inherits Rectangle {
                             }
                         }
                         Text {
-                            text: root.needs-code ? "Two-factor verification" : "Sign in to SynthPanel";
+                            text: root.needs-code ? @tr("Two-factor verification") : @tr("Sign in to SynthPanel");
                             font-size: 21px;
                             font-weight: 600;
                             color: Theme.text;
@@ -62,8 +65,8 @@ export component LoginPage inherits Rectangle {
                         }
                         Text {
                             text: root.needs-code
-                                ? "Enter the 6-digit code from your authenticator app."
-                                : "Manage your server from a single place.";
+                                ? @tr("Enter the 6-digit code from your authenticator app.")
+                                : @tr("Manage your server from a single place.");
                             font-size: 13px;
                             color: Theme.muted;
                             horizontal-alignment: center;
@@ -81,20 +84,20 @@ export component LoginPage inherits Rectangle {
                             spacing: 12px;
 
                             if root.needs-code : TextField {
-                                label: "Authentication code";
+                                label: @tr("Authentication code");
                                 text <=> root.code;
                                 placeholder: "000000";
-                                hint: "The code changes every 30 seconds.";
+                                hint: @tr("The code changes every 30 seconds.");
                                 accepted => root.verify(root.code);
                             }
                             if !root.needs-code : TextField {
-                                label: "Email";
+                                label: @tr("Email");
                                 text <=> root.email;
                                 placeholder: "you@example.com";
                                 accepted => root.login(root.email, root.password);
                             }
                             if !root.needs-code : TextField {
-                                label: "Password";
+                                label: @tr("Password");
                                 text <=> root.password;
                                 placeholder: "••••••••";
                                 password: true;
@@ -104,7 +107,7 @@ export component LoginPage inherits Rectangle {
                             if root.error != "" : Notice { text: root.error; }
 
                             AppButton {
-                                text: root.busy ? "Please wait…" : (root.needs-code ? "Verify" : "Sign in");
+                                text: root.busy ? @tr("Please wait…") : (root.needs-code ? @tr("Verify") : @tr("Sign in"));
                                 primary: true;
                                 enabled: !root.busy;
                                 clicked => {
@@ -117,7 +120,7 @@ export component LoginPage inherits Rectangle {
                             }
 
                             if root.needs-code : AppButton {
-                                text: "Use a different account";
+                                text: @tr("Use a different account");
                                 enabled: !root.busy;
                                 clicked => root.reset();
                             }
@@ -125,7 +128,7 @@ export component LoginPage inherits Rectangle {
                     }
 
                     Text {
-                        text: "SynthPanel · self-hosted server control panel";
+                        text: @tr("SynthPanel · self-hosted server control panel");
                         font-size: 11px;
                         color: Theme.muted;
                         horizontal-alignment: center;

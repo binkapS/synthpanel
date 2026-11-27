@@ -414,6 +414,16 @@ pub fn to_log_lines(body: &Value) -> Vec<LogLine> {
         .collect()
 }
 
+/// Convert a line pushed by the `/ws/logs` socket. WS frames carry only the
+/// rendered text (`{"type":"log","line":"..."}`), without the REST envelope's
+/// timestamp/level metadata, so the level is left empty for the plain style.
+pub fn log_line(text: &str) -> LogLine {
+    LogLine {
+        text: text.to_string().into(),
+        level: String::new().into(),
+    }
+}
+
 pub fn to_file_rows(body: &Value) -> Vec<FileRow> {
     // The listing endpoint returns a bare `Listing` object whose `entries`
     // array sits next to `path` and `parent`.

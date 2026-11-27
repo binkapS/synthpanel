@@ -19,6 +19,12 @@ export component StatusBadge inherits Rectangle {
     vertical-stretch: 0;
     border-radius: 999px;
     background: root.good ? Theme.success-soft : (root.bad ? Theme.danger-soft : Theme.surface-muted);
+    // Convey the status as labelled text instead of leaving a colour-only dot
+    // and a bare word with no context in the accessibility tree.
+    // Qualified to avoid any collision with a `text` element/property in
+    // scope: `text` is a valid AccessibleRole value in Slint 1.19.
+    accessible-role: AccessibleRole.text;
+    accessible-label: "Status: " + root.status;
 
     HorizontalLayout {
         padding-left: 8px;
@@ -39,6 +45,7 @@ export component StatusBadge inherits Rectangle {
             font-size: 11px;
             font-weight: 500;
             color: root.good ? Theme.success : (root.bad ? Theme.danger : Theme.muted);
+            accessible-role: none;
         }
     }
 }

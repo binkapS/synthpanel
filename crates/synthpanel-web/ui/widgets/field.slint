@@ -19,12 +19,16 @@ export component TextField inherits VerticalLayout {
     spacing: 6px;
     vertical-stretch: 0;
 
+    // The visible label and hint are part of the input's accessible name and
+    // description: hide the standalone text nodes so screen readers announce
+    // them once, together with the field they belong to.
     if root.label != "" : Text {
         text: root.label;
         font-size: 12px;
         font-weight: 500;
         color: Theme.muted;
         vertical-alignment: center;
+        accessible-role: none;
     }
 
     LineEdit {
@@ -36,6 +40,9 @@ export component TextField inherits VerticalLayout {
         min-height: 32px;
         vertical-stretch: 0;
         accepted => root.accepted();
+        accessible-label: root.label != "" ? root.label : root.placeholder;
+        accessible-description: root.hint;
+        accessible-enabled: root.enabled;
     }
 
     if root.hint != "" : Text {
@@ -43,6 +50,7 @@ export component TextField inherits VerticalLayout {
         font-size: 11px;
         color: Theme.muted;
         wrap: word-wrap;
+        accessible-role: none;
     }
 }
 
@@ -61,6 +69,7 @@ export component TextArea inherits VerticalLayout {
         font-weight: 500;
         color: Theme.muted;
         vertical-alignment: center;
+        accessible-role: none;
     }
 
     TextEdit {
@@ -70,6 +79,7 @@ export component TextArea inherits VerticalLayout {
         min-height: root.lines * 16px + 16px;
         vertical-stretch: 0;
         wrap: no-wrap;
+        accessible-label: root.label;
     }
 }
 
@@ -89,6 +99,7 @@ export component SelectField inherits VerticalLayout {
         font-weight: 500;
         color: Theme.muted;
         vertical-alignment: center;
+        accessible-role: none;
     }
 
     ComboBox {
@@ -98,6 +109,8 @@ export component SelectField inherits VerticalLayout {
         min-height: 32px;
         vertical-stretch: 0;
         selected(value) => { root.selected(value); }
+        accessible-label: root.label;
+        accessible-enabled: root.enabled;
     }
 }
 
@@ -111,6 +124,9 @@ export component Toggle inherits HorizontalLayout {
     CheckBox {
         text: root.label;
         checked <=> root.checked;
+        accessible-role: checkbox;
+        accessible-label: root.label;
+        accessible-checked: root.checked;
     }
 }
 
@@ -131,5 +147,7 @@ export component TextInput inherits VerticalLayout {
         min-height: 32px;
         vertical-stretch: 0;
         accepted => root.accepted();
+        accessible-label: root.placeholder-text != "" ? root.placeholder-text : "Text input";
+        accessible-enabled: root.enabled;
     }
 }

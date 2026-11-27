@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { DatabaseRow, EngineRow } from "../types.slint";
 
 export component DatabasesPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Databases page";
+
     in-out property <[DatabaseRow]> databases;
     in-out property <[EngineRow]> engines;
     in-out property <string> status;
@@ -230,7 +233,7 @@ export component DatabasesPage inherits Rectangle {
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete database";
+                                tooltip: "Delete database " + database.name;
                                 danger: true;
                                 clicked => { root.delete-database(database.id); }
                             }

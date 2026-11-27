@@ -7,6 +7,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { PhpVersionRow } from "../types.slint";
 
 export component PhpPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "PHP page";
+
     in-out property <[PhpVersionRow]> versions;
     in property <bool> installed;
     in-out property <string> status;

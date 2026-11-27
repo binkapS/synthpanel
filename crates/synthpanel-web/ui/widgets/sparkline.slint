@@ -15,6 +15,9 @@ export component Sparkline inherits Rectangle {
     border-radius: 8px;
     background: transparent;
     clip: true;
+    accessible-role: image;
+    accessible-label: "Trend chart";
+    accessible-description: root.path == "" ? root.empty-text : "Line chart of recent values";
 
     if root.path == "" : Rectangle {
         width: 100%;
@@ -30,6 +33,7 @@ export component Sparkline inherits Rectangle {
                 color: Theme.muted;
                 horizontal-alignment: center;
                 vertical-alignment: center;
+                accessible-role: none;
             }
         }
     }

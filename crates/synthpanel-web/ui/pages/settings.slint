@@ -8,6 +8,9 @@ import { TextField } from "../widgets/field.slint";
 import { ApiKeyRow, PanelCertificate } from "../types.slint";
 
 export component SettingsPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Settings page";
+
     in property <string> settings-json;
     in-out property <string> hostname;
     in-out property <string> timezone;
@@ -199,7 +202,7 @@ export component SettingsPage inherits Rectangle {
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Revoke";
+                                tooltip: "Revoke API key " + key.name;
                                 danger: true;
                                 clicked => { root.api-key-deleted(key.id); }
                             }

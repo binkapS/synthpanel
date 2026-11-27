@@ -8,6 +8,9 @@ import { TextField, SelectField } from "../widgets/field.slint";
 import { SiteRow } from "../types.slint";
 
 export component SitesPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Sites page";
+
     in-out property <[SiteRow]> sites;
     in-out property <string> status;
 
@@ -207,12 +210,12 @@ export component SitesPage inherits Rectangle {
                             alignment: center;
                             IconButton {
                                 icon: @image-url("../assets/icons/globe.svg");
-                                tooltip: "Open the site detail";
+                                tooltip: "Open details for " + site.domain;
                                 clicked => { root.open-site(site.id); }
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete the site";
+                                tooltip: "Delete site " + site.domain;
                                 danger: true;
                                 clicked => { root.delete-site(site.id); }
                             }

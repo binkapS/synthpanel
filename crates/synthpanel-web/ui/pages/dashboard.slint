@@ -11,6 +11,9 @@ import { AppButton } from "../widgets/button.slint";
 import { MetricSnapshot, Service, AuditEntry, Page } from "../types.slint";
 
 export component DashboardPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Dashboard page";
+
     in-out property <MetricSnapshot> snapshot;
     in property <string> cpu-spark;
     in property <string> mem-spark;

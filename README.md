@@ -92,6 +92,11 @@ cargo install wasm-bindgen-cli --version 0.2.130
 cd crates/synthpanel-web && bash ui/build-ui.sh
 ```
 
+Binaryen's `wasm-opt` is disabled by default: with wasm-bindgen 0.2.130 it
+breaks the generated function/externref tables and the module fails at boot.
+Only set `WASM_OPT=/path/to/wasm-opt` after verifying compatibility with your
+toolchain.
+
 ### Requirements
 
 - Debian 12 or Ubuntu 22.04/24.04, x86-64 or arm64

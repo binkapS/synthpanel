@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { ChannelRow, AlertRuleRow, AlertRow } from "../types.slint";
 
 export component AlertsPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Alerts page";
+
     in-out property <[ChannelRow]> channels;
     in-out property <[AlertRuleRow]> rules;
     in-out property <[AlertRow]> alerts;
@@ -183,12 +186,12 @@ export component AlertsPage inherits Rectangle {
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/play.svg");
-                                tooltip: "Send test";
+                                tooltip: "Send test alert to " + channel.name;
                                 clicked => { root.test-alert(channel.id, "SynthPanel test alert"); }
                             }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete";
+                                tooltip: "Delete channel " + channel.name;
                                 danger: true;
                                 clicked => { root.delete-channel(channel.id); }
                             }
@@ -235,7 +238,7 @@ export component AlertsPage inherits Rectangle {
                             StatusBadge { status: rule.severity; }
                             IconButton {
                                 icon: @image-url("../assets/icons/trash.svg");
-                                tooltip: "Delete rule";
+                                tooltip: "Delete rule " + rule.name;
                                 danger: true;
                                 clicked => { root.delete-rule(rule.id); }
                             }

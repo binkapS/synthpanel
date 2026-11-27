@@ -26,4 +26,6 @@ slint-build = "1.19"
 opt-level = "s"
 lto = true
 codegen-units = 1
-strip = true
+# Do not strip here: `strip = true` removes the `target_features` custom
+# section that wasm-bindgen reads to detect which WASM features it may use.
+# build-ui.sh strips/optimizes the wasm-bindgen output with wasm-opt instead.

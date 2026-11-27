@@ -1,0 +1,150 @@
+# SynthPanel UI translation catalog — English (reference language).
+#
+# The msgids below are the strings wrapped in @tr("...") in
+# widgets/app_shell.slint and pages/login.slint. msgctxt matches Slint's
+# default translation context, which is the component the @tr lives in.
+# English msgstr entries are intentionally empty: @tr falls back to the
+# source string (the msgid) when there is no translation.
+#
+# To add a language, copy this file to <locale>/LC_MESSAGES/ in this folder
+# and fill in the msgstr fields. See ../README.md.
+
+msgid ""
+msgstr ""
+"Project-Id-Version: SynthPanel 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-27 00:00+0000\n"
+"PO-Revision-Date: 2026-11-27 00:00+0000\n"
+"Last-Translator: SynthPanel contributors\n"
+"Language: en\n"
+"Language-Team: English\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+# widgets/app_shell.slint — sidebar navigation (context: AppShell)
+msgctxt "AppShell"
+msgid "Dashboard"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Sites"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Databases"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "PHP"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Security"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Backups"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Cron"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Logs"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Files"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Deployments"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Alerts"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Terminal"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Users"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Settings"
+msgstr ""
+
+# widgets/app_shell.slint — header / toolbar
+msgctxt "AppShell"
+msgid "Live server overview"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Switch to light theme"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Switch to dark theme"
+msgstr ""
+
+msgctxt "AppShell"
+msgid "Sign out"
+msgstr ""
+
+# pages/login.slint — sign-in and 2FA card (context: LoginPage)
+msgctxt "LoginPage"
+msgid "Two-factor verification"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Sign in to SynthPanel"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Manage your server from a single place."
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Authentication code"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "The code changes every 30 seconds."
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Email"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Password"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Please wait…"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Verify"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Sign in"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "Use a different account"
+msgstr ""
+
+msgctxt "LoginPage"
+msgid "SynthPanel · self-hosted server control panel"
+msgstr ""

@@ -8,6 +8,9 @@ import { TextField, TextArea } from "../widgets/field.slint";
 import { FileRow } from "../types.slint";
 
 export component FilesPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Files page";
+
     in-out property <[FileRow]> rows;
     in-out property <string> path;
     in-out property <string> status;
@@ -160,12 +163,12 @@ export component FilesPage inherits Rectangle {
                         }
                         if !entry.is-directory : IconButton {
                             icon: @image-url("../assets/icons/refresh.svg");
-                            tooltip: "Open in editor";
+                            tooltip: "Open " + entry.name + " in editor";
                             clicked => { root.file-content(root.scope, entry.path); }
                         }
                         IconButton {
                             icon: @image-url("../assets/icons/trash.svg");
-                            tooltip: entry.is-directory ? "Delete folder" : "Delete";
+                            tooltip: (entry.is-directory ? "Delete folder " : "Delete file ") + entry.name;
                             danger: true;
                             clicked => { root.file-delete(root.scope, entry.path); }
                         }

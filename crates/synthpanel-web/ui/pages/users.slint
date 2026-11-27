@@ -9,6 +9,9 @@ import { StatusBadge } from "../widgets/status_badge.slint";
 import { UserRow } from "../types.slint";
 
 export component UsersPage inherits Rectangle {
+    accessible-role: region;
+    accessible-label: "Users page";
+
     in-out property <[UserRow]> users;
     in-out property <string> status;
 

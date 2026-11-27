@@ -8,6 +8,37 @@
     <style>
       :root { color-scheme: light dark; }
       html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #0f172a; }
+      /* Skip link is keyboard-reachable but stays out of the way until used. */
+      .skip-link {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        z-index: 20;
+        padding: 8px 12px;
+        border-radius: 6px;
+        background: #f8fafc;
+        color: #0f172a;
+        font: 14px/1.4 ui-sans-serif, system-ui, sans-serif;
+        transform: translateY(-200%);
+      }
+      .skip-link:focus,
+      .skip-link:focus-visible {
+        transform: none;
+        outline: 3px solid #60a5fa;
+        outline-offset: 2px;
+      }
+      .visually-hidden {
+        position: absolute !important;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
       #canvas {
         display: block !important;
         position: fixed !important;
@@ -34,8 +65,24 @@
     </style>
   </head>
   <body>
-    <canvas id="canvas" tabindex="0"></canvas>
+    <a id="skip-link" class="skip-link" href="#canvas">Skip to content</a>
+    <main id="main">
+      <h1 class="visually-hidden">SynthPanel server control panel</h1>
+      <canvas id="canvas" tabindex="0" role="application" aria-label="SynthPanel application. Press Tab to move between controls."></canvas>
+    </main>
     <div id="boot-error"></div>
+    <script>
+      // Anchor navigation only changes the sequential-focus starting point in
+      // some browsers; explicitly focus the canvas so the skip link works
+      // everywhere. The Slint event loop is unaffected by this DOM focus.
+      document.getElementById("skip-link").addEventListener("click", function (event) {
+        var canvas = document.getElementById("canvas");
+        if (canvas) {
+          event.preventDefault();
+          canvas.focus();
+        }
+      });
+    </script>
     <script type="module" src="./slint-loader.js"></script>
   </body>
 </html>
