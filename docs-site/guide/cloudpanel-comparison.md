@@ -19,21 +19,29 @@ the exact per-feature status, see [`docs/roadmap.md`](../../docs/roadmap.md) and
 | Automation | Git deployments with automatic rollback, webhook/e-mail alerts with rules and cooldowns, a browser terminal, signed self-update with rollback, REST API v1, CLI and API keys |
 | Architecture | Unprivileged web process + root core over a token-guarded Unix socket; apply pipeline that lints, backs up, validates and rolls back a bad config |
 
-## In progress (do not assume these are complete)
+## Parity features shipped after the initial comparison
 
-These are the current CloudPanel-parity workstream. A CLI verb or an IPC method
-is **not** proof of a finished UI screen.
-
-| Feature | State |
+| Feature | Available through |
 | --- | --- |
-| Reverse-proxy site type | CLI verb and vhost renderer landed; IPC/UI wiring in progress |
-| Per-site IP/bot blocks, basic auth, Cloudflare-only | CLI, IPC and REST routes landed; UI wiring in progress |
-| Per-site SSH users | CLI, IPC and REST routes landed; UI wiring in progress |
-| Custom certificate install | CLI, IPC and REST route landed; UI upload in progress |
-| On-demand DB dump/import | CLI, IPC and REST routes landed; UI wiring in progress |
-| Browser session list and revoke-others | REST routes landed; web UI in progress; no CLI verb (by design) |
-| Per-site user ACL | CLI and core work in progress; no REST route in v1 |
-| **Python and Node application sites** | **In progress.** The CLI accepts template names and the renderer has static/PHP paths, but do not treat Python/Node app sites as shipped until the runtime templates and UI options land. |
+| Reverse-proxy site type | UI template selector, REST and CLI |
+| Per-site IP/bot blocks, Basic Auth, Cloudflare-only | Site Security page, REST and CLI |
+| Per-site SSH users | Site Users page, REST and CLI |
+| Custom certificate install | Site detail → SSL cert page, REST and CLI |
+| On-demand database dump/import | Databases page, REST and CLI |
+| Browser session list and revoke-others | Sessions page and REST (no CLI verb by design) |
+| Per-site user ACL and site-scoped API keys | Users page / API key creation, REST and CLI |
+| WordPress one-click install | Site detail → WordPress page, REST and CLI |
+| Python/Node application sites with process supervision | Site detail → App page, REST and CLI |
+| Framework templates (Laravel, Symfony, Magento, Nextcloud, Next.js, Strapi, Hugo, Zola) | REST and CLI |
+| Remote database servers (RDS/Aurora-style) | Remote DBs page, REST and CLI |
+| Backup excludes and rclone destination | Backups page, REST and CLI |
+| Panel Basic Auth, IP allow-list and maintenance-mode enforcement | Environment configuration and REST status |
+| Optional HTTP/3 and PageSpeed | Site directives / environment flags |
+
+The E2E suite exercises the main flows against the Slint UI and REST API. Some
+provisioning paths (WordPress download, remote database connectivity, rclone)
+need real credentials or network access in production; they are unit-tested and
+support offline fixtures, but are not run against live external services in CI.
 
 ## Intentionally out of scope
 
@@ -47,10 +55,13 @@ These are explicit non-goals, not oversights (see PLAN §2.2):
 - **cPanel-style breadth**: no billing, DNS zones, phpMyAdmin/pgAdmin bundles or plugin API in v1.
 - **A code editor with syntax highlighting** in the file manager, and **OS package updates** from the UI: planned, not shipped.
 
-Several other features are partial by design: the site quota is enforced while
-the database quota is still being wired; `maintenance_mode` can be stored but
-is not enforced; the SFTP/S3 backup destinations are implemented but have not
-been exercised against a live server in CI.
+A few items remain partial by design: the file editor has a line-number gutter
+but no token-based syntax highlighting (Slint has no tokenizer and adding
+CodeMirror would reintroduce a JS-heavy frontend); Python/Node apps are managed
+through a supervised command rather than a full nvm/uwsgi version manager;
+locale catalogs are present for English, French and Spanish but translations
+are incomplete. SFTP/S3/rclone backup destinations are implemented but have not
+been exercised against live external services in CI.
 
 ## Where SynthPanel takes a different path
 
